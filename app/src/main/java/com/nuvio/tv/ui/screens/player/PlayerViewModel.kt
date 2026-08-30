@@ -1,5 +1,7 @@
 package com.nuvio.tv.ui.screens.player
 
+import com.nuvio.tv.core.activity.ActivityEventReporter
+
 import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -94,6 +96,7 @@ class PlayerViewModel @Inject constructor(
     private val subtitleFileCache: com.nuvio.tv.core.player.SubtitleFileCache,
     private val tvRecommendationManager: com.nuvio.tv.core.recommendations.TvRecommendationManager,
     profileManager: com.nuvio.tv.core.profile.ProfileManager,
+    private val activityEventReporter: ActivityEventReporter,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -139,6 +142,7 @@ class PlayerViewModel @Inject constructor(
         tvRecommendationManager = tvRecommendationManager,
         profileId = savedStateHandle.get<String>("profileId")?.toIntOrNull()
             ?: profileManager.activeProfileId.value,
+        activityEventReporter = activityEventReporter,
         savedStateHandle = savedStateHandle,
         scope = viewModelScope
     )

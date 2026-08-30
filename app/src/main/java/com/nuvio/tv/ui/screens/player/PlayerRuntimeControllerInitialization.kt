@@ -1662,9 +1662,27 @@ internal fun PlayerRuntimeController.initializePlayer(
                     }
                 })
 
+                val watchTracker = PlaybackWatchTracker()
+                val activityContentType = contentType
+                val activityContentId = contentId
+                var playReported = false
+
                 addAnalyticsListener(object : AnalyticsListener {
                     override fun onPlaybackStateChanged(eventTime: AnalyticsListener.EventTime, state: Int) {
                         playbackAnalyticsDiagnostics.onPlaybackStateChanged(eventTime, state)
+                        when (state) {
+                            Player.STATE_BUFFERING, Player.STATE_IDLE -> watchTracker.stop()
+                            Player.STATE_ENDED -> {
+                                watchTracker.stop()
+                                activityEventReporter.report(
+                                    eventType = "play",
+                                    status = "succeeded",
+                                    entityType = activityContentType,
+                                    entityKey = activityContentId,
+                                    durationMs = watchTracker.totalWatchMs().toInt(),
+                                )
+                            }
+                        }
                     }
 
                     override fun onPlayWhenReadyChanged(
@@ -1677,6 +1695,7 @@ internal fun PlayerRuntimeController.initializePlayer(
 
                     override fun onIsPlayingChanged(eventTime: AnalyticsListener.EventTime, isPlaying: Boolean) {
                         playbackAnalyticsDiagnostics.onIsPlayingChanged(eventTime, isPlaying)
+                        if (isPlaying) watchTracker.start() else watchTracker.stop()
                     }
 
                     override fun onIsLoadingChanged(eventTime: AnalyticsListener.EventTime, isLoading: Boolean) {
@@ -1696,10 +1715,28 @@ internal fun PlayerRuntimeController.initializePlayer(
                         renderTimeMs: Long
                     ) {
                         playbackAnalyticsDiagnostics.onRenderedFirstFrame(eventTime)
+                        watchTracker.start()
+                        if (!playReported) {
+                            playReported = true
+                            activityEventReporter.report(
+                                eventType = "play",
+                                status = "started",
+                                entityType = activityContentType,
+                                entityKey = activityContentId,
+                            )
+                        }
                     }
 
                     override fun onPlayerError(eventTime: AnalyticsListener.EventTime, error: PlaybackException) {
                         playbackAnalyticsDiagnostics.onPlayerError(eventTime, error)
+                        watchTracker.stop()
+                        activityEventReporter.report(
+                            eventType = "play",
+                            status = "failed",
+                            entityType = activityContentType,
+                            entityKey = activityContentId,
+                            durationMs = watchTracker.totalWatchMs().toInt(),
+                        )
                     }
 
                     override fun onVideoDecoderInitialized(

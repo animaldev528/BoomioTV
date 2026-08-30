@@ -1,6 +1,9 @@
 package com.nuvio.tv.core.player
 
+import com.nuvio.tv.core.activity.ActivityEventReporter
+
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import com.nuvio.tv.core.cloud.CloudLibraryPlaybackResult
 import com.nuvio.tv.core.cloud.CloudLibraryPlaybackProgressStore
@@ -189,7 +192,8 @@ class ExternalPlaybackTracker @Inject constructor(
     private val cloudLibraryRepository: CloudLibraryRepository,
     private val cloudPlaybackProgressStore: CloudLibraryPlaybackProgressStore,
     private val cloudPlaybackSessionStore: CloudLibraryPlaybackSessionStore,
-    private val profileManager: com.nuvio.tv.core.profile.ProfileManager
+    private val profileManager: com.nuvio.tv.core.profile.ProfileManager,
+    private val activityEventReporter: ActivityEventReporter
 ) {
     companion object {
         private const val TAG = "ExtPlaybackTracker"
@@ -218,6 +222,7 @@ class ExternalPlaybackTracker @Inject constructor(
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var externalWatchStartElapsedMs: Long = 0L
     private var zidooMonitorJob: Job? = null
     private var awaitingExternalPlayerResult = false
     // Armed only when the loader is raised on return from a persisted (process-recreated) session,
@@ -314,6 +319,13 @@ class ExternalPlaybackTracker @Inject constructor(
         pendingMetadata = metadata
         pendingCloudSessionToken = cloudSessionToken
         isAutoLaunch = autoLaunch
+        externalWatchStartElapsedMs = SystemClock.elapsedRealtime()
+        activityEventReporter.report(
+            eventType = "play",
+            status = "started",
+            entityType = metadata.contentType,
+            entityKey = metadata.contentId,
+        )
         // A manual launch is always fresh; only an auto-launch within the window is a continuation
         // that keeps a user's abort in effect (so one Back press stops a runaway chain).
         val shouldResetAbort = !autoNextNavigationPending &&
@@ -689,6 +701,20 @@ class ExternalPlaybackTracker @Inject constructor(
             _autoNextOverlay.value = null
         }
 
+        val startedElapsed = externalWatchStartElapsedMs.takeIf { it != 0L }
+            ?: loadPersistedWatchStartElapsedMs()
+        val watchDurationMs = if (startedElapsed != 0L) {
+            (SystemClock.elapsedRealtime() - startedElapsed).coerceAtLeast(0L)
+        } else null
+        activityEventReporter.report(
+            eventType = "play",
+            status = "succeeded",
+            entityType = metadata.contentType,
+            entityKey = metadata.contentId,
+            action = if (completed) "completed" else "stopped",
+            durationMs = watchDurationMs?.toInt(),
+        )
+
         // Result consumed — safe to drop the persisted copy now.
         clearPersistedMetadata()
         stopTracking()
@@ -759,11 +785,15 @@ class ExternalPlaybackTracker @Inject constructor(
             .putString("year", m.year)
             .putInt("profileId", m.profileId)
             .putString("cloudSessionToken", cloudSessionToken)
+            .putLong("watchStartElapsedMs", externalWatchStartElapsedMs)
             .apply()
     }
 
     private fun loadPersistedCloudSessionToken(): String? =
         persistedPrefs.getString("cloudSessionToken", null)
+
+    private fun loadPersistedWatchStartElapsedMs(): Long =
+        persistedPrefs.getLong("watchStartElapsedMs", 0L)
 
     private fun persistAutoNextState(
         snapshot: ExternalNextEpisodeSnapshot,
