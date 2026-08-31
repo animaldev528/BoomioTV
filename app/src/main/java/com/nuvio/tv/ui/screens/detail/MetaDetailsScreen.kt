@@ -681,6 +681,7 @@ fun MetaDetailsScreen(
                     heroRestoreToken = heroRestoreToken,
                     seasons = uiState.seasons,
                     selectedSeason = uiState.selectedSeason,
+                    isDailyShow = uiState.isDailyShow,
                     episodesForSeason = uiState.episodesForSeason,
                     isInLibrary = uiState.isInLibrary,
                     librarySourceMode = uiState.librarySourceMode,
@@ -1000,6 +1001,7 @@ private fun MetaDetailsContent(
     heroRestoreToken: Int = 0,
     seasons: List<Int>,
     selectedSeason: Int,
+    isDailyShow: Boolean = false,
     episodesForSeason: List<Video>,
     isInLibrary: Boolean,
     librarySourceMode: LibrarySourceMode,
@@ -1883,7 +1885,8 @@ private fun MetaDetailsContent(
                             selectedTabFocusRequester = selectedSeasonFocusRequester,
                             upFocusRequester = heroPlayFocusRequester,
                             downFocusRequester = seasonDownFocusRequester,
-                            isFocusEnabled = pendingRestoreType != RestoreTarget.EPISODE
+                            isFocusEnabled = pendingRestoreType != RestoreTarget.EPISODE,
+                            reverseSeasonOrder = isDailyShow
                         )
                     }
                 }
