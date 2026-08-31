@@ -51,7 +51,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -1009,8 +1011,10 @@ open class MainActivity : ComponentActivity() {
 
                     val rootRoutes = remember(discoverLocation) {
                         buildSet {
-                            add(Screen.Home.route)
                             add(Screen.Search.route)
+                            add(Screen.Home.route)
+                            add(Screen.Movies.route)
+                            add(Screen.Tv.route)
                             add(Screen.Library.route)
                             add(Screen.Settings.route)
                             if (discoverLocation == DiscoverLocation.IN_SIDEBAR) {
@@ -1022,12 +1026,16 @@ open class MainActivity : ComponentActivity() {
                     val strNavHome = stringResource(R.string.nav_home)
                     val strNavDiscover = stringResource(R.string.nav_discover)
                     val strNavSearch = stringResource(R.string.nav_search)
+                    val strNavMovies = stringResource(R.string.nav_movies)
+                    val strNavTv = stringResource(R.string.nav_tv)
                     val strNavLibrary = stringResource(R.string.nav_library)
                     val strNavSettings = stringResource(R.string.nav_settings)
                     val drawerItems = remember(
                         strNavHome,
                         strNavDiscover,
                         strNavSearch,
+                        strNavMovies,
+                        strNavTv,
                         strNavLibrary,
                         strNavSettings,
                         discoverLocation
@@ -1035,9 +1043,30 @@ open class MainActivity : ComponentActivity() {
                         buildList {
                             add(
                                 DrawerItem(
+                                    route = Screen.Search.route,
+                                    label = strNavSearch,
+                                    iconRes = R.raw.sidebar_search
+                                )
+                            )
+                            add(
+                                DrawerItem(
                                     route = Screen.Home.route,
                                     label = strNavHome,
                                     icon = Icons.Default.Home
+                                )
+                            )
+                            add(
+                                DrawerItem(
+                                    route = Screen.Movies.route,
+                                    label = strNavMovies,
+                                    icon = Icons.Default.Movie
+                                )
+                            )
+                            add(
+                                DrawerItem(
+                                    route = Screen.Tv.route,
+                                    label = strNavTv,
+                                    icon = Icons.Default.Tv
                                 )
                             )
                             if (discoverLocation == DiscoverLocation.IN_SIDEBAR) {
@@ -1049,13 +1078,6 @@ open class MainActivity : ComponentActivity() {
                                     )
                                 )
                             }
-                            add(
-                                DrawerItem(
-                                    route = Screen.Search.route,
-                                    label = strNavSearch,
-                                    iconRes = R.raw.sidebar_search
-                                )
-                            )
                             add(
                                 DrawerItem(
                                     route = Screen.Library.route,
