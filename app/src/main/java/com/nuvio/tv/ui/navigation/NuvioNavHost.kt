@@ -811,6 +811,16 @@ private fun PlaybackNavHost(
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
+                },
+                navArgument("resumeFromMs") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("startPaused") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = "false"
                 }
             )
         ) { backStackEntry ->
