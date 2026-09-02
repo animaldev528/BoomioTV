@@ -1,12 +1,10 @@
 package com.nuvio.tv.ui.screens.home
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -19,11 +17,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.tv.material3.Card
+import androidx.tv.material3.CardDefaults
+import androidx.tv.material3.ExperimentalTvMaterial3Api
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.ui.components.ContentCard
 
@@ -77,24 +77,34 @@ internal fun CategoryRow(
     }
 }
 
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun DrillTile(target: DrillTarget, onNavigateToDrillDown: (DrillTarget) -> Unit) {
-    Box(
+    // tv-material3 Card(onClick=…) — the same clickable primitive the posters
+    // use — because a plain focusable/clickable Box does not respond to the
+    // TV D-pad CENTER/ENTER in the hub rows-browser.
+    Card(
+        onClick = { onNavigateToDrillDown(target) },
         modifier = Modifier
             .width(140.dp)
-            .height(210.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(Color(0xFF222222))
-            .focusable()
-            .clickable { onNavigateToDrillDown(target) },
-        contentAlignment = Alignment.Center
+            .height(210.dp),
+        colors = CardDefaults.colors(
+            containerColor = Color(0xFF222222),
+            focusedContainerColor = Color(0xFF303030)
+        ),
+        shape = CardDefaults.shape(shape = RoundedCornerShape(8.dp))
     ) {
-        Text(
-            "More Like This ▸",
-            color = Color.White,
-            textAlign = TextAlign.Center,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(8.dp)
-        )
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                "More Like This ▸",
+                color = Color.White,
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(8.dp)
+            )
+        }
     }
 }
