@@ -1560,16 +1560,28 @@ private fun PlaybackNavHost(
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
+                },
+                navArgument("exclude") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
                 }
             )
         ) { backStackEntry ->
             val itemType = backStackEntry.arguments?.getString("itemType").orEmpty()
             val itemId = backStackEntry.arguments?.getString("itemId").orEmpty()
             val title = backStackEntry.arguments?.getString("title")
+            // Comma-joined tt ids of the wall the user drilled FROM (null/blank = none).
+            val exclude = backStackEntry.arguments?.getString("exclude")
+                ?.split(",")
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+                .orEmpty()
             MoreLikeThisScreen(
                 itemType = itemType,
                 itemId = itemId,
                 title = title,
+                exclude = exclude,
                 onNavigateToDetail = { detailId, detailType, addonBaseUrl ->
                     navController.navigate(Screen.Detail.createRoute(detailId, detailType, addonBaseUrl))
                 },

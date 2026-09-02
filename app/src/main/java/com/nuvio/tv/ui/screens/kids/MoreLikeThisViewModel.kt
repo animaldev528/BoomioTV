@@ -52,8 +52,10 @@ class MoreLikeThisViewModel @Inject constructor(
         posterOptions.bind(viewModelScope)
     }
 
-    fun initialize(itemType: String, metaId: String) {
-        val key = "$itemType:$metaId"
+    fun initialize(itemType: String, metaId: String, exclude: List<String> = emptyList()) {
+        // The exclusion set is part of the identity: the same seed title pushed from a
+        // different parent wall is a distinct drill (fresh results) and must re-page.
+        val key = "$itemType:$metaId:${exclude.joinToString(",")}"
         if (loadedForKey == key) return // same title already paging — nothing to rediscover
 
         discoveryJob?.cancel()
@@ -79,12 +81,17 @@ class MoreLikeThisViewModel @Inject constructor(
 
                 val catalog = addon.catalogs.first { it.id == catalogId }
                 loadedForKey = key
-                loadFirstPage(addon, catalog, metaId)
+                loadFirstPage(addon, catalog, metaId, exclude)
             }
         }
     }
 
-    private fun loadFirstPage(addon: Addon, catalog: CatalogDescriptor, metaId: String) {
+    private fun loadFirstPage(
+        addon: Addon,
+        catalog: CatalogDescriptor,
+        metaId: String,
+        exclude: List<String>
+    ) {
         _uiState.update { it.copy(isInitialLoading = true, missingCatalog = false, loadError = null) }
         viewModelScope.launch {
             val result = moreLikeThisRepository.getMoreLikeThis(
@@ -93,7 +100,8 @@ class MoreLikeThisViewModel @Inject constructor(
                 addonName = addon.displayName,
                 type = catalog.apiType,
                 metaId = metaId,
-                skip = 0
+                skip = 0,
+                exclude = exclude
             ).first { it !is NetworkResult.Loading }
             when (result) {
                 is NetworkResult.Success -> {
@@ -107,6 +115,7 @@ class MoreLikeThisViewModel @Inject constructor(
                             items = page.items,
                             addonBaseUrl = page.addonBaseUrl,
                             itemType = page.itemType,
+                            exclude = exclude,
                             isInitialLoading = false,
                             hasMore = page.hasMore,
                             isLoadingMore = false,
@@ -136,7 +145,8 @@ class MoreLikeThisViewModel @Inject constructor(
                 addonName = state.addonName,
                 type = state.itemType,
                 metaId = state.metaId,
-                skip = state.items.size
+                skip = state.items.size,
+                exclude = state.exclude
             ).first { it !is NetworkResult.Loading }
             when (result) {
                 is NetworkResult.Success -> {
@@ -170,15 +180,20 @@ data class MoreLikeThisUiState(
     val addonBaseUrl: String? = null,
     val lists: List<MoreLikeThisList> = emptyList(),
     val items: List<MetaPreview> = emptyList(),
+    val exclude: List<String> = emptyList(),
     val isInitialLoading: Boolean = true,
     val missingCatalog: Boolean = false,
     val loadError: String? = null,
     val hasMore: Boolean = false,
     val isLoadingMore: Boolean = false
 ) {
-    /** Caption chips: the tightest curated lists the pressed title sits on. */
+    /**
+     * Caption chips: the tightest curated lists the pressed title sits on. Distinct
+     * by name — a title that is both "Movie" and "Series" universes or sits on two
+     * same-named facet lists must not show "Disney Junior · Disney Junior".
+     */
     val caption: String
-        get() = lists.take(3).joinToString(" · ") { it.name }
+        get() = lists.distinctBy { it.name }.take(3).joinToString(" · ") { it.name }
 }
 
 /** The full approved-content hub catalog that serves MLT for a given type. */

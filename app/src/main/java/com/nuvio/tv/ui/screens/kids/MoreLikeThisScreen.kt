@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -45,6 +46,7 @@ import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.nuvio.tv.LocalMoreLikeThisNavigator
 import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.CardDepthSurface
 import com.nuvio.tv.domain.model.MetaPreview
@@ -73,6 +75,7 @@ fun MoreLikeThisScreen(
     itemType: String,
     itemId: String,
     title: String?,
+    exclude: List<String> = emptyList(),
     onNavigateToDetail: (itemId: String, itemType: String, addonBaseUrl: String) -> Unit,
     onBackPress: () -> Unit,
     viewModel: MoreLikeThisViewModel = hiltViewModel()
@@ -82,8 +85,8 @@ fun MoreLikeThisScreen(
 
     BackHandler(onBack = onBackPress)
 
-    LaunchedEffect(itemType, itemId) {
-        viewModel.initialize(itemType, itemId)
+    LaunchedEffect(itemType, itemId, exclude) {
+        viewModel.initialize(itemType, itemId, exclude)
     }
 
     val posterCardStyle = PosterCardDefaults.Style
@@ -284,12 +287,26 @@ fun MoreLikeThisScreen(
         }
 
         val posterOptionsState by viewModel.posterOptions.state.collectAsState()
-        PosterOptionsHost(
-            state = posterOptionsState,
-            controller = viewModel.posterOptions,
-            onNavigateToDetail = { id, type, addonBaseUrl ->
-                onNavigateToDetail(id, type, addonBaseUrl)
+        // Recursive drill: a long-press inside THIS wall must push a deeper
+        // More-like-this whose results exclude everything shown here, so walls keep
+        // changing 3+ levels deep. PosterOptionsHost hands an emptyList() entry point
+        // — we ignore it and inject the live wall ids instead (the ids the user has
+        // just browsed). Each MLT destination reads the scaffold-level navigator, so
+        // levels nest cleanly without stacked providers.
+        val baseNavigator = LocalMoreLikeThisNavigator.current
+        val currentWallIds = remember(items) { items.map { it.id } }
+        CompositionLocalProvider(
+            LocalMoreLikeThisNavigator provides { type, id, name, _ ->
+                baseNavigator?.invoke(type, id, name, currentWallIds)
             }
-        )
+        ) {
+            PosterOptionsHost(
+                state = posterOptionsState,
+                controller = viewModel.posterOptions,
+                onNavigateToDetail = { id, type, addonBaseUrl ->
+                    onNavigateToDetail(id, type, addonBaseUrl)
+                }
+            )
+        }
     }
 }

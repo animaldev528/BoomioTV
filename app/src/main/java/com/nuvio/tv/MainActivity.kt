@@ -1796,8 +1796,8 @@ private fun LegacySidebarScaffold(
                 LocalSidebarExpanded provides (drawerState.currentValue == DrawerValue.Open),
                 LocalContentFocusRequester provides contentFocusRequester,
                 LocalKidsMode provides kidsMode,
-                LocalMoreLikeThisNavigator provides { type, id, title ->
-                    navController.navigate(Screen.MoreLikeThis.createRoute(type, id, title))
+                LocalMoreLikeThisNavigator provides { type, id, title, exclude ->
+                    navController.navigate(Screen.MoreLikeThis.createRoute(type, id, title, exclude))
                 }
             ) {
                 NuvioNavHost(
@@ -2195,8 +2195,8 @@ private fun ModernSidebarScaffold(
                 LocalSidebarExpanded provides isSidebarExpanded,
                 LocalContentFocusRequester provides contentFocusRequester,
                 LocalKidsMode provides kidsMode,
-                LocalMoreLikeThisNavigator provides { type, id, title ->
-                    navController.navigate(Screen.MoreLikeThis.createRoute(type, id, title))
+                LocalMoreLikeThisNavigator provides { type, id, title, exclude ->
+                    navController.navigate(Screen.MoreLikeThis.createRoute(type, id, title, exclude))
                 }
             ) {
                 NuvioNavHost(

@@ -238,7 +238,10 @@ fun PosterOptionsHost(
         val navigateMoreLikeThis = LocalMoreLikeThisNavigator.current
         val onMoreLikeThis = if (kidsMode && navigateMoreLikeThis != null && (isMovie || isSeries)) {
             {
-                navigateMoreLikeThis(if (isMovie) "movie" else "series", target.id, target.name)
+                // Entry point from a wall/library: no parent wall to hide yet. When this
+                // long-press happens INSIDE a More-like-this wall the screen overrides
+                // LocalMoreLikeThisNavigator and injects that wall's tile ids instead.
+                navigateMoreLikeThis(if (isMovie) "movie" else "series", target.id, target.name, emptyList())
                 controller.dismiss()
             }
         } else {

@@ -35,14 +35,15 @@ class MoreLikeThisRepositoryImpl @Inject constructor(
         addonName: String,
         type: String,
         metaId: String,
-        skip: Int
+        skip: Int,
+        exclude: List<String>
     ): Flow<NetworkResult<MoreLikeThisPage>> = flow {
         emit(NetworkResult.Loading)
 
-        val url = buildMoreLikeThisUrl(addonBaseUrl, type, metaId, skip)
+        val url = buildMoreLikeThisUrl(addonBaseUrl, type, metaId, skip, exclude)
         Log.d(
             TAG,
-            "Fetching more-like-this addonId=$addonId addonName=$addonName type=$type metaId=$metaId skip=$skip url=$url"
+            "Fetching more-like-this addonId=$addonId addonName=$addonName type=$type metaId=$metaId skip=$skip exclude=${exclude.size} url=$url"
         )
 
         when (val result = safeApiCall(context) { api.getMoreLikeThis(url) }) {
@@ -80,18 +81,28 @@ class MoreLikeThisRepositoryImpl @Inject constructor(
         }
     }
 
-    /** {base}/more-like-this/{type}/{metaId}.json?skip=N, preserving any base query. */
+    /**
+     * {base}/more-like-this/{type}/{metaId}.json?skip=N[&exclude=tt…,tt…], preserving
+     * any base query. [exclude] hides the wall the user drilled FROM so a recursive
+     * "More like this" stays fresh (see Screen.MoreLikeThis). tt ids are [a-z0-9]+ so
+     * they pass through unencoded.
+     */
     private fun buildMoreLikeThisUrl(
         baseUrl: String,
         type: String,
         metaId: String,
-        skip: Int
+        skip: Int,
+        exclude: List<String>
     ): String {
         val trimmed = baseUrl.trimEnd('/')
         val queryStart = trimmed.indexOf('?')
         val basePath = if (queryStart >= 0) trimmed.substring(0, queryStart).trimEnd('/') else trimmed
         val baseQuery = if (queryStart >= 0) trimmed.substring(queryStart) else ""
-        return "$basePath/more-like-this/$type/$metaId.json?skip=$skip$baseQuery"
+        val excludePart = exclude.joinToString(",") { it.trim() }
+            .takeIf { it.isNotEmpty() }
+            ?.let { "&exclude=$it" }
+            .orEmpty()
+        return "$basePath/more-like-this/$type/$metaId.json?skip=$skip$excludePart$baseQuery"
     }
 
     private fun MoreLikeThisListDto.toDomain(): MoreLikeThisList? {

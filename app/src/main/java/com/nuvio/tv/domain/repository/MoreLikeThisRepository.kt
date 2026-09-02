@@ -11,6 +11,7 @@ interface MoreLikeThisRepository {
         addonName: String,
         type: String,
         metaId: String,
-        skip: Int = 0
+        skip: Int = 0,
+        exclude: List<String> = emptyList()
     ): Flow<NetworkResult<MoreLikeThisPage>>
 }
