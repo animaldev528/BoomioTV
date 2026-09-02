@@ -174,16 +174,20 @@ class HubBrowseViewModel @Inject constructor(
         return all.filter { it.isHub }.sortedBy { hubSectionRank(it.catalogId) } + all.filterNot { it.isHub }
     }
 
-    /** Display order for hub- sections, independent of manifest/rows order. */
+    /** Display order for hub- sections, independent of manifest/rows order.
+     *  This is the tab-ribbon order on screen: Genre, Years, Documentaries,
+     *  Networks, Superhero, Extras, Studios(movies). */
     private fun hubSectionRank(catalogId: String): Int {
         val id = catalogId.removePrefix("hub-")
         return when {
             id.startsWith("genre") -> 0
-            id.startsWith("superhero") -> 1
-            id.startsWith("year") -> 2
-            id.startsWith("extras") -> 3
-            id.startsWith("studios") -> 4
-            else -> 5
+            id.startsWith("year") -> 1
+            id.startsWith("documentary") -> 2
+            id.startsWith("network") -> 3
+            id.startsWith("superhero") -> 4
+            id.startsWith("extras") -> 5
+            id.startsWith("studios") -> 6
+            else -> 7
         }
     }
 

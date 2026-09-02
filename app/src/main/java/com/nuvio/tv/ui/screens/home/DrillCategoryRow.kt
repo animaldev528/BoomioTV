@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -33,6 +34,8 @@ import com.nuvio.tv.ui.components.ContentCard
  *
  * Shared by [CategoryRowsScreen] (one drill catalog) and the Movies/TV hub
  * rows-browser (`ui.screens.hub.HubBrowseScreen`) so both look identical.
+ * [firstItemFocusRequester], when non-null, is attached to this row's first
+ * poster so a host screen can land entry focus on content beneath its header.
  */
 @Composable
 internal fun CategoryRow(
@@ -40,7 +43,8 @@ internal fun CategoryRow(
     drill: DrillTarget?,
     onNavigateToDetail: (String, String, String) -> Unit,
     onNavigateToDrillDown: (DrillTarget) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    firstItemFocusRequester: FocusRequester? = null
 ) {
     Column(modifier.padding(vertical = 10.dp)) {
         Text(
@@ -54,9 +58,13 @@ internal fun CategoryRow(
             contentPadding = PaddingValues(horizontal = 52.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(row.items) { item ->
+            itemsIndexed(row.items) { index, item ->
                 ContentCard(
                     item = item,
+                    // Host screens that need to land entry focus on this row's
+                    // first poster (the hub tab ribbon) forward a requester;
+                    // the drill tile, if any, sits after the items.
+                    focusRequester = if (index == 0) firstItemFocusRequester else null,
                     onClick = { onNavigateToDetail(item.id, item.apiType, row.addonBaseUrl) }
                 )
             }
