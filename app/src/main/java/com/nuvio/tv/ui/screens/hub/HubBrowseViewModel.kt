@@ -2,7 +2,6 @@ package com.nuvio.tv.ui.screens.hub
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogRow
@@ -13,6 +12,7 @@ import com.nuvio.tv.ui.screens.home.DrillExtraction
 import com.nuvio.tv.ui.screens.home.DrillTarget
 import com.nuvio.tv.ui.screens.home.REC_DRILL_SUFFIX
 import com.nuvio.tv.ui.screens.home.extractDrill
+import com.nuvio.tv.ui.screens.home.fetchCatalogAll
 import com.nuvio.tv.ui.screens.home.isCatalogDisabledIn
 import com.nuvio.tv.ui.screens.home.isFeaturedHomeCatalog
 import com.nuvio.tv.ui.screens.home.isSearchOnlyCatalog
@@ -247,7 +247,7 @@ class HubBrowseViewModel @Inject constructor(
         return rows
     }
 
-    /** One catalog page with its trailing drill tiles stripped. */
+    /** A catalog row fetched to completion, with its trailing drill tiles stripped. */
     private suspend fun fetchRow(
         addonId: String,
         addonName: String,
@@ -256,21 +256,18 @@ class HubBrowseViewModel @Inject constructor(
         catalogName: String,
         type: String
     ): DrillExtraction? {
-        val result = catalogSemaphore.withPermit {
-            catalogRepository.getCatalog(
-                addonBaseUrl = addonBaseUrl,
+        // The whole paged fetch holds one permit so concurrent rows stay bounded.
+        val data = catalogSemaphore.withPermit {
+            catalogRepository.fetchCatalogAll(
                 addonId = addonId,
                 addonName = addonName,
+                addonBaseUrl = addonBaseUrl,
                 catalogId = catalogId,
                 catalogName = catalogName,
                 type = type,
-                skip = 0,
-                skipStep = FETCH_SKIP_STEP,
-                extraArgs = emptyMap(),
-                supportsSkip = true
-            ).first { it !is NetworkResult.Loading }
-        }
-        val data = (result as? NetworkResult.Success)?.data ?: return null
+                skipStep = FETCH_SKIP_STEP
+            )
+        } ?: return null
         if (data.items.isEmpty()) return null
         return data.extractDrill()
     }

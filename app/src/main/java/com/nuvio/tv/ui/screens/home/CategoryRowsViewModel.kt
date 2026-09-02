@@ -2,15 +2,12 @@ package com.nuvio.tv.ui.screens.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.domain.repository.CatalogRepository
 import com.nuvio.tv.domain.model.CatalogRow
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -90,21 +87,13 @@ class CategoryRowsViewModel @Inject constructor(
         addonBaseUrl: String,
         type: String,
         name: String
-    ): CatalogRow? {
-        val result = catalogRepository
-            .getCatalog(
-                addonBaseUrl = addonBaseUrl,
-                addonId = addonId,
-                addonName = addonId,
-                catalogId = catalogId,
-                catalogName = name,
-                type = type,
-                skip = 0,
-                skipStep = 100,
-                extraArgs = emptyMap(),
-                supportsSkip = true
-            )
-            .first { it !is NetworkResult.Loading }
-        return (result as? NetworkResult.Success)?.data
-    }
+    ): CatalogRow? =
+        catalogRepository.fetchCatalogAll(
+            addonId = addonId,
+            addonName = addonId,
+            addonBaseUrl = addonBaseUrl,
+            catalogId = catalogId,
+            catalogName = name,
+            type = type
+        )
 }
