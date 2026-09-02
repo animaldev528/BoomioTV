@@ -1600,7 +1600,6 @@ private fun LegacySidebarScaffold(
                 LocalContentFocusRequester provides contentFocusRequester,
                 LocalKidsMode provides kidsMode,
                 LocalMoreLikeThisNavigator provides { type, id, title, exclude ->
-                    Log.d("MLTDrill", "mainNav type=$type id=$id exclude=${exclude.size}")
                     navController.navigate(Screen.MoreLikeThis.createRoute(type, id, title, exclude))
                 }
             ) {
@@ -2043,7 +2042,6 @@ private fun ModernSidebarScaffold(
                 LocalContentFocusRequester provides contentFocusRequester,
                 LocalKidsMode provides kidsMode,
                 LocalMoreLikeThisNavigator provides { type, id, title, exclude ->
-                    Log.d("MLTDrill", "mainNav type=$type id=$id exclude=${exclude.size}")
                     navController.navigate(Screen.MoreLikeThis.createRoute(type, id, title, exclude))
                 }
             ) {

@@ -56,7 +56,6 @@ class MoreLikeThisViewModel @Inject constructor(
         // The exclusion set is part of the identity: the same seed title pushed from a
         // different parent wall is a distinct drill (fresh results) and must re-page.
         val key = "$itemType:$metaId:${exclude.joinToString(",")}"
-        android.util.Log.d("MLTDrill", "vm init exclude=${exclude.size} metaId=$metaId")
         if (loadedForKey == key) return // same title already paging — nothing to rediscover
 
         discoveryJob?.cancel()

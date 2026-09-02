@@ -2,7 +2,6 @@
 
 package com.nuvio.tv.ui.screens.kids
 
-import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -296,13 +295,8 @@ fun MoreLikeThisScreen(
         // levels nest cleanly without stacked providers.
         val baseNavigator = LocalMoreLikeThisNavigator.current
         val currentWallIds = remember(items) { items.map { it.id } }
-        Log.d("MLTDrill", "screen baseNav=${baseNavigator != null} wallIds=${currentWallIds.size}")
         CompositionLocalProvider(
-            LocalMoreLikeThisNavigator provides { type, id, name, childExclude ->
-                Log.d(
-                    "MLTDrill",
-                    "override childExclude=${childExclude.size} inject=${currentWallIds.size} id=$id"
-                )
+            LocalMoreLikeThisNavigator provides { type, id, name, _ ->
                 baseNavigator?.invoke(type, id, name, currentWallIds)
             }
         ) {

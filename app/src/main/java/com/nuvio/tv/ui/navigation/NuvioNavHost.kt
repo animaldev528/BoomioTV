@@ -1519,7 +1519,6 @@ fun NuvioNavHost(
                 ?.map { it.trim() }
                 ?.filter { it.isNotEmpty() }
                 .orEmpty()
-            android.util.Log.d("MLTDrill", "navArgs exclude=${exclude.size} itemId=$itemId")
             MoreLikeThisScreen(
                 itemType = itemType,
                 itemId = itemId,
