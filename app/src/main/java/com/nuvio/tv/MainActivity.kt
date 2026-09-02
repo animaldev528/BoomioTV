@@ -49,6 +49,7 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Movie
@@ -1015,6 +1016,7 @@ open class MainActivity : ComponentActivity() {
                             add(Screen.Home.route)
                             add(Screen.Movies.route)
                             add(Screen.Tv.route)
+                            add(Screen.Anime.route)
                             add(Screen.Library.route)
                             add(Screen.Settings.route)
                             if (discoverLocation == DiscoverLocation.IN_SIDEBAR) {
@@ -1028,6 +1030,7 @@ open class MainActivity : ComponentActivity() {
                     val strNavSearch = stringResource(R.string.nav_search)
                     val strNavMovies = stringResource(R.string.nav_movies)
                     val strNavTv = stringResource(R.string.nav_tv)
+                    val strNavAnime = stringResource(R.string.nav_anime)
                     val strNavLibrary = stringResource(R.string.nav_library)
                     val strNavSettings = stringResource(R.string.nav_settings)
                     val drawerItems = remember(
@@ -1036,6 +1039,7 @@ open class MainActivity : ComponentActivity() {
                         strNavSearch,
                         strNavMovies,
                         strNavTv,
+                        strNavAnime,
                         strNavLibrary,
                         strNavSettings,
                         discoverLocation
@@ -1067,6 +1071,13 @@ open class MainActivity : ComponentActivity() {
                                     route = Screen.Tv.route,
                                     label = strNavTv,
                                     icon = Icons.Default.Tv
+                                )
+                            )
+                            add(
+                                DrawerItem(
+                                    route = Screen.Anime.route,
+                                    label = strNavAnime,
+                                    icon = Icons.Default.AutoAwesome
                                 )
                             )
                             if (discoverLocation == DiscoverLocation.IN_SIDEBAR) {

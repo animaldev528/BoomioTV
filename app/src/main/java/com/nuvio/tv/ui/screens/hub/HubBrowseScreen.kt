@@ -89,6 +89,7 @@ fun HubBrowseScreen(
         when (kind) {
             HubKind.MOVIES -> R.string.nav_movies
             HubKind.TV -> R.string.nav_tv
+            HubKind.ANIME -> R.string.nav_anime
         }
     )
 

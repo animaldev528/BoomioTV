@@ -7,6 +7,7 @@ sealed class Screen(val route: String) {
     data object Home : Screen("home")
     data object Movies : Screen("movies")
     data object Tv : Screen("tv")
+    data object Anime : Screen("anime")
     data object Detail : Screen("detail/{itemId}/{itemType}?addonBaseUrl={addonBaseUrl}&returnFocusSeason={returnFocusSeason}&returnFocusEpisode={returnFocusEpisode}&returnToHomeOnBack={returnToHomeOnBack}&heroBackdropUrl={heroBackdropUrl}&playOnLoad={playOnLoad}&manualSelection={manualSelection}") {
         private fun encode(value: String): String =
             URLEncoder.encode(value, "UTF-8").replace("+", "%20")

@@ -1499,6 +1499,27 @@ private fun PlaybackNavHost(
             )
         }
 
+        composable(Screen.Anime.route) {
+            HubBrowseScreen(
+                kind = HubKind.ANIME,
+                onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
+                    navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                },
+                onNavigateToDrillDown = { target ->
+                    navController.navigate(
+                        Screen.CategoryRows.createRoute(
+                            target.drillCatalogId,
+                            target.addonId,
+                            target.type,
+                            target.addonBaseUrl,
+                            target.title
+                        )
+                    )
+                },
+                onBackPress = { navController.popBackStack() }
+            )
+        }
+
         composable(
             route = Screen.CastDetail.route,
             arguments = listOf(

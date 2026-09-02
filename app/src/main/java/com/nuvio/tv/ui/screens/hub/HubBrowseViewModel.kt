@@ -30,8 +30,8 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 
-/** Which Movies/TV hub this is. Stays in the hub package — nav imports it. */
-enum class HubKind { MOVIES, TV }
+/** Which Movies/TV/Anime hub this is. Stays in the hub package — nav imports it. */
+enum class HubKind { MOVIES, TV, ANIME }
 
 /**
  * Movies/TV hub as a rows browser: a vertical list of sections, one per
@@ -43,6 +43,11 @@ enum class HubKind { MOVIES, TV }
  * `rec-<rowId>-drilldown` (tiles, id `rec-<subRowId>`); each tile's own catalog
  * provides the posters shown in the row. Non-hub catalogs of the kind become
  * single-row fallback sections so nothing previously reachable disappears.
+ *
+ * Anime is a separate destination: ja-language animation leaves regular
+ * rotation entirely, so its `hub-anim*` catalogs are excluded from the MOVIES
+ * and TV hubs and shown only under the Anime hub (a left-menu item, one tab
+ * each for Anime Series and Anime Movies).
  */
 @HiltViewModel
 class HubBrowseViewModel @Inject constructor(
@@ -137,9 +142,15 @@ class HubBrowseViewModel @Inject constructor(
         val all = mutableListOf<SourceSpec>()
         addons.forEach { addon ->
             addon.catalogs.forEach { catalog ->
+                // Anime's hub-anim* catalogs are their own destination: MOVIES/TV
+                // never see them (anime leaves regular rotation), and the ANIME
+                // hub serves only them — not the Movies/TV group catalogs.
+                val isAnimeHub = catalog.id.startsWith("hub-anim")
                 val matchesKind = when (kind) {
-                    HubKind.MOVIES -> catalog.apiType.equals("movie", ignoreCase = true)
-                    HubKind.TV -> isSeriesType(catalog.apiType)
+                    HubKind.MOVIES ->
+                        catalog.apiType.equals("movie", ignoreCase = true) && !isAnimeHub
+                    HubKind.TV -> isSeriesType(catalog.apiType) && !isAnimeHub
+                    HubKind.ANIME -> isAnimeHub
                 }
                 if (!matchesKind) return@forEach
                 if (catalog.isSearchOnlyCatalog()) return@forEach
