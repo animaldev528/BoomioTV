@@ -32,6 +32,8 @@ import com.nuvio.tv.ui.screens.detail.MetaDetailsScreen
 import com.nuvio.tv.ui.screens.home.HomeScreen
 import com.nuvio.tv.ui.screens.addon.AddonManagerScreen
 import com.nuvio.tv.ui.screens.addon.CatalogOrderScreen
+import com.nuvio.tv.ui.screens.kids.KidWallKind
+import com.nuvio.tv.ui.screens.kids.KidWallScreen
 import com.nuvio.tv.ui.screens.library.LibraryScreen
 import com.nuvio.tv.ui.screens.player.PlayerExitReason
 import com.nuvio.tv.ui.screens.player.PlayerScreen
@@ -1516,6 +1518,31 @@ private fun PlaybackNavHost(
                         )
                     )
                 },
+                onBackPress = { navController.popBackStack() }
+            )
+        }
+
+        // Kids wall destinations (Leo profile). Registered unconditionally so a
+        // process-death back-stack restore can never hit an unregistered route;
+        // they're only navigable from the kids drawer (see MainActivity
+        // KIDS_PROFILE_IDS / Screen.KidsMovies).
+        composable(Screen.KidsMovies.route) {
+            KidWallScreen(
+                kind = KidWallKind.MOVIES,
+                onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
+                    navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                },
+                onBackPress = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.KidsTv.route) {
+            KidWallScreen(
+                kind = KidWallKind.TV,
+                onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
+                    navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                },
+
                 onBackPress = { navController.popBackStack() }
             )
         }

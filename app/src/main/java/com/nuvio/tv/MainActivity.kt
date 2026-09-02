@@ -249,6 +249,20 @@ private const val SIDEBAR_AUTO_COLLAPSE_DELAY_MS = 3_000L
 
 private const val MAX_SUPPORTED_FONT_SCALE = 1.15f
 
+/**
+ * Profiles that get the kids wall presentation (Leo's Nuvio profile_index == 3).
+ *
+ * For these profiles the app presents walls instead of rows: it lands on the
+ * Library wall, the Movies/TV drawer entries open the full approved-content walls
+ * (Screen.KidsMovies / Screen.KidsTv -> hub-leomovies / hub-leoshows catalogs),
+ * and the generic Home row feed is not surfaced. Content is NOT gated — the
+ * general catalog stays reachable via Search (parent decision).
+ *
+ * This mirrors the profile_index contract already used by the server-side
+ * publish_addons.py persona map (Leo = profile_id 3).
+ */
+private val KIDS_PROFILE_IDS = setOf(3)
+
 data class DrawerItem(
     val route: String,
     val label: String,
@@ -452,6 +466,8 @@ open class MainActivity : ComponentActivity() {
             val activeProfile = remember(activeProfileId, profiles) {
                 profiles.firstOrNull { it.id == activeProfileId }
             }
+            // Kids wall presentation (walls instead of rows) for the Leo profile.
+            val kidsMode = activeProfileId in KIDS_PROFILE_IDS
             var profilePinStates by remember { mutableStateOf<Map<Int, Boolean>>(emptyMap()) }
 
             LaunchedEffect(authState, profiles) {
@@ -859,6 +875,8 @@ open class MainActivity : ComponentActivity() {
 
                     val startDestination = when {
                         needsExperienceSelection -> Screen.ExperienceModeSelection.route
+                        // Kids land on their Library wall (long-press -> Add to library).
+                        layoutChosen && kidsMode -> Screen.Library.route
                         layoutChosen -> Screen.Home.route
                         else -> Screen.LayoutSelection.route
                     }
@@ -931,7 +949,8 @@ open class MainActivity : ComponentActivity() {
                                         contentId = launchContentId,
                                         contentName = launchName,
                                         returnToDetailOnBack = launchContentType.equals("series", ignoreCase = true),
-                                        returnToHomeOnBack = true
+                                        // Kids' "home" is the Library wall, not the generic Home feed.
+                                        returnToHomeOnBack = !kidsMode
                                     )
                                 )
                             } else {
@@ -969,7 +988,8 @@ open class MainActivity : ComponentActivity() {
                                     contentId = contentId,
                                     contentName = name,
                                     returnToDetailOnBack = contentType.equals("series", ignoreCase = true),
-                                    returnToHomeOnBack = true
+                                    // Kids' "home" is the Library wall, not the generic Home feed.
+                                    returnToHomeOnBack = !kidsMode
                                 )
                             )
                         } else {
@@ -1022,12 +1042,28 @@ open class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    // Kids landing race: startDestination reads kidsMode, which can lag one
+                    // frame (activeProfileId defaults to profile 1 before it restores), so the
+                    // NavHost may first mount on the generic Home. Once kidsMode is known,
+                    // steer a stray Home to the Library wall. No inverse effect — a non-kids
+                    // user on Library is never yanked anywhere.
+                    LaunchedEffect(kidsMode, currentRoute) {
+                        if (kidsMode && currentRoute == Screen.Home.route) {
+                            navController.navigate(Screen.Library.route) {
+                                popUpTo(navController.graph.startDestinationId) { saveState = false }
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+
                     LaunchedEffect(discoverLocation, currentRoute) {
                         if (discoverLocation == null) return@LaunchedEffect
                         val onDiscoverRoute = currentRoute == Screen.Discover.route ||
                             currentRoute?.startsWith("${Screen.Discover.route}/") == true
                         if (discoverLocation == DiscoverLocation.OFF && onDiscoverRoute) {
-                            navController.navigate(Screen.Home.route) {
+                            navController.navigate(
+                                if (kidsMode) Screen.Library.route else Screen.Home.route
+                            ) {
                                 popUpTo(navController.graph.startDestinationId) { saveState = false }
                                 launchSingleTop = true
                             }
@@ -1041,6 +1077,12 @@ open class MainActivity : ComponentActivity() {
                             add(Screen.Movies.route)
                             add(Screen.Tv.route)
                             add(Screen.Anime.route)
+                            // Kids walls are root routes for every profile (not kids-gated) so the
+                            // sidebar shows on them and a process-death back-stack restore never
+                            // hits an unregistered destination; they're only navigable via the
+                            // kids drawer / start destination.
+                            add(Screen.KidsMovies.route)
+                            add(Screen.KidsTv.route)
                             add(Screen.Library.route)
                             add(Screen.Settings.route)
                             if (discoverLocation == DiscoverLocation.IN_SIDEBAR) {
@@ -1058,6 +1100,7 @@ open class MainActivity : ComponentActivity() {
                     val strNavLibrary = stringResource(R.string.nav_library)
                     val strNavSettings = stringResource(R.string.nav_settings)
                     val drawerItems = remember(
+                        kidsMode,
                         strNavHome,
                         strNavDiscover,
                         strNavSearch,
@@ -1068,65 +1111,109 @@ open class MainActivity : ComponentActivity() {
                         strNavSettings,
                         discoverLocation
                     ) {
-                        buildList {
-                            add(
-                                DrawerItem(
-                                    route = Screen.Search.route,
-                                    label = strNavSearch,
-                                    iconRes = R.raw.sidebar_search
-                                )
-                            )
-                            add(
-                                DrawerItem(
-                                    route = Screen.Home.route,
-                                    label = strNavHome,
-                                    icon = Icons.Default.Home
-                                )
-                            )
-                            add(
-                                DrawerItem(
-                                    route = Screen.Movies.route,
-                                    label = strNavMovies,
-                                    icon = Icons.Default.Movie
-                                )
-                            )
-                            add(
-                                DrawerItem(
-                                    route = Screen.Tv.route,
-                                    label = strNavTv,
-                                    icon = Icons.Default.Tv
-                                )
-                            )
-                            add(
-                                DrawerItem(
-                                    route = Screen.Anime.route,
-                                    label = strNavAnime,
-                                    icon = Icons.Default.AutoAwesome
-                                )
-                            )
-                            if (discoverLocation == DiscoverLocation.IN_SIDEBAR) {
+                        if (kidsMode) {
+                            // Kids drawer: Library IS home (long-press -> Add to library), and
+                            // Movies/Tv open the full approved-content walls. No Discover, no
+                            // separate Library entry. The general catalog stays reachable via
+                            // Search (content is not gated).
+                            buildList {
                                 add(
                                     DrawerItem(
-                                        route = Screen.Discover.route,
-                                        label = strNavDiscover,
-                                        icon = Icons.Default.Explore
+                                        route = Screen.Search.route,
+                                        label = strNavSearch,
+                                        iconRes = R.raw.sidebar_search
+                                    )
+                                )
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Library.route,
+                                        label = strNavHome,
+                                        icon = Icons.Default.Home
+                                    )
+                                )
+                                add(
+                                    DrawerItem(
+                                        route = Screen.KidsMovies.route,
+                                        label = strNavMovies,
+                                        icon = Icons.Default.Movie
+                                    )
+                                )
+                                add(
+                                    DrawerItem(
+                                        route = Screen.KidsTv.route,
+                                        label = strNavTv,
+                                        icon = Icons.Default.Tv
+                                    )
+                                )
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Settings.route,
+                                        label = strNavSettings,
+                                        iconRes = R.raw.sidebar_settings
                                     )
                                 )
                             }
-                            add(
-                                DrawerItem(
-                                    route = Screen.Library.route,
-                                    label = strNavLibrary,
-                                    iconRes = R.raw.sidebar_library
+                        } else {
+                            buildList {
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Search.route,
+                                        label = strNavSearch,
+                                        iconRes = R.raw.sidebar_search
+                                    )
                                 )
-                            )
-                            add(
-                                DrawerItem(
-                                    route = Screen.Settings.route,
-                                    label = strNavSettings,
-                                    iconRes = R.raw.sidebar_settings
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Home.route,
+                                        label = strNavHome,
+                                        icon = Icons.Default.Home
+                                    )
                                 )
-                            )
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Movies.route,
+                                        label = strNavMovies,
+                                        icon = Icons.Default.Movie
+                                    )
+                                )
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Tv.route,
+                                        label = strNavTv,
+                                        icon = Icons.Default.Tv
+                                    )
+                                )
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Anime.route,
+                                        label = strNavAnime,
+                                        icon = Icons.Default.AutoAwesome
+                                    )
+                                )
+                                if (discoverLocation == DiscoverLocation.IN_SIDEBAR) {
+                                    add(
+                                        DrawerItem(
+                                            route = Screen.Discover.route,
+                                            label = strNavDiscover,
+                                            icon = Icons.Default.Explore
+                                        )
+                                    )
+                                }
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Library.route,
+                                        label = strNavLibrary,
+                                        iconRes = R.raw.sidebar_library
+                                    )
+                                )
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Settings.route,
+                                        label = strNavSettings,
+                                        iconRes = R.raw.sidebar_settings
+                                    )
+                                )
+                            }
                         }
                     }
                     val selectedDrawerRoute = drawerItems.firstOrNull { item ->
