@@ -116,6 +116,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
+import com.nuvio.tv.core.boomio.CompanionSearchInput
 
 /** Skeleton rows shown while a search is pending, matching the two mobile renders. */
 private const val SEARCH_SKELETON_ROW_COUNT = 2
@@ -288,6 +289,27 @@ fun SearchScreen(
             speechRecognizer?.setRecognitionListener(null)
             speechRecognizer?.destroy()
         }
+    }
+    // While this screen is in front it is the phone remote's text target: the
+    // companion manager forwards keyboard_input / keyboard_submit frames here,
+    // driving the field exactly like the on-TV keyboard and voice search do
+    // (handy on TVs whose search bar has no speech input of its own).
+    //
+    // Port note: the fork's hunk also re-defines `topInputFocusRequester` here.
+    // Upstream 1.0.0 hoisted that definition earlier in the composable (right
+    // after `isVoiceSearchAvailable`), so taking the fork's copy would shadow a
+    // duplicate. Dropped; the `DisposableEffect` above is the part that is new.
+    DisposableEffect(viewModel) {
+        val companionInput = object : CompanionSearchInput {
+            override fun onRemoteText(text: String) {
+                viewModel.onEvent(SearchEvent.QueryChanged(text))
+            }
+            override fun submit() {
+                viewModel.onEvent(SearchEvent.SubmitSearch)
+            }
+        }
+        viewModel.companionPlaybackBridge.registerSearchInput(companionInput)
+        onDispose { viewModel.companionPlaybackBridge.unregisterSearchInput(companionInput) }
     }
     val launchVoiceSearch: () -> Unit = {
         if (!isVoiceSearchAvailable || speechRecognizer == null) {
