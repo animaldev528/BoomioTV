@@ -25,6 +25,7 @@ import androidx.navigation.navArgument
 import com.nuvio.tv.core.build.AppFeaturePolicy
 import com.nuvio.tv.domain.model.ExperienceMode
 import com.nuvio.tv.ui.screens.CatalogSeeAllScreen
+import com.nuvio.tv.ui.screens.home.CategoryRowsScreen
 import com.nuvio.tv.ui.screens.ExperienceModeSelectionScreen
 import com.nuvio.tv.ui.screens.LayoutSelectionScreen
 import com.nuvio.tv.ui.screens.detail.MetaDetailsScreen
@@ -56,7 +57,7 @@ import com.nuvio.tv.ui.screens.profile.ProfileSelectionScreen
 import com.nuvio.tv.ui.screens.tmdb.TmdbEntityBrowseScreen
 import com.nuvio.tv.ui.screens.home.HeroBackdropState
 import com.nuvio.tv.ui.screens.hub.HubKind
-import com.nuvio.tv.ui.screens.hub.HubScreen
+import com.nuvio.tv.ui.screens.hub.HubBrowseScreen
 
 @Composable
 fun NuvioNavHost(
@@ -256,6 +257,17 @@ private fun PlaybackNavHost(
                 },
                 onNavigateToFolderDetail = { collectionId, folderId ->
                     navController.navigate(Screen.FolderDetail.createRoute(collectionId, folderId))
+                },
+                onNavigateToDrillDown = { target ->
+                    navController.navigate(
+                        Screen.CategoryRows.createRoute(
+                            target.drillCatalogId,
+                            target.addonId,
+                            target.type,
+                            target.addonBaseUrl,
+                            target.title
+                        )
+                    )
                 }
             )
         }
@@ -1406,37 +1418,82 @@ private fun PlaybackNavHost(
             )
         }
 
+        composable(
+            route = Screen.CategoryRows.route,
+            arguments = listOf(
+                navArgument("drillCatalogId") { type = NavType.StringType },
+                navArgument("addonId") { type = NavType.StringType },
+                navArgument("type") { type = NavType.StringType },
+                navArgument("addonBaseUrl") { type = NavType.StringType; defaultValue = "" },
+                navArgument("title") { type = NavType.StringType; defaultValue = "" }
+            )
+        ) { backStackEntry ->
+            val drillCatalogId = backStackEntry.arguments?.getString("drillCatalogId") ?: ""
+            val addonId = backStackEntry.arguments?.getString("addonId") ?: ""
+            val type = backStackEntry.arguments?.getString("type") ?: ""
+            val addonBaseUrl = backStackEntry.arguments?.getString("addonBaseUrl") ?: ""
+            val title = backStackEntry.arguments?.getString("title") ?: ""
+            CategoryRowsScreen(
+                drillCatalogId = drillCatalogId,
+                addonId = addonId,
+                addonBaseUrl = addonBaseUrl,
+                type = type,
+                title = title,
+                onNavigateToDetail = { itemId, itemType, addonBaseUrl2 ->
+                    navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl2))
+                },
+                onNavigateToDrillDown = { target ->
+                    navController.navigate(
+                        Screen.CategoryRows.createRoute(
+                            target.drillCatalogId,
+                            target.addonId,
+                            target.type,
+                            target.addonBaseUrl,
+                            target.title
+                        )
+                    )
+                },
+                onBackPress = { navController.popBackStack() }
+            )
+        }
+
         composable(Screen.Movies.route) {
-            val homeBackStackEntry = androidx.compose.runtime.remember {
-                try { navController.getBackStackEntry(Screen.Home.route) } catch (_: Exception) { null }
-            }
-            val homeViewModel: com.nuvio.tv.ui.screens.home.HomeViewModel? =
-                homeBackStackEntry?.let {
-                    androidx.hilt.navigation.compose.hiltViewModel(it)
-                }
-            HubScreen(
+            HubBrowseScreen(
                 kind = HubKind.MOVIES,
-                homeViewModel = homeViewModel,
                 onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
                     navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                },
+                onNavigateToDrillDown = { target ->
+                    navController.navigate(
+                        Screen.CategoryRows.createRoute(
+                            target.drillCatalogId,
+                            target.addonId,
+                            target.type,
+                            target.addonBaseUrl,
+                            target.title
+                        )
+                    )
                 },
                 onBackPress = { navController.popBackStack() }
             )
         }
 
         composable(Screen.Tv.route) {
-            val homeBackStackEntry = androidx.compose.runtime.remember {
-                try { navController.getBackStackEntry(Screen.Home.route) } catch (_: Exception) { null }
-            }
-            val homeViewModel: com.nuvio.tv.ui.screens.home.HomeViewModel? =
-                homeBackStackEntry?.let {
-                    androidx.hilt.navigation.compose.hiltViewModel(it)
-                }
-            HubScreen(
+            HubBrowseScreen(
                 kind = HubKind.TV,
-                homeViewModel = homeViewModel,
                 onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
                     navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                },
+                onNavigateToDrillDown = { target ->
+                    navController.navigate(
+                        Screen.CategoryRows.createRoute(
+                            target.drillCatalogId,
+                            target.addonId,
+                            target.type,
+                            target.addonBaseUrl,
+                            target.title
+                        )
+                    )
                 },
                 onBackPress = { navController.popBackStack() }
             )

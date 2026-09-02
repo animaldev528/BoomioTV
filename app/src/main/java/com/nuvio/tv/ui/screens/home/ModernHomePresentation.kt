@@ -177,44 +177,84 @@ internal fun buildModernHomePresentation(
                             supportsSkip = row.supportsSkip,
                             hasMore = row.hasMore,
                             isLoading = row.isLoading,
-                            items = row.items.filterNot { it.ratingGateKey in input.gatedItemKeys }.mapIndexed { itemIndex, item ->
-                                val occurrence = rowItemOccurrenceCounts.getOrDefault(item.id, 0)
-                                rowItemOccurrenceCounts[item.id] = occurrence + 1
-                                val cacheKey = "${item.id}_$occurrence"
-                                val cachedItem = rowItemCache[cacheKey]
-                                if (cachedItem != null &&
-                                    cachedItem.source == item &&
-                                    cachedItem.useLandscapePosters == input.useLandscapePosters &&
-                                    cachedItem.showFullReleaseDate == input.showFullReleaseDate &&
-                                    cachedItem.showImdbRatings == input.showImdbRatings
-                                ) {
-                                    cachedItem.carouselItem.let { cached ->
-                                        val stableItemKey = row.stableItemKey(item, occurrence)
-                                        if (cached.key == stableItemKey) cached
-                                        else cached.copy(key = stableItemKey)
+                            items = run {
+                                val drillTile = row.items.firstOrNull { it.isDrillTile() }
+                                val contentItems = row.items
+                                    .filterNot { it.ratingGateKey in input.gatedItemKeys }
+                                    .filterNot { it.isDrillTile() }
+                                val mapped = contentItems.mapIndexed { itemIndex, item ->
+                                    val occurrence = rowItemOccurrenceCounts.getOrDefault(item.id, 0)
+                                    rowItemOccurrenceCounts[item.id] = occurrence + 1
+                                    val cacheKey = "${item.id}_$occurrence"
+                                    val cachedItem = rowItemCache[cacheKey]
+                                    if (cachedItem != null &&
+                                        cachedItem.source == item &&
+                                        cachedItem.useLandscapePosters == input.useLandscapePosters &&
+                                        cachedItem.showFullReleaseDate == input.showFullReleaseDate &&
+                                        cachedItem.showImdbRatings == input.showImdbRatings
+                                    ) {
+                                        cachedItem.carouselItem.let { cached ->
+                                            val stableItemKey = "${rowKey}_$itemIndex"
+                                            if (cached.key == stableItemKey) cached
+                                            else cached.copy(key = stableItemKey)
+                                        }
+                                    } else {
+                                        val built = buildCatalogItem(
+                                            item = item,
+                                            row = row,
+                                            useLandscapePosters = input.useLandscapePosters,
+                                            occurrence = occurrence,
+                                            strTypeMovie = strTypeMovie,
+                                            strTypeSeries = strTypeSeries,
+                                            showFullReleaseDate = input.showFullReleaseDate,
+                                            showImdbRatings = input.showImdbRatings,
+                                            previousCachedItem = cachedItem?.carouselItem
+                                        ).copy(key = "${rowKey}_$itemIndex")
+                                        rowItemCache[cacheKey] = CachedCarouselItem(
+                                            source = item,
+                                            useLandscapePosters = input.useLandscapePosters,
+                                            showFullReleaseDate = input.showFullReleaseDate,
+                                            showImdbRatings = input.showImdbRatings,
+                                            carouselItem = built
+                                        )
+                                        built
                                     }
-                                } else {
-                                    val built = buildCatalogItem(
-                                        item = item,
-                                        row = row,
-                                        useLandscapePosters = input.useLandscapePosters,
-                                        occurrence = occurrence,
-                                        strTypeMovie = strTypeMovie,
-                                        strTypeSeries = strTypeSeries,
-                                        showFullReleaseDate = input.showFullReleaseDate,
-                                        showImdbRatings = input.showImdbRatings,
-                                        previousCachedItem = cachedItem?.carouselItem
-                                    ).copy(key = row.stableItemKey(item, occurrence))
-                                    rowItemCache[cacheKey] = CachedCarouselItem(
-                                        source = item,
-                                        useLandscapePosters = input.useLandscapePosters,
-                                        showFullReleaseDate = input.showFullReleaseDate,
-                                        showImdbRatings = input.showImdbRatings,
-                                        carouselItem = built
+                                }.toMutableList()
+                                if (drillTile != null) {
+                                    val drillRowId = drillTile.id.removePrefix(REC_DRILL_PREFIX)
+                                    mapped.add(
+                                        ModernCarouselItem(
+                                            key = "${rowKey}_drill",
+                                            title = "More Like This ▸",
+                                            subtitle = null,
+                                            imageUrl = null,
+                                            heroPreview = HeroPreview(
+                                                title = "More Like This ▸",
+                                                logo = null, description = null,
+                                                contentTypeText = null, isSeries = false,
+                                                yearText = null, runtimeText = null,
+                                                imdbText = null, ageRatingText = null,
+                                                statusText = null, countryText = null,
+                                                languageText = null,
+                                                genres = emptyList<String>().asStable(),
+                                                poster = null, backdrop = null, imageUrl = null
+                                            ),
+                                            payload = ModernPayload.Drill(
+                                                DrillTarget(
+                                                    rowId = drillRowId,
+                                                    drillCatalogId = "rec-$drillRowId$REC_DRILL_SUFFIX",
+                                                    addonId = row.addonId,
+                                                    addonBaseUrl = row.addonBaseUrl,
+                                                    type = row.apiType,
+                                                    title = "More Like This"
+                                                )
+                                            ),
+                                            metaPreview = drillTile
+                                        )
                                     )
-                                    built
                                 }
-                            }.asStable()
+                                mapped.asStable()
+                            }
                         )
                     }
 
@@ -401,6 +441,13 @@ internal fun buildCarouselRowLookups(carouselRows: List<HeroCarouselRow>): Carou
                 }
                 is ModernPayload.CollectionFolder -> {
                     itemIdentities += "folder:${payload.folderId}"
+                }
+                is ModernPayload.Drill -> {
+                    // Drill tiles are added by the hub port; without a branch here the
+                    // sealed `when` no longer compiles once ModernPayload.Drill exists.
+                    // The identity must match what the row rebuilds to, so a drill tile
+                    // that survives a rebuild keeps focus instead of sliding to index 0.
+                    itemIdentities += "drill:${payload.target.drillCatalogId}"
                 }
                 is ModernPayload.ContinueWatching -> {
                     itemIdentities += "cw:${payload.item.hashCode()}"

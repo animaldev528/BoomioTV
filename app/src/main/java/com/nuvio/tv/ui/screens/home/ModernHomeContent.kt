@@ -134,6 +134,7 @@ fun ModernHomeContent(
     isCatalogItemWatched: (MetaPreview) -> Boolean = { false },
     onCatalogItemLongPress: (MetaPreview, String) -> Unit = { _, _ -> },
     onNavigateToFolderDetail: (String, String) -> Unit = { _, _ -> },
+    onNavigateToDrillDown: (DrillTarget) -> Unit = {},
     onItemFocus: (MetaPreview) -> Unit = {},
     onPreloadAdjacentItem: (MetaPreview) -> Unit = {},
     onSaveFocusState: (Int, Int, String?, Map<String, String>, Map<String, Int>, Int, Int) -> Unit,
@@ -374,6 +375,12 @@ fun ModernHomeContent(
         lastRequestedTrailerFocusKey = selection.focusKey
     }
 
+    // Focus relocation when a row's contents change (shimmer -> real, or a drill row's
+    // grid being replaced). Upstream's mechanism is kept over the fork's older
+    // `previousItemKeysByRow` variant: it is driven by `carouselLookups.itemIdentitiesByRow`,
+    // which is built in ModernHomePresentation and is pinned by
+    // ModernHomeIdentityRelocationTest. The fork's copy only existed because upstream had
+    // no relocation at all when the fork branched.
     val currentItemIdentitiesByRow = carouselLookups.itemIdentitiesByRow.map
     if (itemIdentitySnapshot.byRow !== currentItemIdentitiesByRow) {
         currentItemIdentitiesByRow.forEach { (rowKey, currentIdentities) ->
@@ -401,6 +408,7 @@ fun ModernHomeContent(
                         (item.payload as? ModernPayload.CollectionFolder)?.focusKey == selection.focusKey
                     }
                 }
+                is ModernPayload.Drill -> true
                 is ModernPayload.ContinueWatching -> true
             }
         } ?: false
@@ -1141,6 +1149,7 @@ fun ModernHomeContent(
                 onRowItemFocusedInternal = onRowItemFocusedInternalLambda,
                 onNavigateToDetail = onNavigateToDetail,
                 onNavigateToFolderDetail = onNavigateToFolderDetail,
+                onNavigateToDrillDown = onNavigateToDrillDown,
                 onLoadMoreCatalog = onLoadMoreCatalog,
                 onContinueWatchingClick = onContinueWatchingClick,
                 onContinueWatchingOptions = onContinueWatchingOptionsLambda,

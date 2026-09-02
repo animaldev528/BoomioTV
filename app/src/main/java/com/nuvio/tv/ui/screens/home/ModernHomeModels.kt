@@ -92,6 +92,7 @@ sealed class ModernPayload {
         val titleLogoUrl: String?,
         val coverEmoji: String? = null
     ) : ModernPayload()
+    data class Drill(val target: DrillTarget) : ModernPayload()
 }
 
 @Immutable
@@ -235,6 +236,7 @@ internal fun ModernCarouselItem.catalogCardMetrics(
     val posterShape = when (payload) {
         is ModernPayload.Catalog -> metaPreview?.posterShape ?: PosterShape.POSTER
         is ModernPayload.CollectionFolder -> payload.posterShape
+        is ModernPayload.Drill -> PosterShape.POSTER
         is ModernPayload.ContinueWatching -> PosterShape.POSTER
     }
 

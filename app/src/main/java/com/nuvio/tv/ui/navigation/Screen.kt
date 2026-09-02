@@ -169,6 +169,22 @@ sealed class Screen(val route: String) {
         }
     }
 
+    data object CategoryRows : Screen("category_rows/{drillCatalogId}/{addonId}/{type}?addonBaseUrl={addonBaseUrl}&title={title}") {
+        private fun encode(value: String): String =
+            URLEncoder.encode(value, "UTF-8").replace("+", "%20")
+
+        fun createRoute(
+            drillCatalogId: String,
+            addonId: String,
+            type: String,
+            addonBaseUrl: String,
+            title: String
+        ): String {
+            return "category_rows/${encode(drillCatalogId)}/${encode(addonId)}/${encode(type)}" +
+                "?addonBaseUrl=${encode(addonBaseUrl)}&title=${encode(title)}"
+        }
+    }
+
     data object Collections : Screen("collections")
 
     data object CollectionEditor : Screen("collection_editor?collectionId={collectionId}") {

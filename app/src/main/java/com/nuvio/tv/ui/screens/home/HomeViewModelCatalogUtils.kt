@@ -369,6 +369,11 @@ internal fun CatalogDescriptor.isSearchOnlyCatalog(): Boolean {
 
 internal fun CatalogDescriptor.shouldShowOnHome(): Boolean {
     if (isSearchOnlyCatalog()) return false
+    // Drill-down catalogs (rec-<rowId>-drilldown) are the "More Like This ▸"
+    // drill targets opened from a row's trailing tile — never standalone rows.
+    // Without this they render next to their parent row ("X" + "X · More Like
+    // This"), which reads as every home row showing double.
+    if (id.endsWith(REC_DRILL_SUFFIX)) return false
     return !hasExplicitShowInHome || showInHome
 }
 
