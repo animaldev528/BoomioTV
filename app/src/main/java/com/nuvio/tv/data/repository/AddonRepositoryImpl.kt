@@ -54,6 +54,9 @@ class AddonRepositoryImpl @Inject constructor(
         private const val LEGACY_MANIFEST_CACHE_KEY = "manifests"
         private const val MANIFEST_SUFFIX = "/manifest.json"
         private const val MANIFEST_CACHE_TTL_MS = 6 * 60 * 60 * 1000L
+        // Persisted alongside the manifest cache so the freshness clock survives
+        // process death (otherwise every cold start re-fetches all manifests).
+        private const val MANIFEST_REFRESH_TIME_KEY = "last_refresh_time"
 
         // Manifest-storm hardening: the addon-list loader fires parallel duplicate
         // conditional GETs to the same manifest URL (cache-miss round + combine
@@ -125,6 +128,17 @@ class AddonRepositoryImpl @Inject constructor(
     private fun isCacheStale(): Boolean =
         System.currentTimeMillis() - lastManifestRefreshTime > MANIFEST_CACHE_TTL_MS
 
+    /**
+     * Advance the freshness clock and persist it so a process restart within the
+     * TTL doesn't re-fetch every manifest. Runs from the repository IO scope; the
+     * SharedPreferences write is async (apply).
+     */
+    private fun updateManifestRefreshTime(time: Long) {
+        lastManifestRefreshTime = time
+        context.getSharedPreferences(MANIFEST_CACHE_PREFS, Context.MODE_PRIVATE)
+            .edit().putLong(MANIFEST_REFRESH_TIME_KEY, time).apply()
+    }
+
     private fun scheduleManifestRefresh(urls: List<String>) {
         if (manifestRefreshJob?.isActive == true) return
         manifestRefreshJob = syncScope.launch {
@@ -135,7 +149,7 @@ class AddonRepositoryImpl @Inject constructor(
             }.awaitAll()
             val anyUpdated = refreshed.any { it is NetworkResult.Success }
             if (anyUpdated) {
-                lastManifestRefreshTime = System.currentTimeMillis()
+                updateManifestRefreshTime(System.currentTimeMillis())
                 Log.d(TAG, "Background manifest refresh completed")
             }
         }
@@ -144,6 +158,12 @@ class AddonRepositoryImpl @Inject constructor(
     private suspend fun loadManifestCacheFromDisk() = kotlinx.coroutines.withContext(Dispatchers.IO) {
         try {
             val prefs = context.getSharedPreferences(MANIFEST_CACHE_PREFS, Context.MODE_PRIVATE)
+            // Restore the freshness clock so a cold start within the refresh TTL of a
+            // completed refresh doesn't re-fetch every manifest (it used to reset to 0
+            // on every process death, making isCacheStale() always true at launch).
+            val storedRefresh = prefs.getLong(MANIFEST_REFRESH_TIME_KEY, 0L)
+            lastManifestRefreshTime =
+                if (storedRefresh > System.currentTimeMillis()) 0L else storedRefresh
             if (prefs.contains(LEGACY_MANIFEST_CACHE_KEY)) {
                 prefs.edit().remove(LEGACY_MANIFEST_CACHE_KEY).apply()
             }
@@ -154,7 +174,8 @@ class AddonRepositoryImpl @Inject constructor(
                 manifestCache.putAll(cached)
             }
             bumpManifestCacheRevision()
-            Log.d(TAG, "Loaded ${cached.size} cached manifests from disk")
+            val ageMs = System.currentTimeMillis() - lastManifestRefreshTime
+            Log.d(TAG, "Loaded ${cached.size} cached manifests from disk (refreshAgeMs=${ageMs}ms)")
         } catch (e: Exception) {
             Log.w(TAG, "Failed to load manifest cache from disk", e)
         }
