@@ -14,6 +14,18 @@ sealed class Screen(val route: String) {
     // unregistered route (see MainActivity KIDS_PROFILE_IDS).
     data object KidsMovies : Screen("kids_movies")
     data object KidsTv : Screen("kids_tv")
+    // Kids-only result wall behind the long-press "More like this" action. itemId is
+    // the approved title's tt id; the screen re-resolves the leokid row addon by type
+    // (hub-leomovies / hub-leoshows), so it works for tiles pressed on any wall.
+    data object MoreLikeThis : Screen("kids_more_like_this/{itemType}/{itemId}?title={title}") {
+        private fun encode(value: String): String =
+            URLEncoder.encode(value, "UTF-8").replace("+", "%20")
+
+        fun createRoute(itemType: String, itemId: String, title: String? = null): String {
+            val encodedTitle = title?.let { encode(it) } ?: ""
+            return "kids_more_like_this/${encode(itemType)}/${encode(itemId)}?title=$encodedTitle"
+        }
+    }
     data object Detail : Screen("detail/{itemId}/{itemType}?addonBaseUrl={addonBaseUrl}&returnFocusSeason={returnFocusSeason}&returnFocusEpisode={returnFocusEpisode}&returnToHomeOnBack={returnToHomeOnBack}&heroBackdropUrl={heroBackdropUrl}&playOnLoad={playOnLoad}&manualSelection={manualSelection}") {
         private fun encode(value: String): String =
             URLEncoder.encode(value, "UTF-8").replace("+", "%20")

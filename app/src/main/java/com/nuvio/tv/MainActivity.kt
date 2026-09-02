@@ -222,6 +222,13 @@ data class SplashBackground(
 val LocalSplashBackground = compositionLocalOf { SplashBackground() }
 
 /**
+ * True while the active profile is a kids profile (KIDS_PROFILE_IDS). Poster
+ * options read this to decide whether to surface the kids-only "More like this"
+ * action (Kyle/Audrey never see it).
+ */
+val LocalKidsMode = compositionLocalOf { false }
+
+/**
  * Long-press "More like this": navigate to the More-like-this wall for a pressed
  * title, on any profile that has a curated row addon (kids walls + adult
  * AI-search rows). Null outside the sidebar scaffolds (e.g. onboarding), where the
@@ -232,15 +239,18 @@ val LocalSplashBackground = compositionLocalOf { SplashBackground() }
  * its subtree, injecting its own current tile ids, so each deeper "More like this"
  * hides the wall it was launched from and the results keep changing (3+ deep).
  *
- * Port note (C5): the declaration is a seam. `08b8106c3` — a C5 commit — adds the
- * consumer side (`HomeScreen` reads this local and only offers the action when it
- * is non-null), but on the fork the *definition* and its two `provides` sites came
- * from `2c4af99ec`, a C6 kids commit, because the target route is C6's
- * `Screen.MoreLikeThis`. C5 therefore declares the local and registers no
- * provider: `.current` is null, `HomeScreen`'s action stays hidden, and behaviour
- * matches the fork's own null case. C6 ports `2c4af99ec` — the `provides` blocks
- * around each `NuvioNavHost` and the `MoreLikeThis` route — at which point the
- * action lights up with no further change here.
+ * Port note: C5 had to declare this ahead of its own definition. `08b8106c3` (C5)
+ * adds the consumer side — `HomeScreen` reads the local and only offers the action
+ * when it is non-null — but on the fork the declaration and both `provides` sites
+ * arrive in `2c4af99ec`, which `08b8106c3` merely postdates. C5 therefore landed it
+ * provider-less so the branch compiled (`.current` null, action hidden); C6 ports
+ * `2c4af99ec`'s `provides` blocks and the `Screen.MoreLikeThis` route, which is what
+ * makes the action appear.
+ *
+ * The 4-arg shape is deliberate. `2c4af99ec` declares it 3-arg, but `08b8106c3` — a
+ * C5 commit, already on this branch — calls it with a trailing `emptyList()`, and
+ * `63ab18280` (C6) widens the fork's form to this same 4-arg signature to carry the
+ * drilled-from ids. Matching the widened signature here is what lets both land.
  */
 val LocalMoreLikeThisNavigator =
     compositionLocalOf<((type: String, id: String, title: String, exclude: List<String>) -> Unit)?> { null }
@@ -1282,6 +1292,7 @@ open class MainActivity : ComponentActivity() {
                                     sidebarCollapsed = sidebarCollapsed,
                                     modernSidebarBlurEnabled = modernSidebarBlurEnabled,
                                     hideBuiltInHeaders = hideBuiltInHeadersForFloatingPill,
+                                    kidsMode = kidsMode,
                                     activeProfileName = activeProfile?.name ?: "",
                                     activeProfileColorHex = activeProfile?.avatarColorHex ?: "#1E88E5",
                                     activeProfileAvatarImageUrl = activeProfileAvatarImageUrl,
@@ -1301,6 +1312,7 @@ open class MainActivity : ComponentActivity() {
                                     selectedDrawerRoute = selectedDrawerRoute,
                                     sidebarCollapsed = sidebarCollapsed,
                                     hideBuiltInHeaders = false,
+                                    kidsMode = kidsMode,
                                     activeProfileName = activeProfile?.name ?: "",
                                     activeProfileColorHex = activeProfile?.avatarColorHex ?: "#1E88E5",
                                     activeProfileAvatarImageUrl = activeProfileAvatarImageUrl,
@@ -1510,6 +1522,7 @@ private fun LegacySidebarScaffold(
     selectedDrawerRoute: String?,
     sidebarCollapsed: Boolean,
     hideBuiltInHeaders: Boolean,
+    kidsMode: Boolean,
     activeProfileName: String,
     activeProfileColorHex: String,
     activeProfileAvatarImageUrl: String?,
@@ -1781,7 +1794,11 @@ private fun LegacySidebarScaffold(
         ) {
             CompositionLocalProvider(
                 LocalSidebarExpanded provides (drawerState.currentValue == DrawerValue.Open),
-                LocalContentFocusRequester provides contentFocusRequester
+                LocalContentFocusRequester provides contentFocusRequester,
+                LocalKidsMode provides kidsMode,
+                LocalMoreLikeThisNavigator provides { type, id, title ->
+                    navController.navigate(Screen.MoreLikeThis.createRoute(type, id, title))
+                }
             ) {
                 NuvioNavHost(
                     navController = navController,
@@ -1905,6 +1922,7 @@ private fun ModernSidebarScaffold(
     sidebarCollapsed: Boolean,
     modernSidebarBlurEnabled: Boolean,
     hideBuiltInHeaders: Boolean,
+    kidsMode: Boolean,
     activeProfileName: String,
     activeProfileColorHex: String,
     activeProfileAvatarImageUrl: String?,
@@ -2175,7 +2193,11 @@ private fun ModernSidebarScaffold(
         ) {
             CompositionLocalProvider(
                 LocalSidebarExpanded provides isSidebarExpanded,
-                LocalContentFocusRequester provides contentFocusRequester
+                LocalContentFocusRequester provides contentFocusRequester,
+                LocalKidsMode provides kidsMode,
+                LocalMoreLikeThisNavigator provides { type, id, title ->
+                    navController.navigate(Screen.MoreLikeThis.createRoute(type, id, title))
+                }
             ) {
                 NuvioNavHost(
                     navController = navController,

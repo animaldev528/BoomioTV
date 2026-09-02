@@ -34,6 +34,7 @@ import com.nuvio.tv.ui.screens.addon.AddonManagerScreen
 import com.nuvio.tv.ui.screens.addon.CatalogOrderScreen
 import com.nuvio.tv.ui.screens.kids.KidWallKind
 import com.nuvio.tv.ui.screens.kids.KidWallScreen
+import com.nuvio.tv.ui.screens.kids.MoreLikeThisScreen
 import com.nuvio.tv.ui.screens.library.LibraryScreen
 import com.nuvio.tv.ui.screens.player.PlayerExitReason
 import com.nuvio.tv.ui.screens.player.PlayerScreen
@@ -1543,6 +1544,35 @@ private fun PlaybackNavHost(
                     navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
                 },
 
+                onBackPress = { navController.popBackStack() }
+            )
+        }
+
+        // More-like-this result wall (kids long-press action). Registered
+        // unconditionally (like the kids walls) so a process-death back-stack
+        // restore can never hit an unregistered route.
+        composable(
+            route = Screen.MoreLikeThis.route,
+            arguments = listOf(
+                navArgument("itemType") { type = NavType.StringType },
+                navArgument("itemId") { type = NavType.StringType },
+                navArgument("title") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val itemType = backStackEntry.arguments?.getString("itemType").orEmpty()
+            val itemId = backStackEntry.arguments?.getString("itemId").orEmpty()
+            val title = backStackEntry.arguments?.getString("title")
+            MoreLikeThisScreen(
+                itemType = itemType,
+                itemId = itemId,
+                title = title,
+                onNavigateToDetail = { detailId, detailType, addonBaseUrl ->
+                    navController.navigate(Screen.Detail.createRoute(detailId, detailType, addonBaseUrl))
+                },
                 onBackPress = { navController.popBackStack() }
             )
         }

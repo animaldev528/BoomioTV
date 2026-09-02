@@ -3,6 +3,7 @@ package com.nuvio.tv.data.remote.api
 import com.nuvio.tv.data.remote.dto.AddonManifestDto
 import com.nuvio.tv.data.remote.dto.CatalogResponseDto
 import com.nuvio.tv.data.remote.dto.MetaResponseDto
+import com.nuvio.tv.data.remote.dto.MoreLikeThisResponseDto
 import com.nuvio.tv.data.remote.dto.StreamResponseDto
 import com.nuvio.tv.data.remote.dto.SubtitleResponseDto
 import retrofit2.Response
@@ -25,4 +26,7 @@ interface AddonApi {
 
     @GET
     suspend fun getSubtitles(@Url subtitleUrl: String): Response<SubtitleResponseDto>
+
+    @GET
+    suspend fun getMoreLikeThis(@Url moreLikeThisUrl: String): Response<MoreLikeThisResponseDto>
 }

@@ -25,6 +25,8 @@ import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.nuvio.tv.LocalKidsMode
+import com.nuvio.tv.LocalMoreLikeThisNavigator
 import com.nuvio.tv.R
 import com.nuvio.tv.core.tracking.TrackingMembershipRemovalImpact
 import com.nuvio.tv.core.tracking.TrackingMembershipRemovalConfirmation
@@ -48,6 +50,7 @@ fun PosterOptionsDialog(
     isWatchedPending: Boolean,
     onDismiss: () -> Unit,
     onDetails: () -> Unit,
+    onMoreLikeThis: (() -> Unit)? = null,
     onToggleLibrary: () -> Unit,
     onToggleWatched: () -> Unit
 ) {
@@ -73,6 +76,19 @@ fun PosterOptionsDialog(
             )
         ) {
             Text(stringResource(R.string.cw_action_go_to_details))
+        }
+
+        if (onMoreLikeThis != null) {
+            Button(
+                onClick = onMoreLikeThis,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.colors(
+                    containerColor = NuvioTheme.colors.BackgroundCard,
+                    contentColor = NuvioTheme.colors.TextPrimary
+                )
+            ) {
+                Text(stringResource(R.string.detail_tab_more_like_this))
+            }
         }
 
         Button(
@@ -213,6 +229,21 @@ fun PosterOptionsHost(
         val isSeries = target.apiType.equals("series", ignoreCase = true) ||
             target.apiType.equals("tv", ignoreCase = true) ||
             target.apiType.equals("anime", ignoreCase = true)
+        // Kids-only "More like this": surfaced only on kids profiles, and only for
+        // movie/series tiles (both resolve to an approved-content hub below). The
+        // action navigates to Screen.MoreLikeThis, whose screen re-resolves the
+        // leokid row addon by catalog id rather than trusting this tile's addon
+        // (cross-addon Saved tiles must still hit the approved universe).
+        val kidsMode = LocalKidsMode.current
+        val navigateMoreLikeThis = LocalMoreLikeThisNavigator.current
+        val onMoreLikeThis = if (kidsMode && navigateMoreLikeThis != null && (isMovie || isSeries)) {
+            {
+                navigateMoreLikeThis(if (isMovie) "movie" else "series", target.id, target.name)
+                controller.dismiss()
+            }
+        } else {
+            null
+        }
         PosterOptionsDialog(
             title = target.name,
             isInLibrary = state.isInLibrary,
@@ -227,6 +258,7 @@ fun PosterOptionsHost(
                 onNavigateToDetail(target.id, target.apiType, state.addonBaseUrl)
                 controller.dismiss()
             },
+            onMoreLikeThis = onMoreLikeThis,
             onToggleLibrary = {
                 if (state.librarySourceMode != LibrarySourceMode.LOCAL) {
                     controller.openListPicker()
