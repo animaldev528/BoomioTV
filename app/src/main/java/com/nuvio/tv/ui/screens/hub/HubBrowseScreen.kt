@@ -1,4 +1,7 @@
-@file:OptIn(ExperimentalTvMaterial3Api::class)
+@file:OptIn(
+    ExperimentalTvMaterial3Api::class,
+    androidx.compose.ui.ExperimentalComposeUiApi::class
+)
 
 package com.nuvio.tv.ui.screens.hub
 
@@ -128,10 +131,13 @@ fun HubBrowseScreen(
             }
 
             else -> {
+                // Weight lives here — this branch is inside the screen's Column,
+                // so the ribbon + rows area takes the remaining vertical space.
                 HubRibbonContent(
                     sections = uiState.sections,
                     onNavigateToDetail = onNavigateToDetail,
-                    onNavigateToDrillDown = onNavigateToDrillDown
+                    onNavigateToDrillDown = onNavigateToDrillDown,
+                    modifier = Modifier.weight(1f)
                 )
             }
         }
@@ -149,7 +155,8 @@ private val RowEdge = 52.dp
 private fun HubRibbonContent(
     sections: List<HubBrowseViewModel.HubBrowseSection>,
     onNavigateToDetail: (String, String, String) -> Unit,
-    onNavigateToDrillDown: (DrillTarget) -> Unit
+    onNavigateToDrillDown: (DrillTarget) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var selectedIndex by rememberSaveable { mutableStateOf(0) }
     val activeIndex = selectedIndex.coerceIn(0, sections.lastIndex)
@@ -184,9 +191,7 @@ private fun HubRibbonContent(
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .weight(1f)
+        modifier = modifier.fillMaxWidth()
     ) {
         if (showRibbon) {
             TabRow(
