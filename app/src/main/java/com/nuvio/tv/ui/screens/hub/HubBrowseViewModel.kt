@@ -192,7 +192,7 @@ class HubBrowseViewModel @Inject constructor(
             loadHubSectionRows(source)
         } else {
             val ex = fetchRow(source.addonId, source.addonName, source.addonBaseUrl, source.catalogId, source.catalogName, source.type)
-            if (ex == null || ex.row.items.isEmpty()) emptyList() else listOf(HubBrowseRow(ex.row, ex.drill))
+            if (ex == null || ex.row.items.isEmpty()) emptyList() else listOf(HubBrowseRow(ex.row, ex.target))
         }
         if (rows.isEmpty()) return null
         return HubBrowseSection(id = source.catalogId, groupName = source.catalogName, rows = rows)
@@ -217,7 +217,7 @@ class HubBrowseViewModel @Inject constructor(
             return if (hub.row.items.isEmpty()) {
                 emptyList()
             } else {
-                listOf(HubBrowseRow(hub.row, hub.drill))
+                listOf(HubBrowseRow(hub.row, hub.target))
             }
         }
         val rows = mutableListOf<HubBrowseRow>()
@@ -227,7 +227,7 @@ class HubBrowseViewModel @Inject constructor(
                 tile.id, tile.name, tile.apiType
             ) ?: continue
             if (sub.row.items.isEmpty()) continue
-            rows += HubBrowseRow(sub.row, sub.drill)
+            rows += HubBrowseRow(sub.row, sub.target)
         }
         return rows
     }
