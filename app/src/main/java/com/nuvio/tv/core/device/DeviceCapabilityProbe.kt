@@ -104,6 +104,7 @@ object DeviceCapabilityProbe {
             val mode = display.mode
             val hdrTypes: IntArray? = display.hdrCapabilities?.supportedHdrTypes
             val names = hdrTypes
+                ?.toList()
                 ?.mapNotNull { hdrTypeToken(it) }
                 // Fixed report order: dv, hdr10, hdr10plus, hlg.
                 ?.distinct()
