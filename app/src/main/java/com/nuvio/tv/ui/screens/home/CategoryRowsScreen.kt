@@ -18,6 +18,8 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.tv.ui.components.EmptyScreenState
 import com.nuvio.tv.ui.components.LoadingIndicator
+import com.nuvio.tv.ui.components.posteroptions.PosterOptionsHost
+import com.nuvio.tv.ui.components.posteroptions.PosterOptionsViewModel
 
 /**
  * Rows-browser: given a drill-down catalog (rec-<rowId>-drilldown), render each
@@ -34,13 +36,17 @@ fun CategoryRowsScreen(
     onNavigateToDetail: (String, String, String) -> Unit,
     onNavigateToDrillDown: (DrillTarget) -> Unit,
     onBackPress: () -> Unit,
-    viewModel: CategoryRowsViewModel = hiltViewModel()
+    viewModel: CategoryRowsViewModel = hiltViewModel(),
+    posterOptionsViewModel: PosterOptionsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(drillCatalogId, addonId, type) {
         viewModel.initialize(drillCatalogId, addonId, addonBaseUrl, type, title)
     }
     BackHandler { onBackPress() }
+
+    val posterOptionsController = posterOptionsViewModel.controller
+    val posterOptionsState by posterOptionsController.state.collectAsStateWithLifecycle()
 
     Column(Modifier.fillMaxSize().padding(top = 24.dp)) {
         Text(
@@ -64,10 +70,19 @@ fun CategoryRowsScreen(
                         row = rowState.row,
                         drill = rowState.drill,
                         onNavigateToDetail = onNavigateToDetail,
-                        onNavigateToDrillDown = onNavigateToDrillDown
+                        onNavigateToDrillDown = onNavigateToDrillDown,
+                        onItemLongPress = { item, addonBaseUrl ->
+                            posterOptionsController.show(item, addonBaseUrl)
+                        }
                     )
                 }
             }
         }
     }
+
+    PosterOptionsHost(
+        state = posterOptionsState,
+        controller = posterOptionsController,
+        onNavigateToDetail = onNavigateToDetail
+    )
 }

@@ -52,8 +52,11 @@ import androidx.tv.material3.Tab
 import androidx.tv.material3.TabRow
 import androidx.tv.material3.Text
 import com.nuvio.tv.R
+import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.EmptyScreenState
 import com.nuvio.tv.ui.components.LoadingIndicator
+import com.nuvio.tv.ui.components.posteroptions.PosterOptionsHost
+import com.nuvio.tv.ui.components.posteroptions.PosterOptionsViewModel
 import com.nuvio.tv.ui.screens.home.CategoryRow
 import com.nuvio.tv.ui.screens.home.DrillTarget
 import com.nuvio.tv.ui.theme.NuvioTheme
@@ -79,11 +82,17 @@ fun HubBrowseScreen(
     onNavigateToDetail: (String, String, String) -> Unit,
     onNavigateToDrillDown: (DrillTarget) -> Unit,
     onBackPress: () -> Unit,
-    viewModel: HubBrowseViewModel = hiltViewModel()
+    viewModel: HubBrowseViewModel = hiltViewModel(),
+    posterOptionsViewModel: PosterOptionsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.state.collectAsStateWithLifecycle()
     LaunchedEffect(kind) { viewModel.initialize(kind) }
     BackHandler { onBackPress() }
+
+    // Long-pressing a poster in the hub rows opens the same poster-options dialog
+    // Search/Catalog/Home use (Details / More like this / Add to library / Watched).
+    val posterOptionsController = posterOptionsViewModel.controller
+    val posterOptionsState by posterOptionsController.state.collectAsStateWithLifecycle()
 
     val titleText = stringResource(
         when (kind) {
@@ -138,11 +147,20 @@ fun HubBrowseScreen(
                     sections = uiState.sections,
                     onNavigateToDetail = onNavigateToDetail,
                     onNavigateToDrillDown = onNavigateToDrillDown,
+                    onItemLongPress = { item, addonBaseUrl ->
+                        posterOptionsController.show(item, addonBaseUrl)
+                    },
                     modifier = Modifier.weight(1f)
                 )
             }
         }
     }
+
+    PosterOptionsHost(
+        state = posterOptionsState,
+        controller = posterOptionsController,
+        onNavigateToDetail = onNavigateToDetail
+    )
 }
 
 /** Poster-row left margin shared with [CategoryRow]'s labels/posters. */
@@ -157,6 +175,7 @@ private fun HubRibbonContent(
     sections: List<HubBrowseViewModel.HubBrowseSection>,
     onNavigateToDetail: (String, String, String) -> Unit,
     onNavigateToDrillDown: (DrillTarget) -> Unit,
+    onItemLongPress: ((item: MetaPreview, addonBaseUrl: String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var selectedIndex by rememberSaveable { mutableStateOf(0) }
@@ -263,6 +282,7 @@ private fun HubRibbonContent(
                     drill = rowState.drill,
                     onNavigateToDetail = onNavigateToDetail,
                     onNavigateToDrillDown = onNavigateToDrillDown,
+                    onItemLongPress = onItemLongPress,
                     modifier = if (rowIndex == 0) {
                         Modifier.onFocusChanged { topRowFocused = it.hasFocus }
                     } else {

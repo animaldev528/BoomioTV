@@ -25,6 +25,7 @@ import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import com.nuvio.tv.domain.model.CatalogRow
+import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.ContentCard
 
 /**
@@ -44,7 +45,11 @@ internal fun CategoryRow(
     onNavigateToDetail: (String, String, String) -> Unit,
     onNavigateToDrillDown: (DrillTarget) -> Unit,
     modifier: Modifier = Modifier,
-    firstItemFocusRequester: FocusRequester? = null
+    firstItemFocusRequester: FocusRequester? = null,
+    // Long-press on a poster (remote MENU/hold). Host screens that show the
+    // shared poster-options dialog forward a handler; when null ContentCard
+    // keeps its default (no long-press interaction attached).
+    onItemLongPress: ((item: MetaPreview, addonBaseUrl: String) -> Unit)? = null
 ) {
     Column(modifier.padding(vertical = 10.dp)) {
         Text(
@@ -65,7 +70,10 @@ internal fun CategoryRow(
                     // first poster (the hub tab ribbon) forward a requester;
                     // the drill tile, if any, sits after the items.
                     focusRequester = if (index == 0) firstItemFocusRequester else null,
-                    onClick = { onNavigateToDetail(item.id, item.apiType, row.addonBaseUrl) }
+                    onClick = { onNavigateToDetail(item.id, item.apiType, row.addonBaseUrl) },
+                    onLongPress = onItemLongPress?.let { press ->
+                        { press(item, row.addonBaseUrl) }
+                    }
                 )
             }
             if (drill != null) {
