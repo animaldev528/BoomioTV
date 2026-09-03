@@ -45,6 +45,7 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
     @Inject lateinit var imagePerformancePreferences: ImagePerformancePreferences
     @Inject lateinit var simklAnimeIdPreferenceHolder: SimklAnimeIdPreferenceHolder
     @Inject lateinit var companionManager: com.nuvio.tv.core.boomio.BoomioCompanionManager
+    @Inject lateinit var deviceCapabilityReporter: com.nuvio.tv.core.device.DeviceCapabilityReporter
 
     companion object {
         /**
@@ -83,6 +84,8 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
         androidTvChannelSyncService.start()
         // Companion hub (bsc) connection; inert when BOOMIO_COMPANION_URL is blank.
         companionManager.start()
+        // Reports decode + sink capabilities to the bsm fleet view; inert when BSM_BASE_URL is blank.
+        deviceCapabilityReporter.start()
         // Load locale synchronously so it's available before Activity.attachBaseContext.
         // SharedPreferences reads are fast (cached in memory after first access).
         val tag = getSharedPreferences("app_locale", Context.MODE_PRIVATE)
