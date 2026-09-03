@@ -182,7 +182,11 @@ private fun CastDetailContent(
     val allCredits = remember(person.movieCredits, person.tvCredits) {
         (person.movieCredits + person.tvCredits)
             .distinctBy { it.id }
-            .sortedByDescending { releaseYearSortKey(it.releaseInfo) }
+            .sortedWith(
+                compareByDescending<MetaPreview> { it.voteCount ?: -1 }
+                    .thenByDescending { it.imdbRating ?: -1f }
+                    .thenByDescending { releaseYearSortKey(it.releaseInfo) }
+            )
     }
 
     val filmographyPosterStyle = remember(posterCardCornerRadiusDp) {

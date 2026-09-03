@@ -1509,6 +1509,7 @@ class TmdbMetadataService(
                     description = credit.overview?.takeIf { it.isNotBlank() },
                     releaseInfo = year,
                     imdbRating = credit.voteAverage?.toFloat(),
+                    voteCount = credit.voteCount,
                     genres = emptyList()
                 )
             }
@@ -1543,6 +1544,7 @@ class TmdbMetadataService(
                     description = credit.overview?.takeIf { it.isNotBlank() },
                     releaseInfo = year,
                     imdbRating = credit.voteAverage?.toFloat(),
+                    voteCount = credit.voteCount,
                     genres = emptyList()
                 )
             }
@@ -1577,6 +1579,7 @@ class TmdbMetadataService(
                     description = credit.overview?.takeIf { it.isNotBlank() },
                     releaseInfo = year,
                     imdbRating = credit.voteAverage?.toFloat(),
+                    voteCount = credit.voteCount,
                     genres = emptyList()
                 )
             }
@@ -1611,6 +1614,7 @@ class TmdbMetadataService(
                     description = credit.overview?.takeIf { it.isNotBlank() },
                     releaseInfo = year,
                     imdbRating = credit.voteAverage?.toFloat(),
+                    voteCount = credit.voteCount,
                     genres = emptyList()
                 )
             }
