@@ -18,6 +18,7 @@ import com.nuvio.tv.ui.components.posteroptions.PosterOptionsController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,6 +26,12 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+/** How many times a wall's first page may retry before surfacing the unavailable state. */
+private const val FIRST_PAGE_MAX_ATTEMPTS = 3
+
+/** Backoff base between first-page retries (multiplied by the attempt number). */
+private const val FIRST_PAGE_RETRY_BASE_MS = 1_500L
 
 /**
  * Full approved-content poster wall for the kids presentation (Leo's profile).
@@ -50,6 +57,7 @@ class KidWallViewModel @Inject constructor(
     val uiState: StateFlow<KidWallUiState> = _uiState.asStateFlow()
 
     private var discoveryJob: Job? = null
+    private var retryJob: Job? = null
     private var loadedForCatalogId: String? = null
 
     init {
@@ -61,6 +69,7 @@ class KidWallViewModel @Inject constructor(
         // ViewModel alive and re-runs the screen's LaunchedEffect) — nothing to rediscover.
         if (loadedForCatalogId == catalogId && _uiState.value.row != null) return
         discoveryJob?.cancel()
+        retryJob?.cancel()
         discoveryJob = viewModelScope.launch {
             addonRepository.getInstalledAddons().collect { addons ->
                 val enabled = addons.enabledAddons()
@@ -88,25 +97,41 @@ class KidWallViewModel @Inject constructor(
 
     private fun loadFirstPage(addon: Addon, catalog: CatalogDescriptor) {
         _uiState.update { it.copy(isInitialLoading = true, missingCatalog = false, loadError = null) }
-        viewModelScope.launch {
-            val result = catalogRepository.getCatalog(
-                addonBaseUrl = addon.baseUrl,
-                addonId = addon.id,
-                addonName = addon.displayName,
-                catalogId = catalog.id,
-                catalogName = catalog.name,
-                type = catalog.apiType,
-                skip = 0,
-                skipStep = catalog.skipStep(),
-                extraArgs = emptyMap(),
-                supportsSkip = catalog.supportsExtra("skip")
-            ).first { it !is NetworkResult.Loading }
-            when (result) {
-                is NetworkResult.Success ->
-                    _uiState.update { it.copy(row = result.data, isInitialLoading = false) }
-                is NetworkResult.Error ->
-                    _uiState.update { it.copy(isInitialLoading = false, loadError = result.message) }
-                NetworkResult.Loading -> Unit
+        retryJob?.cancel()
+        retryJob = viewModelScope.launch {
+            var attempt = 0
+            while (true) {
+                val result = catalogRepository.getCatalog(
+                    addonBaseUrl = addon.baseUrl,
+                    addonId = addon.id,
+                    addonName = addon.displayName,
+                    catalogId = catalog.id,
+                    catalogName = catalog.name,
+                    type = catalog.apiType,
+                    skip = 0,
+                    skipStep = catalog.skipStep(),
+                    extraArgs = emptyMap(),
+                    supportsSkip = catalog.supportsExtra("skip")
+                ).first { it !is NetworkResult.Loading }
+                when (result) {
+                    is NetworkResult.Success -> {
+                        _uiState.update { it.copy(row = result.data, isInitialLoading = false) }
+                        return@launch
+                    }
+                    is NetworkResult.Error -> {
+                        attempt += 1
+                        if (attempt >= FIRST_PAGE_MAX_ATTEMPTS) {
+                            _uiState.update { it.copy(isInitialLoading = false, loadError = result.message) }
+                            return@launch
+                        }
+                        // A first-open wall request can out-last the request timeout when
+                        // the row-addon server is cold; it keeps resolving in the background
+                        // and writes a warm cache, so a short retry usually lands instantly.
+                        // Only the first page retries — later pages never gate the wall.
+                        delay(FIRST_PAGE_RETRY_BASE_MS * attempt)
+                    }
+                    NetworkResult.Loading -> Unit
+                }
             }
         }
     }
