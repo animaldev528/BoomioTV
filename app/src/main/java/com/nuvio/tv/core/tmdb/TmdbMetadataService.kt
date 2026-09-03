@@ -14,6 +14,7 @@ import com.nuvio.tv.data.remote.api.TmdbImage
 import com.nuvio.tv.data.remote.api.TmdbPersonCreditCast
 import com.nuvio.tv.data.remote.api.TmdbPersonCreditCrew
 import com.nuvio.tv.data.remote.api.TmdbPersonCreditsResponse
+import com.nuvio.tv.data.remote.api.TmdbPersonSearchKnownFor
 import com.nuvio.tv.data.remote.api.TmdbRecommendationResult
 import com.nuvio.tv.data.remote.api.TmdbVideoResult
 import com.nuvio.tv.domain.model.ContentType
@@ -22,6 +23,7 @@ import com.nuvio.tv.domain.model.MetaCompany
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.MetaTrailer
 import com.nuvio.tv.domain.model.PersonDetail
+import com.nuvio.tv.domain.model.PersonSearchPreview
 import com.nuvio.tv.domain.model.PosterShape
 import java.time.LocalDate
 import java.util.Locale
@@ -1276,6 +1278,71 @@ class TmdbMetadataService(
                 } ?: emptyList()
             }
         )
+    }
+
+    /**
+     * Client-side person search for the Search "People" strip. The addon catalogs never
+     * surface TMDB's person results, so the TV client queries them directly and hands the
+     * tapped person to [fetchPersonDetail]'s CastDetail screen. Never throws — a failure
+     * or an empty result simply renders no People row.
+     */
+    suspend fun searchPeople(
+        query: String,
+        language: String = "en",
+        limit: Int = 12
+    ): List<PersonSearchPreview> =
+        withContext(ioDispatcher) {
+            val normalizedLanguage = normalizeTmdbLanguage(language)
+            val trimmed = query.trim()
+            if (trimmed.isEmpty()) return@withContext emptyList()
+            try {
+                val response = tmdbApi
+                    .searchPerson(TMDB_API_KEY, trimmed, normalizedLanguage)
+                    .body()
+                    ?: return@withContext emptyList()
+                response.results.orEmpty()
+                    .asSequence()
+                    .filter { !it.name.isNullOrBlank() }
+                    .take(limit)
+                    .map { result ->
+                        PersonSearchPreview(
+                            tmdbId = result.id,
+                            name = result.name.orEmpty(),
+                            profilePhotoUrl = buildImageUrl(result.profilePath, "w342"),
+                            knownForLabel = buildPersonKnownForLabel(
+                                department = result.knownForDepartment,
+                                knownFor = result.knownFor.orEmpty()
+                            )
+                        )
+                    }
+                    .toList()
+            } catch (e: Exception) {
+                Log.w(TAG, "searchPeople failed for \"$trimmed\"", e)
+                emptyList()
+            }
+        }
+
+    private fun buildPersonKnownForLabel(
+        department: String?,
+        knownFor: List<TmdbPersonSearchKnownFor>
+    ): String? {
+        val base = when {
+            department.isNullOrBlank() -> null
+            department.equals("Acting", ignoreCase = true) -> "Actor"
+            else -> department
+        }
+        val titles = knownFor.asSequence()
+            .mapNotNull { credit -> credit.title ?: credit.name }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .take(2)
+            .joinToString(" / ")
+        return when {
+            base != null && titles.isNotEmpty() -> "$base · $titles"
+            base != null -> base
+            titles.isNotEmpty() -> titles
+            else -> null
+        }
     }
 
     suspend fun fetchPersonDetail(

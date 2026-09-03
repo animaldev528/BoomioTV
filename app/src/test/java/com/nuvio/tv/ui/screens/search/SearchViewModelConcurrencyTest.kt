@@ -143,6 +143,8 @@ class SearchViewModelConcurrencyTest {
             watchProgressRepository = watchProgress,
             watchedSeriesStateHolder = watchedSeries,
             posterOptions = mockk<PosterOptionsController>(relaxed = true),
+            tmdbMetadataService = mockk<com.nuvio.tv.core.tmdb.TmdbMetadataService>(relaxed = true),
+            tmdbSettingsDataStore = mockk<com.nuvio.tv.data.local.TmdbSettingsDataStore>(relaxed = true),
             activityEventReporter = mockk(relaxed = true),
             // C8 adds a required `companionPlaybackBridge` to the ctor. A real
             // instance, not a mock: it is a no-arg, pure-Kotlin class of StateFlows

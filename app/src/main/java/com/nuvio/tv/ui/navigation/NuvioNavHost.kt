@@ -1159,6 +1159,9 @@ private fun PlaybackNavHost(
                         Screen.CatalogSeeAll.createRoute(catalogId, addonId, type, fromSearch = true)
                     )
                 },
+                onNavigateToCastDetail = { personId, personName, preferCrew ->
+                    navController.navigate(Screen.CastDetail.createRoute(personId, personName, preferCrew))
+                },
                 onOpenDiscover = { navController.navigate(Screen.Discover.route) }
             )
         }

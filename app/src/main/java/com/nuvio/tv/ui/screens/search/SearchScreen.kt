@@ -137,6 +137,7 @@ fun SearchScreen(
     viewModel: SearchViewModel = hiltViewModel(),
     onNavigateToDetail: (String, String, String) -> Unit,
     onNavigateToSeeAll: (catalogId: String, addonId: String, type: String) -> Unit = { _, _, _ -> },
+    onNavigateToCastDetail: (personId: Int, personName: String, preferCrew: Boolean) -> Unit = { _, _, _ -> },
     onOpenDiscover: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -152,6 +153,7 @@ fun SearchScreen(
     val voiceFocusRequester = remember { FocusRequester() }
     val searchFocusRequester = remember { FocusRequester() }
     val discoverFirstItemFocusRequester = remember { FocusRequester() }
+    val peopleEntryFocusRequester = remember { FocusRequester() }
     val recentClearHistoryFocusRequester = remember { FocusRequester() }
     val discoverButtonFocusRequester = remember { FocusRequester() }
     var isSearchFieldFocused by remember { mutableStateOf(false) }
@@ -404,17 +406,29 @@ fun SearchScreen(
         trimmedQuery.isEmpty() &&
             uiState.recentSearches.isNotEmpty()
     }
+    // People hits render as their own strip above the catalog rows, so "results" can exist even
+    // when no addon catalog answered the query.
+    val peopleVisible = remember(
+        isDiscoverMode,
+        trimmedSubmittedQuery,
+        uiState.people
+    ) {
+        !isDiscoverMode &&
+            trimmedSubmittedQuery.length >= MIN_SEARCH_QUERY_LENGTH &&
+            uiState.people.isNotEmpty()
+    }
     val canMoveToResults = remember(
         isDiscoverMode,
         uiState.discoverResults,
         trimmedSubmittedQuery,
-        uiState.catalogRows
+        uiState.catalogRows,
+        uiState.people
     ) {
         if (isDiscoverMode) {
             false
         } else {
             trimmedSubmittedQuery.length >= MIN_SEARCH_QUERY_LENGTH &&
-                uiState.catalogRows.any { it.items.isNotEmpty() }
+                (uiState.catalogRows.any { it.items.isNotEmpty() } || uiState.people.isNotEmpty())
         }
     }
     val submitCurrentQuery: (String) -> Unit = { submittedQuery ->
@@ -467,6 +481,20 @@ fun SearchScreen(
         if (focusResults && isDiscoverMode && uiState.discoverResults.isNotEmpty()) {
             delay(100)
             runCatching { discoverFirstItemFocusRequester.requestFocus() }
+            focusResults = false
+            pendingFocusMoveToResultsQuery = null
+            pendingFocusMoveSawSearching = false
+            pendingFocusMoveHadExistingSearchRows = false
+        }
+    }
+
+    // When a People strip is the first thing under the search input, D-pad down / a submitted
+    // search lands on it instead of catalog row 0 (see the focusedItemIndex gate below). A
+    // fresh-run focus target only — restoring search focus is left to the catalog rows.
+    LaunchedEffect(focusResults, peopleVisible) {
+        if (focusResults && peopleVisible && !restoringSearchFocus.value) {
+            delay(80)
+            runCatching { peopleEntryFocusRequester.requestFocus() }
             focusResults = false
             pendingFocusMoveToResultsQuery = null
             pendingFocusMoveSawSearching = false
@@ -682,6 +710,29 @@ fun SearchScreen(
                 )
             }
 
+            // People hits from TMDB surface above the addon catalog rows. Rendered whenever a
+            // submitted query returned person matches — even if no catalog row answered.
+            if (peopleVisible) {
+                item(key = "search_people") {
+                    PeopleRowSection(
+                        people = uiState.people,
+                        onPersonClick = { person ->
+                            onNavigateToCastDetail(person.tmdbId, person.name, preferCrew = false)
+                        },
+                        onPersonFocused = { _ ->
+                            // Mirrors the catalog rows' onItemFocused: once the user lands on (or
+                            // navigates within) the strip, retire any pending auto-focus so it can't
+                            // steal focus later.
+                            focusResults = false
+                            pendingFocusMoveToResultsQuery = null
+                            pendingFocusMoveSawSearching = false
+                            pendingFocusMoveHadExistingSearchRows = false
+                        },
+                        entryFocusRequester = peopleEntryFocusRequester
+                    )
+                }
+            }
+
             if (isDiscoverMode) {
                 if (showRecentSearches) {
                     item(key = "recent_searches") {
@@ -800,7 +851,8 @@ fun SearchScreen(
                         }
                     }
 
-                    !uiState.isSearching && !hasPendingUnsubmittedQuery && visibleCatalogRows.isEmpty() -> {
+                    !uiState.isSearching && !hasPendingUnsubmittedQuery &&
+                        visibleCatalogRows.isEmpty() && uiState.people.isEmpty() -> {
                         item {
                             EmptyScreenState(
                                 title = stringResource(R.string.search_no_results_title),
@@ -863,9 +915,10 @@ fun SearchScreen(
                                 focusedItemIndex = when {
                                     restoringSearchFocus.value && catalogKey == viewModel.savedFocusRowKey ->
                                         viewModel.savedFocusItemIndex
-                                    // The remembered card, not item 0. A query change clears
-                                    // the map, so a new search still lands on the first item.
-                                    focusResults && index == 0 ->
+                                    // C7 keeps the People strip from stealing the auto-focus,
+                                    // and keeps the remembered card rather than item 0. A query
+                                    // change clears the map, so a new search lands on the first.
+                                    focusResults && index == 0 && !peopleVisible ->
                                         searchRowFocusedItemIndex[catalogKey] ?: 0
                                     else -> -1
                                 },
