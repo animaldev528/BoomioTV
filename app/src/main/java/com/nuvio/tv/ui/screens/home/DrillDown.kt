@@ -27,12 +27,25 @@ fun MetaPreview.isDrillTile(): Boolean = id.startsWith(REC_DRILL_PREFIX)
 data class DrillExtraction(val row: CatalogRow, val target: DrillTarget?)
 
 /**
- * Fetch a catalog to completion across skip pages. The row addon pages at 25
- * titles while a deep shelf (a decade row) is intentionally richer than one
- * page — without this the browser silently truncated rows at the first page and
- * a 40-title 1980s row showed only 25 posters. Returns null when the first page
- * is empty or unreachable; otherwise concatenates the remaining pages (deduped)
- * onto the first [CatalogRow], carrying hasMore/nextSkip forward.
+ * Largest single row [fetchCatalogAll] will drain eagerly. Enough to fully render
+ * the deepest curated shelves (a decade/studio/genre sub-row is a few hundred
+ * titles at most) while bounding the pathological case where a "row" is really a
+ * whole catalog — a flat hub over the full approved universe (e.g. hub-leomovies)
+ * or a giant generic-addon fallback. Without the bound those rows chain
+ * sequential ~25-title pages for minutes on a weak device before the row appears
+ * ("Movies never loads"); with it the shelf still renders in full and runaway
+ * catalogs stop at a full-screen's worth instead of stalling first paint.
+ */
+private const val FETCH_ALL_MAX_ITEMS = 240
+
+/**
+ * Fetch a catalog to completion across skip pages, up to [maxItems]. The row
+ * addon pages at 25 titles while a deep shelf (a decade row) is intentionally
+ * richer than one page — without this the browser silently truncated rows at the
+ * first page and a 40-title 1980s row showed only 25 posters. Returns null when
+ * the first page is empty or unreachable; otherwise concatenates the remaining
+ * pages (deduped) onto the first [CatalogRow], carrying hasMore/nextSkip forward
+ * and stopping early once [maxItems] is reached.
  */
 suspend fun CatalogRepository.fetchCatalogAll(
     addonId: String,
@@ -41,7 +54,8 @@ suspend fun CatalogRepository.fetchCatalogAll(
     catalogId: String,
     catalogName: String,
     type: String,
-    skipStep: Int = 100
+    skipStep: Int = 100,
+    maxItems: Int = FETCH_ALL_MAX_ITEMS
 ): CatalogRow? {
     suspend fun page(skip: Int): CatalogRow? =
         (getCatalog(
@@ -65,16 +79,24 @@ suspend fun CatalogRepository.fetchCatalogAll(
     // tile to page 0, which must not shift the skip offset (or content between
     // the last poster and the tile would be skipped on the next page).
     var offset = first.items.count { !it.isDrillTile() }
-    while (offset > 0) {
+    while (offset > 0 && all.items.size < maxItems) {
         val next = page(offset) ?: break
         val content = next.items.filterNot { it.isDrillTile() }
         if (content.isEmpty()) {
             all = all.copy(hasMore = false)
             break
         }
+        // Fill only up to the cap: a giant catalog must not delay first paint by
+        // chaining the whole tail. Enough of this page to top up to maxItems.
+        val room = maxItems - all.items.size
         val fresh = content.filter { seen.add(it.id) }
-        all = all.copy(items = all.items + fresh, nextSkip = offset + content.size)
+        all = all.copy(
+            items = all.items + fresh.take(room),
+            nextSkip = offset + content.size,
+            hasMore = next.hasMore
+        )
         offset += content.size
+        if (all.items.size >= maxItems) break
     }
     return all
 }
