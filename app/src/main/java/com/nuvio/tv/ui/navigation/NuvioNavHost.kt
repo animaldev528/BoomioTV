@@ -1548,9 +1548,10 @@ private fun PlaybackNavHost(
             )
         }
 
-        // More-like-this result wall (kids long-press action). Registered
-        // unconditionally (like the kids walls) so a process-death back-stack
-        // restore can never hit an unregistered route.
+        // More-like-this result wall (long-press action on all profiles — kids
+        // walls + adult AI-search rows). Registered unconditionally (like the kids
+        // walls) so a process-death back-stack restore can never hit an
+        // unregistered route.
         composable(
             route = Screen.MoreLikeThis.route,
             arguments = listOf(

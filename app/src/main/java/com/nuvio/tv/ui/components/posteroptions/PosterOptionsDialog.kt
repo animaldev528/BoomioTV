@@ -25,7 +25,6 @@ import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
-import com.nuvio.tv.LocalKidsMode
 import com.nuvio.tv.LocalMoreLikeThisNavigator
 import com.nuvio.tv.R
 import com.nuvio.tv.core.tracking.TrackingMembershipRemovalImpact
@@ -229,14 +228,14 @@ fun PosterOptionsHost(
         val isSeries = target.apiType.equals("series", ignoreCase = true) ||
             target.apiType.equals("tv", ignoreCase = true) ||
             target.apiType.equals("anime", ignoreCase = true)
-        // Kids-only "More like this": surfaced only on kids profiles, and only for
-        // movie/series tiles (both resolve to an approved-content hub below). The
-        // action navigates to Screen.MoreLikeThis, whose screen re-resolves the
-        // leokid row addon by catalog id rather than trusting this tile's addon
-        // (cross-addon Saved tiles must still hit the approved universe).
-        val kidsMode = LocalKidsMode.current
+        // "More like this": offered on every profile (kids walls AND adult AI-search
+        // rows) for movie/series tiles. The action navigates to Screen.MoreLikeThis,
+        // whose screen re-resolves the ACTIVE profile's curated row addon rather than
+        // trusting this tile's addon (cross-addon Saved tiles must still hit the
+        // profile's curated universe). Titles outside that universe get a friendly
+        // empty wall ("Not on one of our lists").
         val navigateMoreLikeThis = LocalMoreLikeThisNavigator.current
-        val onMoreLikeThis = if (kidsMode && navigateMoreLikeThis != null && (isMovie || isSeries)) {
+        val onMoreLikeThis = if (navigateMoreLikeThis != null && (isMovie || isSeries)) {
             {
                 // Entry point from a wall/library: no parent wall to hide yet. When this
                 // long-press happens INSIDE a More-like-this wall the screen overrides

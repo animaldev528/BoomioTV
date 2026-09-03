@@ -222,13 +222,6 @@ data class SplashBackground(
 val LocalSplashBackground = compositionLocalOf { SplashBackground() }
 
 /**
- * True while the active profile is a kids profile (KIDS_PROFILE_IDS). Poster
- * options read this to decide whether to surface the kids-only "More like this"
- * action (Kyle/Audrey never see it).
- */
-val LocalKidsMode = compositionLocalOf { false }
-
-/**
  * Long-press "More like this": navigate to the More-like-this wall for a pressed
  * title, on any profile that has a curated row addon (kids walls + adult
  * AI-search rows). Null outside the sidebar scaffolds (e.g. onboarding), where the
@@ -1795,7 +1788,6 @@ private fun LegacySidebarScaffold(
             CompositionLocalProvider(
                 LocalSidebarExpanded provides (drawerState.currentValue == DrawerValue.Open),
                 LocalContentFocusRequester provides contentFocusRequester,
-                LocalKidsMode provides kidsMode,
                 LocalMoreLikeThisNavigator provides { type, id, title, exclude ->
                     navController.navigate(Screen.MoreLikeThis.createRoute(type, id, title, exclude))
                 }
@@ -2194,7 +2186,6 @@ private fun ModernSidebarScaffold(
             CompositionLocalProvider(
                 LocalSidebarExpanded provides isSidebarExpanded,
                 LocalContentFocusRequester provides contentFocusRequester,
-                LocalKidsMode provides kidsMode,
                 LocalMoreLikeThisNavigator provides { type, id, title, exclude ->
                     navController.navigate(Screen.MoreLikeThis.createRoute(type, id, title, exclude))
                 }

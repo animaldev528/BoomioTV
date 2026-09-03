@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.domain.model.Addon
-import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.MoreLikeThisList
 import com.nuvio.tv.domain.model.enabledAddons
@@ -23,17 +22,25 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * Result wall behind Leo's long-press "More like this". One instance per
+ * Result wall behind the long-press "More like this" (kids walls AND adult
+ * AI-search rows). One instance per
  * [com.nuvio.tv.ui.navigation.Screen.MoreLikeThis] route entry.
  *
- * Given a pressed approved title's type + tt id, it watches the active profile's
- * installed addons (same discovery as [KidWallViewModel]) until it finds the row
- * addon serving the matching hub catalog (hub-leomovies for movies, hub-leoshows
- * for series — re-resolved by catalog id, NOT the pressed tile's own addon, so a
- * Saved tile added from any addon still queries the approved leokid universe).
- * It then lazily pages the endpoint's approved co-members: page 0 on discovery,
+ * Given a pressed title's type + tt id, it watches the ACTIVE profile's
+ * installed addons (same discovery as [KidWallViewModel]) until it finds that
+ * profile's curated row addon — the publish_addons row manifests under a
+ * /row/ base URL. The more-like-this endpoint is per-user (keyed by the user id
+ * in the addon's URL, not by catalog or row), so ANY of the profile's row
+ * addons answers for its whole curated universe; the addon is re-resolved rather
+ * than trusting the pressed tile's own addon, so a Saved tile added from any
+ * addon still queries the profile's curated picks (hub-leomovies for Leo,
+ * hub-foryoupicksmovie & co. for adult personas — matched generically by the
+ * /row/ URL + a hub-* catalog of the requested media type).
+ * It then lazily pages the endpoint's curated co-members: page 0 on discovery,
  * later pages on scroll via [loadMore] (server offsets by skip = items seen so
- * far). The facet [lists] returned on page 0 feed the screen's caption chips.
+ * far). The facet [lists] returned on page 0 feed the screen's caption chips. A
+ * title outside the profile's curated universe returns an empty page, surfaced
+ * as a friendly empty wall.
  */
 @HiltViewModel
 class MoreLikeThisViewModel @Inject constructor(
@@ -67,11 +74,11 @@ class MoreLikeThisViewModel @Inject constructor(
                 // Empty still means the profile's addons aren't hydrated yet — keep waiting.
                 if (enabled.isEmpty()) return@collect
 
-                val catalogId = hubCatalogIdFor(itemType)
-                val addon = enabled.firstOrNull { a -> a.catalogs.any { it.id == catalogId } }
+                val addon = curatedRowAddonFor(enabled, itemType)
                 if (addon == null) {
-                    // Enabled set is loaded but none serves this hub yet (row addons not synced
-                    // since publish). Soft error; re-evaluate on the next emission.
+                    // Enabled set is loaded but none serves this profile's curated rows yet
+                    // (row addons not synced since publish). Soft error; re-evaluate on the
+                    // next emission.
                     _uiState.update {
                         it.copy(isInitialLoading = false, missingCatalog = true, loadError = null)
                     }
@@ -79,16 +86,15 @@ class MoreLikeThisViewModel @Inject constructor(
                 }
                 if (loadedForKey == key) return@collect // pages already loading
 
-                val catalog = addon.catalogs.first { it.id == catalogId }
                 loadedForKey = key
-                loadFirstPage(addon, catalog, metaId, exclude)
+                loadFirstPage(addon, normalizedType(itemType), metaId, exclude)
             }
         }
     }
 
     private fun loadFirstPage(
         addon: Addon,
-        catalog: CatalogDescriptor,
+        requestType: String,
         metaId: String,
         exclude: List<String>
     ) {
@@ -98,7 +104,7 @@ class MoreLikeThisViewModel @Inject constructor(
                 addonBaseUrl = addon.baseUrl,
                 addonId = addon.id,
                 addonName = addon.displayName,
-                type = catalog.apiType,
+                type = requestType,
                 metaId = metaId,
                 skip = 0,
                 exclude = exclude
@@ -196,10 +202,49 @@ data class MoreLikeThisUiState(
         get() = lists.distinctBy { it.name }.take(3).joinToString(" · ") { it.name }
 }
 
-/** The full approved-content hub catalog that serves MLT for a given type. */
-fun hubCatalogIdFor(itemType: String): String =
-    if (itemType.equals("movie", ignoreCase = true)) {
-        KidWallKind.MOVIES.catalogId
+/**
+ * Resolve the ACTIVE profile's curated row addon that answers a more-like-this
+ * query for [itemType].
+ *
+ * publish_addons.py publishes each profile's curated rows as one addon per row
+ * under a `/row/<rowId>/` base URL (hub-leomovies/hub-leoshows for Leo,
+ * hub-foryoupicksmovie & co. for adult personas). The server's more-like-this
+ * resource is keyed by the user id embedded in that URL — the row id and catalog
+ * are irrelevant to the query — so ANY of the profile's row addons serves its
+ * whole curated universe. Resolution therefore scans the profile's enabled
+ * addons for a `/row/` addon, preferring one that advertises a `hub-*` catalog of
+ * the requested media type, then any `/row/` addon of that type, then any `/row/`
+ * addon at all. Returns null when the profile has no curated row addons (no
+ * persona published), which the caller surfaces as a soft "still updating" state.
+ */
+private fun curatedRowAddonFor(addons: List<Addon>, itemType: String): Addon? {
+    val rowAddons = addons.filter { "/row/" in it.baseUrl }
+    if (rowAddons.isEmpty()) return null
+
+    fun Addon.advertisesHubCatalog(): Boolean =
+        catalogs.any { it.id.startsWith("hub-") }
+
+    return rowAddons.firstOrNull { a -> a.advertisesHubCatalog() && a.servesType(itemType) }
+        ?: rowAddons.firstOrNull { it.servesType(itemType) }
+        ?: rowAddons.firstOrNull { it.advertisesHubCatalog() }
+        ?: rowAddons.first()
+}
+
+/** Whether a row addon advertises a catalog of the requested media type. */
+private fun Addon.servesType(itemType: String): Boolean =
+    catalogs.any { it.apiType.matchesType(itemType) }
+
+/** Server-facing media type: movie, or series (tv/anime presses are series). */
+private fun normalizedType(itemType: String): String =
+    if (itemType.equals("movie", ignoreCase = true)) "movie" else "series"
+
+private fun String.matchesType(itemType: String): Boolean {
+    val normalized = normalizedType(itemType)
+    return if (normalized == "movie") {
+        equals("movie", ignoreCase = true)
     } else {
-        KidWallKind.TV.catalogId
+        equals("series", ignoreCase = true) ||
+            equals("tv", ignoreCase = true) ||
+            equals("anime", ignoreCase = true)
     }
+}

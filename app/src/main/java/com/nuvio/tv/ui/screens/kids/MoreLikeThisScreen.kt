@@ -64,11 +64,12 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 private fun mltItemFocusKey(item: MetaPreview): String = "${item.apiType}:${item.id}"
 
 /**
- * "More like <title>": the approved co-members sharing hidden curated facet lists
- * with the pressed title (see Screen.MoreLikeThis). Paged with infinite scroll like
- * the full walls; every tile's long-press opens the same poster options, so
- * recursive "More like this" and Add-to-library work for free. Reachable only in
- * kids mode from the long-press menu (Kyle/Audrey never see the action).
+ * "More like <title>": the co-members sharing the ACTIVE profile's curated facet
+ * lists with the pressed title (see Screen.MoreLikeThis). Works for both the kids
+ * walls and adult AI-search rows. Paged with infinite scroll like the full walls;
+ * every tile's long-press opens the same poster options, so recursive "More like
+ * this" and Add-to-library work for free. A title outside the profile's curated
+ * universe surfaces a friendly empty wall.
  */
 @Composable
 fun MoreLikeThisScreen(

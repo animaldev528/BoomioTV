@@ -14,9 +14,10 @@ sealed class Screen(val route: String) {
     // unregistered route (see MainActivity KIDS_PROFILE_IDS).
     data object KidsMovies : Screen("kids_movies")
     data object KidsTv : Screen("kids_tv")
-    // Kids-only result wall behind the long-press "More like this" action. itemId is
-    // the approved title's tt id; the screen re-resolves the leokid row addon by type
-    // (hub-leomovies / hub-leoshows), so it works for tiles pressed on any wall.
+    // Result wall behind the long-press "More like this" action (all profiles: kids
+    // walls + adult AI-search rows). itemId is the pressed title's tt id; the screen
+    // re-resolves the ACTIVE profile's curated row addon by media type, so it works
+    // for tiles pressed on any wall/library regardless of source addon.
     data object MoreLikeThis : Screen("kids_more_like_this/{itemType}/{itemId}?title={title}&exclude={exclude}") {
         private fun encode(value: String): String =
             URLEncoder.encode(value, "UTF-8").replace("+", "%20")
