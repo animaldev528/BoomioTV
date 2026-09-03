@@ -717,7 +717,7 @@ fun SearchScreen(
                     PeopleRowSection(
                         people = uiState.people,
                         onPersonClick = { person ->
-                            onNavigateToCastDetail(person.tmdbId, person.name, preferCrew = false)
+                            onNavigateToCastDetail(person.tmdbId, person.name, false)
                         },
                         onPersonFocused = { _ ->
                             // Mirrors the catalog rows' onItemFocused: once the user lands on (or
