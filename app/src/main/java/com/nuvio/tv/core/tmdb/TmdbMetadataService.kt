@@ -1366,7 +1366,22 @@ class TmdbMetadataService(
                     Pair(personDeferred.await(), creditsDeferred.await())
                 }
 
-                if (person == null) return@withContext null
+                if (person == null) {
+                    Log.e(TAG, "fetchPersonDetail: no person profile for ${personId}")
+                    return@withContext null
+                }
+
+                // A 200 combined-credits body always carries cast/crew (possibly empty
+                // arrays) — so a null body here means the credits request itself failed
+                // (HTTP error / throttling / parse failure), NOT that the person has no
+                // known works. Coercing that into an empty filmography is why "things
+                // they're in" silently showed nothing (#12); failing instead surfaces
+                // the error+retry state and, because nothing is cached on this path, a
+                // retry can actually recover.
+                if (credits == null) {
+                    Log.e(TAG, "fetchPersonDetail: combined credits request failed for ${personId}")
+                    return@withContext null
+                }
 
                 val isCjkLanguage = normalizedLanguage.startsWith("ja") ||
                     normalizedLanguage.startsWith("ko") ||
