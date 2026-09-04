@@ -124,7 +124,11 @@ class ProfileSyncService @Inject constructor(
                         avatarId = entry.avatarId,
                         avatarUrl = entry.avatarUrl,
                         profileBackgroundId = entry.profileBackgroundId,
-                        profileBackgroundUrl = entry.profileBackgroundUrl
+                        profileBackgroundUrl = entry.profileBackgroundUrl,
+                        curatedEnabled = entry.curatedEnabled,
+                        tasteCompleted = entry.tasteCompleted,
+                        tasteEnabled = entry.tasteEnabled,
+                        isKids = entry.isKids
                     )
                 }
 

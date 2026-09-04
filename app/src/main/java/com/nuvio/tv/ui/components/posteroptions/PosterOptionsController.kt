@@ -1,9 +1,13 @@
 package com.nuvio.tv.ui.components.posteroptions
 
 import android.util.Log
+import com.nuvio.tv.core.like.resolveLikeTarget
 import com.nuvio.tv.core.network.NetworkResult
+import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.sync.LikeSyncService
 import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.core.tracking.TrackingMembershipRemovalConfirmation
+import com.nuvio.tv.data.local.LikePreferences
 import com.nuvio.tv.core.tracking.mergeTrackingMembershipWithTabs
 import com.nuvio.tv.core.tracking.toggleTrackingMembershipSelection
 import com.nuvio.tv.data.local.WatchedSeriesStateHolder
@@ -46,7 +50,10 @@ class PosterOptionsController @Inject constructor(
     private val watchProgressRepository: WatchProgressRepository,
     private val metaRepository: MetaRepository,
     private val watchedSeriesStateHolder: WatchedSeriesStateHolder,
-    private val tmdbService: TmdbService
+    private val tmdbService: TmdbService,
+    private val likePreferences: LikePreferences,
+    private val likeSyncService: LikeSyncService,
+    private val profileManager: ProfileManager
 ) {
     private val _state = MutableStateFlow(PosterOptionsState())
     val state: StateFlow<PosterOptionsState> = _state.asStateFlow()
@@ -131,6 +138,18 @@ class PosterOptionsController @Inject constructor(
                 }
             }
             .launchIn(scope)
+
+        // Like-bootstrap gate: offer Like only when the ACTIVE profile is
+        // server-opted-in (taste_enabled) and not a kids profile. Tracks profile
+        // switches live.
+        combine(profileManager.profiles, profileManager.activeProfileId) { profiles, id ->
+            profiles.find { it.id == id }?.likeBootstrapEnabled == true
+        }
+            .distinctUntilChanged()
+            .onEach { enabled ->
+                _state.update { current -> current.copy(likeVisible = enabled) }
+            }
+            .launchIn(scope)
     }
 
     fun show(item: MetaPreview, addonBaseUrl: String?) {
@@ -152,6 +171,17 @@ class PosterOptionsController @Inject constructor(
                 }.getOrDefault(false)
             }
 
+            // Like-bootstrap identity + initial membership, resolved from the ORIGINAL
+            // tile id (canonicalization may have replaced it with an IMDb id).
+            val likeTarget = runCatching { resolveLikeTarget(item, tmdbService) }.getOrNull()
+            val initialLiked = if (likeTarget != null) {
+                runCatching {
+                    likePreferences.isLikedNow(likeTarget.pickType.wire, likeTarget.tmdbId)
+                }.getOrDefault(false)
+            } else {
+                false
+            }
+
             _state.update { current ->
                 current.copy(
                     target = canonical,
@@ -160,7 +190,11 @@ class PosterOptionsController @Inject constructor(
                     isInLibrary = initialIsInLibrary,
                     isWatched = initialIsWatched,
                     isLibraryPending = false,
-                    isWatchedPending = false
+                    isWatchedPending = false,
+                    likeVisible = profileManager.activeProfile?.likeBootstrapEnabled == true,
+                    likeTarget = likeTarget,
+                    isLiked = initialLiked,
+                    isLikePending = false
                 )
             }
             targetFlow.value = canonical
@@ -192,7 +226,48 @@ class PosterOptionsController @Inject constructor(
         showJob?.cancel()
         showJob = null
         targetFlow.value = null
-        _state.update { it.copy(target = null) }
+        _state.update {
+            it.copy(target = null, likeTarget = null, isLiked = false, isLikePending = false)
+        }
+    }
+
+    /**
+     * Optimistically flips the like state of the current target, persists it
+     * locally, then mirrors it to the server via [LikeSyncService]. On a sync
+     * failure the local write is reverted so the button reflects the server pool
+     * (the operator watcher rebuilds home from that pool).
+     */
+    fun toggleLike() {
+        val state = _state.value
+        val target = state.likeTarget ?: return
+        if (!state.likeVisible || state.isLikePending) return
+        val scope = this.scope ?: return
+
+        val profileId = profileManager.activeProfileId.value
+        val desired = !state.isLiked
+        _state.update { it.copy(isLikePending = true, isLiked = desired) }
+        scope.launch {
+            likePreferences.setLiked(
+                typeWire = target.pickType.wire,
+                tmdbId = target.tmdbId,
+                name = target.name,
+                liked = desired,
+                profileId = profileId
+            )
+            likeSyncService.toggleLike(profileId, target, desired).onFailure { error ->
+                Log.w(TAG, "Failed to sync like for ${target.pickType.wire}:${target.tmdbId}: ${error.message}")
+                // Revert the optimistic local write + button state.
+                likePreferences.setLiked(
+                    typeWire = target.pickType.wire,
+                    tmdbId = target.tmdbId,
+                    name = target.name,
+                    liked = !desired,
+                    profileId = profileId
+                )
+                _state.update { it.copy(isLiked = !desired) }
+            }
+            _state.update { it.copy(isLikePending = false) }
+        }
     }
 
     fun toggleLibrary() {

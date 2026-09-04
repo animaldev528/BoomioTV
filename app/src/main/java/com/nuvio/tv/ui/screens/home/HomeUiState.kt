@@ -12,6 +12,7 @@ import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.LibraryListTab
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.domain.model.TastePick
 import com.nuvio.tv.domain.model.WatchProgress
 
 @Immutable
@@ -51,6 +52,18 @@ data class HomeUiState(
     val movieWatchedStatus: Map<String, Boolean> = emptyMap(),
     val posterLibraryPending: Set<String> = emptySet(),
     val movieWatchedPending: Set<String> = emptySet(),
+    // Like-bootstrap (movie/series only). posterLikeVisible is the profile gate
+    // (active profile taste_enabled && !is_kids); posterLikeTargets holds the
+    // resolved movie:<tmdb>/series:<tmdb> identity per tile key (absent when the
+    // tile isn't likable), populated on each dialog open so it is always fresh.
+    val posterLikeVisible: Boolean = false,
+    val posterLikeTargets: Map<String, TastePick> = emptyMap(),
+    val posterLikeMembership: Map<String, Boolean> = emptyMap(),
+    val posterLikePending: Set<String> = emptySet(),
+    // First-run hint ("long-press a title you like" + "Done for now"), shown until
+    // the profile hits Done (server+local taste_completed).
+    val showTasteHint: Boolean = false,
+    val tasteHintBusy: Boolean = false,
     val showPosterListPicker: Boolean = false,
     val posterListPickerTitle: String? = null,
     val posterListPickerContentType: String? = null,

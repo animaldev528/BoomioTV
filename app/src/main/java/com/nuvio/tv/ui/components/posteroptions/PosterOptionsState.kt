@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import com.nuvio.tv.domain.model.LibraryListTab
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.domain.model.TastePick
 import com.nuvio.tv.core.tracking.TrackingMembershipRemovalConfirmation
 
 @Immutable
@@ -16,6 +17,13 @@ data class PosterOptionsState(
     val isWatched: Boolean = false,
     val isLibraryPending: Boolean = false,
     val isWatchedPending: Boolean = false,
+    // Like-bootstrap (movie/series only). likeVisible is the profile gate
+    // (active profile opted in and not kids); likeTarget is the resolved
+    // movie:<tmdb>/series:<tmdb> identity (null when the tile isn't likable).
+    val likeVisible: Boolean = false,
+    val likeTarget: TastePick? = null,
+    val isLiked: Boolean = false,
+    val isLikePending: Boolean = false,
     val librarySourceMode: LibrarySourceMode = LibrarySourceMode.LOCAL,
     val libraryListTabs: List<LibraryListTab> = emptyList(),
     val listPickerActive: Boolean = false,
