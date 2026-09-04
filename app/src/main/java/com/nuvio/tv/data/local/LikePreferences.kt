@@ -40,6 +40,8 @@ class LikePreferences @Inject constructor(
 
     /** Canonical key / component helpers shared with the RPC + UI layers. */
     companion object {
+        private const val FEATURE = "like_preferences"
+
         fun keyFor(typeWire: String, tmdbId: Long): String = "$typeWire:$tmdbId"
 
         fun splitKey(key: String): Pair<String, Long>? {
@@ -122,7 +124,4 @@ class LikePreferences @Inject constructor(
         }
     }
 
-    private companion object {
-        const val FEATURE = "like_preferences"
-    }
 }
