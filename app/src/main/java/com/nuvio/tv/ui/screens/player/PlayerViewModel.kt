@@ -218,6 +218,11 @@ class PlayerViewModel @Inject constructor(
             // handler. Scales this player's own audio; device volume is untouched.
             controller.exoPlayer?.volume = fraction.coerceIn(0f, 1f)
         }
+        override fun startPhoneAudioFork(phoneIp: String, port: Int): Boolean =
+            controller.startPhoneAudioFork(phoneIp, port)
+        override fun stopPhoneAudioFork() = controller.stopPhoneAudioFork()
+        override val isPhoneAudioForkActive: Boolean
+            get() = controller.isPhoneAudioForkActive()
     }
 
     init {
@@ -348,6 +353,10 @@ class PlayerViewModel @Inject constructor(
 
     override fun onCleared() {
         companionPlaybackBridge.unregisterActivePlayer(companionActivePlayer)
+        // Release the fork before the bridge loses the active player, so the phone gets a clean
+        // end even if no audio_fork_stop frame ever arrives. (The controller also stops it on
+        // release — this covers the gap between VM teardown and the controller's own lifecycle.)
+        companionActivePlayer.stopPhoneAudioFork()
         postPlayRecommendationController.stop()
         controller.onCleared()
         // Allow the trailer player to be re-created when returning to home screen.

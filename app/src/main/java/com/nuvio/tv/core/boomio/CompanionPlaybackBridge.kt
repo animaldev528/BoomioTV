@@ -55,6 +55,23 @@ interface ActiveCompanionPlayer {
      * blocks device-stream volume changes — scaling the player is always honored.
      */
     fun setVolume(fraction: Float)
+
+    /**
+     * Arm Roku-style private listening: tee the audio this player is already decoding for its own
+     * speakers to the phone at [phoneIp]:[phonePort] over UDP. The phone supplies its LAN address
+     * (never server-derived — the hub relays `phoneIp`/`port` as-is). Fails when the player can't
+     * fork (e.g. running on the mpv engine, which has no decoded-audio seam).
+     *
+     * @return true when a fork is now streaming; false with no state change otherwise.
+     */
+    fun startPhoneAudioFork(phoneIp: String, port: Int): Boolean = false
+
+    /** Unarm private listening. Safe to call when nothing is forked. */
+    fun stopPhoneAudioFork() = Unit
+
+    /** True while a private-listening fork is streaming to a phone ("phone attached"). */
+    val isPhoneAudioForkActive: Boolean
+        get() = false
 }
 
 /**

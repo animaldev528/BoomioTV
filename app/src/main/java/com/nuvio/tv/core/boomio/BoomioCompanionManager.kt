@@ -8,6 +8,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import android.view.KeyEvent
 import android.widget.Toast
 import com.nuvio.tv.BuildConfig
@@ -38,6 +39,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.pow
 
+private const val TAG = "BoomioCompanionManager"
+
 /**
  * The TV's companion receiver for the bsc companion hub.
  *
@@ -51,7 +54,12 @@ import kotlin.math.pow
  * / `party_seek`; inbound `play` / `stealth_playpause` / `party_set_playing`
  * / `party_seek` / `party_ended` / `stop` / `companion_paired` / `companion_unpaired`
  * / `scrub_start` / `scrub_update` / `scrub_commit` / `stealth_volume` {percent}
- * / `stealth_keyevent` {keyCode}.
+ * / `stealth_keyevent` {keyCode} / `audio_fork_start` {phoneIp, port} / `audio_fork_stop`.
+ *
+ * `audio_fork_*` are the phone-remote private-listening surface: the TV tees the audio it is
+ * already decoding to the phone over direct LAN UDP. The phone supplies `phoneIp`/`port` — the hub
+ * relays them, it never derives them (R3). Explicit stop and the hub's heartbeat-driven stop
+ * (`audio_fork_stop { reason: "phone_timeout" }`) both arrive as `audio_fork_stop`.
  */
 @Singleton
 class BoomioCompanionManager @Inject constructor(
@@ -285,11 +293,59 @@ class BoomioCompanionManager @Inject constructor(
             "stop" -> bridge.activePlayer.value?.stop()
             "companion_paired" -> showToast("Phone connected")
             "companion_unpaired" -> showToast("Phone disconnected")
-            // audio_fork_* remain the phone remote (N2) surface; scrub_*,
-            // stealth_volume, stealth_keyevent, stealth_search and keyboard_*
-            // are handled above.
+            // Roku-style private listening (phone remote, N2): tee this TV's decoded audio to the
+            // phone over direct LAN UDP. phoneIp/port are phone-supplied — the hub relays them, it
+            // never derives them (R3). Explicit stop and the hub's heartbeat-driven
+            // audio_fork_stop { reason: "phone_timeout" } both land here.
+            "audio_fork_start" -> handleAudioForkStart(msg)
+            "audio_fork_stop" -> {
+                bridge.activePlayer.value?.stopPhoneAudioFork()
+                sendAudioForkStatus(status = "stopped")
+                if (msg.optString("reason") == "phone_timeout") {
+                    Log.i(TAG, "Private listening ended: phone heartbeat timed out")
+                }
+            }
             else -> Unit
         }
+    }
+
+    /**
+     * Arm private listening to the phone that requested it. The phone must supply its actual LAN
+     * IP + the UDP port it is listening on (R3); with no active player, or an address the player
+     * cannot fork to (mpv engine, no Exo sink), the request fails with a reason the phone can show.
+     */
+    private fun handleAudioForkStart(msg: JSONObject) {
+        val player = bridge.activePlayer.value
+        if (player == null) {
+            sendAudioForkStatus(status = "error", reason = "no_active_player")
+            return
+        }
+        val phoneIp = msg.optString("phoneIp")
+        val port = msg.optInt("port", -1)
+        if (phoneIp.isBlank() || port !in 1..65535) {
+            sendAudioForkStatus(status = "error", reason = "bad_phone_address")
+            return
+        }
+        if (player.startPhoneAudioFork(phoneIp, port)) {
+            Log.i(TAG, "Private listening started -> $phoneIp:$port")
+            sendAudioForkStatus(status = "started")
+        } else {
+            // Engine not Exo, sink not live, or a fork is already running.
+            sendAudioForkStatus(status = "error", reason = "fork_unavailable")
+        }
+    }
+
+    /**
+     * Ack an audio_fork command back to the phone. `bsc/services/device-relay.js` forwards any
+     * `audio_fork`-typed frame from a TV to its paired phone, so acking with the same type gives
+     * the phone's private-listening UI a reliable started/stopped/error signal.
+     */
+    private fun sendAudioForkStatus(status: String, reason: String? = null) {
+        webSocket?.send(JSONObject().apply {
+            put("type", "audio_fork")
+            put("status", status)
+            reason?.let { put("reason", it) }
+        }.toString())
     }
 
     private fun audioManager(): AudioManager? =

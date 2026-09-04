@@ -380,6 +380,9 @@ class PlayerRuntimeController(
         }
     }
 
+    /** True while a private-listening fork is streaming to a phone — the "phone attached" diagnostic. */
+    fun isPhoneAudioForkActive(): Boolean = privateListeningAudioSink?.isForkActive == true
+
     internal var _exoPlayer: ExoPlayer? = null
     val exoPlayer: ExoPlayer?
         get() = _exoPlayer
