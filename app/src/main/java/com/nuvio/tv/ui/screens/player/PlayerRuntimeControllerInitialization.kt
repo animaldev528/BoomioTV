@@ -129,6 +129,9 @@ private suspend fun PlayerRuntimeController.resolveCurrentStreamMimeType(
 }
 
 private fun PlayerRuntimeController.disposeExoPlayerBeforeRebuild() {
+    // Never let a private-listening fork outlive its player: stop the UDP sender and release the
+    // phone force-PCM pin before the sink stack is torn down.
+    stopPhoneAudioFork()
     notifyAudioSessionUpdate(false)
     try {
         currentMediaSession?.release()
@@ -145,6 +148,7 @@ private fun PlayerRuntimeController.disposeExoPlayerBeforeRebuild() {
     }
     _exoPlayer = null
     playbackSpeedAwareAudioSink = null
+    privateListeningAudioSink = null
 }
 
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -911,6 +915,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                 initialForcePcm = hasTriedAudioPcmFallback || isBluetoothAudioOutput,
                 preferSoftwareAudioOnly = isBluetoothAudioOutput,
                 onPlaybackSpeedAwareAudioSinkCreated = { playbackSpeedAwareAudioSink = it },
+                onPrivateListeningAudioSinkCreated = { privateListeningAudioSink = it },
                 onFfmpegAudioRendererChanged = { renderer ->
                     ffmpegAudioRenderer = renderer
                     renderer?.applyDownmixSettings(
@@ -2167,6 +2172,7 @@ private class SubtitleOffsetRenderersFactory(
      */
     private val preferSoftwareAudioOnly: Boolean = false,
     private val onPlaybackSpeedAwareAudioSinkCreated: (PlaybackSpeedAwareAudioSink) -> Unit,
+    private val onPrivateListeningAudioSinkCreated: (PrivateListeningAudioSink) -> Unit,
     private val onFfmpegAudioRendererChanged: (FfmpegAudioRenderer?) -> Unit
 ) : DefaultRenderersFactory(context) {
 
@@ -2220,12 +2226,18 @@ private class SubtitleOffsetRenderersFactory(
             .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
             .setAudioProcessors(arrayOf(gainAudioProcessor))
         val baseAudioSink = builder.build()
+        // Private-listening tee sits INSIDE the speed-aware wrapper: buildAudioRenderers casts the
+        // sink back to PlaybackSpeedAwareAudioSink, so that wrapper must stay the outermost layer.
+        // The tee taps decoded PCM between the speed processor (inside DefaultAudioSink) and the
+        // renderer — i.e. the buffer exactly as decoded, pre-volume, pre-Sonic.
+        val privateListeningAudioSink = PrivateListeningAudioSink(sink = baseAudioSink)
         val playbackSpeedAwareAudioSink = PlaybackSpeedAwareAudioSink(
-            sink = baseAudioSink,
+            sink = privateListeningAudioSink,
             initialForcePcm = initialForcePcm,
             forcePcmForBluetooth = bluetoothForcePcm
         )
         playbackSpeedAwareAudioSink.setInitialPlaybackSpeed(playbackSpeedProvider())
+        onPrivateListeningAudioSinkCreated(privateListeningAudioSink)
         onPlaybackSpeedAwareAudioSinkCreated(playbackSpeedAwareAudioSink)
         return playbackSpeedAwareAudioSink
     }
