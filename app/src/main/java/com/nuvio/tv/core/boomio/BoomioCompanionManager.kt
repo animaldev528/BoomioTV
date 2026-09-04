@@ -340,11 +340,20 @@ class BoomioCompanionManager @Inject constructor(
             sendAudioForkStatus(status = "error", reason = "different_network")
             return
         }
+        // A fresh arm supersedes any fork still running from a previous phone (the phone can crash
+        // before audio_fork_stop reaches us; the hub heartbeat may not have reaped it yet, and the
+        // stale fork is streaming into a dead socket). Stop-then-start makes a re-arm deterministic
+        // instead of failing fork_unavailable against the stale fork (E2E: phone crash → re-arm said
+        // "couldn't start private listening" until a fresh file rebuilt the player).
+        if (player.isPhoneAudioForkActive) {
+            Log.i(TAG, "Private listening re-arm — stopping prior fork")
+            player.stopPhoneAudioFork()
+        }
         if (player.startPhoneAudioFork(phoneIp, port)) {
             Log.i(TAG, "Private listening started -> $phoneIp:$port")
             sendAudioForkStatus(status = "started")
         } else {
-            // Engine not Exo, sink not live, or a fork is already running.
+            // Engine not Exo, or the audio sink is not fork-capable for this playback.
             sendAudioForkStatus(status = "error", reason = "fork_unavailable")
         }
     }
