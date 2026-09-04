@@ -12,6 +12,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -130,6 +131,9 @@ fun HomeScreen(
     // Track that catalog loading has started at least once (isLoading went true→false).
     var catalogLoadingStarted by rememberSaveable { mutableStateOf(false) }
     var posterOptionsTarget by remember { mutableStateOf<HomePosterOptionsTarget?>(null) }
+    // "Not now" on the taste hint hides it for the rest of this process run; it
+    // comes back next launch until the profile hits "Done for now".
+    var tasteHintDismissed by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(uiState.homeLayout) {
         if (uiState.homeLayout != HomeLayout.MODERN) {
@@ -154,6 +158,7 @@ fun HomeScreen(
         { item, addonBaseUrl ->
             posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl)
             viewModel.refreshPosterLibraryStatus(item)
+            viewModel.refreshPosterLikeStatus(item)
         }
     }
 
@@ -431,6 +436,20 @@ fun HomeScreen(
                 )
             }
         }
+
+        // Like-bootstrap first-run hint: "long-press a title you like" + Done. Shown
+        // once home content is actually on screen, hidden for this run on "Not now",
+        // gone for good once the profile hits Done (taste_completed flips server-side).
+        if (uiState.showTasteHint && !tasteHintDismissed && hasShownInitialHomeContent) {
+            HomeTasteHintBanner(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = NuvioTheme.spacing.xl),
+                busy = uiState.tasteHintBusy,
+                onDone = { viewModel.completeTasteOnboarding() },
+                onLater = { tasteHintDismissed = true }
+            )
+        }
     }
 
     val selectedPoster = posterOptionsTarget
@@ -475,6 +494,14 @@ fun HomeScreen(
                     viewModel.togglePosterLibrary(item, selectedPoster.addonBaseUrl)
                 }
                 posterOptionsTarget = null
+            },
+            showLike = uiState.posterLikeVisible && statusKey in uiState.posterLikeTargets,
+            isLiked = uiState.posterLikeMembership[statusKey] == true,
+            isLikePending = statusKey in uiState.posterLikePending,
+            onToggleLike = if (uiState.posterLikeVisible && statusKey in uiState.posterLikeTargets) {
+                { viewModel.togglePosterLike(item) }
+            } else {
+                null
             },
             onToggleWatched = {
                 if (isMovie) {
@@ -728,7 +755,14 @@ private fun HomePosterOptionsDialog(
     onDetails: () -> Unit,
     onMoreLikeThis: (() -> Unit)? = null,
     onToggleLibrary: () -> Unit,
-    onToggleWatched: () -> Unit
+    onToggleWatched: () -> Unit,
+    // Like-bootstrap row (mirrors the shared PosterOptionsDialog): present only for
+    // movie/series on an opted-in, non-kids profile, and only when the tile resolves
+    // to a tmdb id.
+    showLike: Boolean = false,
+    isLiked: Boolean = false,
+    isLikePending: Boolean = false,
+    onToggleLike: (() -> Unit)? = null
 ) {
     val primaryFocusRequester = remember { FocusRequester() }
 
@@ -764,6 +798,24 @@ private fun HomePosterOptionsDialog(
                 )
             ) {
                 Text(stringResource(R.string.detail_tab_more_like_this))
+            }
+        }
+
+        if (showLike && onToggleLike != null) {
+            Button(
+                onClick = onToggleLike,
+                enabled = !isLikePending,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.colors(
+                    containerColor = if (isLiked) NuvioTheme.colors.FocusBackground else NuvioTheme.colors.BackgroundCard,
+                    contentColor = NuvioTheme.colors.TextPrimary
+                )
+            ) {
+                Text(
+                    stringResource(
+                        if (isLiked) R.string.like_action_unlike else R.string.like_action_like
+                    )
+                )
             }
         }
 
@@ -806,6 +858,59 @@ private fun HomePosterOptionsDialog(
                         stringResource(R.string.hero_mark_watched)
                     }
                 )
+            }
+        }
+    }
+}
+
+/** Dismissible first-run banner teaching the long-press Like gesture. Green accent
+ *  to read as an invitation, not an error (the auth-notice box uses red). */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun HomeTasteHintBanner(
+    modifier: Modifier = Modifier,
+    busy: Boolean,
+    onDone: () -> Unit,
+    onLater: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .background(color = Color(0xFF1C4A2E), shape = RoundedCornerShape(10.dp))
+            .padding(horizontal = 20.dp, vertical = 12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = stringResource(R.string.taste_hint_message),
+                style = MaterialTheme.typography.bodyMedium,
+                color = NuvioTheme.colors.TextPrimary,
+                modifier = Modifier.padding(end = 18.dp)
+            )
+            Button(
+                onClick = onDone,
+                enabled = !busy,
+                colors = ButtonDefaults.colors(
+                    containerColor = NuvioTheme.colors.FocusBackground,
+                    contentColor = NuvioTheme.colors.TextPrimary
+                )
+            ) {
+                Text(
+                    if (busy) {
+                        stringResource(R.string.taste_hint_done_busy)
+                    } else {
+                        stringResource(R.string.taste_hint_done)
+                    }
+                )
+            }
+            Button(
+                onClick = onLater,
+                enabled = !busy,
+                modifier = Modifier.padding(start = 10.dp),
+                colors = ButtonDefaults.colors(
+                    containerColor = NuvioTheme.colors.BackgroundCard,
+                    contentColor = NuvioTheme.colors.TextPrimary
+                )
+            ) {
+                Text(stringResource(R.string.taste_hint_later))
             }
         }
     }

@@ -126,7 +126,9 @@ class ProfileSyncService @Inject constructor(
                         profileBackgroundId = entry.profileBackgroundId,
                         profileBackgroundUrl = entry.profileBackgroundUrl,
                         curatedEnabled = entry.curatedEnabled,
-                        tasteCompleted = entry.tasteCompleted
+                        tasteCompleted = entry.tasteCompleted,
+                        tasteEnabled = entry.tasteEnabled,
+                        isKids = entry.isKids
                     )
                 }
 

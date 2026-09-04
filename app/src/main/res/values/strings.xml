@@ -168,6 +168,12 @@
     <string name="cw_action_remove">Remove</string>
     <string name="cw_dialog_subtitle">Choose what you want to do with this item.</string>
     <string name="home_poster_dialog_subtitle">Title actions</string>
+    <string name="like_action_like">Like</string>
+    <string name="like_action_unlike">Unlike</string>
+    <string name="taste_hint_message">Long-press a title you like — we build your home from your likes.</string>
+    <string name="taste_hint_done">Done for now</string>
+    <string name="taste_hint_done_busy">Syncing…</string>
+    <string name="taste_hint_later">Not now</string>
 
     <string name="catalog_from_addon">from %1$s</string>
     <string name="action_see_all">See All</string>

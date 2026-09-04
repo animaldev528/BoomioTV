@@ -164,7 +164,6 @@ import com.nuvio.tv.ui.membership.LocalMemberAccess
 import com.nuvio.tv.ui.screens.account.AuthQrSignInScreen
 import com.nuvio.tv.ui.screens.addon.EssentialAddonSetupScreen
 import com.nuvio.tv.ui.screens.profile.ProfileSelectionScreen
-import com.nuvio.tv.ui.screens.taste.TastePickerScreen
 import com.nuvio.tv.ui.theme.NuvioComponents
 import com.nuvio.tv.ui.theme.NuvioLayout
 import com.nuvio.tv.ui.theme.NuvioMotion
@@ -661,21 +660,6 @@ open class MainActivity : ComponentActivity() {
                                 }
                             }
                         )
-                        return@Surface
-                    }
-
-                    // Curated profile first-run: Jack (operator-curated, taste not yet completed)
-                    // runs the on-TV taste picker instead of dropping straight onto Home. This gate
-                    // is independent of ProfileSelectionScreen — a single-profile account like Jack
-                    // skips profile selection but still must pick. Completing the picker flips
-                    // taste_completed (server + local mirror) so this recomposes away on its own.
-                    val needsTastePicker =
-                        authState is AuthState.FullAccount &&
-                            !kidsMode &&
-                            activeProfile?.needsTastePicker == true
-
-                    if (needsTastePicker) {
-                        TastePickerScreen(profileName = activeProfile?.name)
                         return@Surface
                     }
 

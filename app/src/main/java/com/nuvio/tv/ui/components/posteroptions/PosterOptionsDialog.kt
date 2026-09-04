@@ -51,7 +51,13 @@ fun PosterOptionsDialog(
     onDetails: () -> Unit,
     onMoreLikeThis: (() -> Unit)? = null,
     onToggleLibrary: () -> Unit,
-    onToggleWatched: () -> Unit
+    onToggleWatched: () -> Unit,
+    // Like-bootstrap row: present only for movie/series on an opted-in,
+    // non-kids profile, and only when the tile resolves to a tmdb id.
+    showLike: Boolean = false,
+    isLiked: Boolean = false,
+    isLikePending: Boolean = false,
+    onToggleLike: (() -> Unit)? = null
 ) {
     val primaryFocusRequester = remember { FocusRequester() }
 
@@ -87,6 +93,24 @@ fun PosterOptionsDialog(
                 )
             ) {
                 Text(stringResource(R.string.detail_tab_more_like_this))
+            }
+        }
+
+        if (showLike && onToggleLike != null) {
+            Button(
+                onClick = onToggleLike,
+                enabled = !isLikePending,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.colors(
+                    containerColor = if (isLiked) NuvioTheme.colors.FocusBackground else NuvioTheme.colors.BackgroundCard,
+                    contentColor = NuvioTheme.colors.TextPrimary
+                )
+            ) {
+                Text(
+                    stringResource(
+                        if (isLiked) R.string.like_action_unlike else R.string.like_action_like
+                    )
+                )
             }
         }
 
@@ -276,6 +300,14 @@ fun PosterOptionsHost(
                     controller.toggleSeriesWatched()
                 }
                 controller.dismiss()
+            },
+            showLike = state.likeVisible && state.likeTarget != null,
+            isLiked = state.isLiked,
+            isLikePending = state.isLikePending,
+            onToggleLike = if (state.likeVisible && state.likeTarget != null) {
+                { controller.toggleLike() }
+            } else {
+                null
             }
         )
     }
