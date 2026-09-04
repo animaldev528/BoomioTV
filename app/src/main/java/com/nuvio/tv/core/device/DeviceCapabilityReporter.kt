@@ -141,7 +141,11 @@ class DeviceCapabilityReporter @Inject constructor(
     private fun signatureOf(report: DeviceCapabilityReportDto): String {
         val sb = StringBuilder()
         sb.append(report.device.installId).append('|')
+        sb.append(report.device.socManufacturer).append('/').append(report.device.socModel)
+            .append('/').append(report.device.marketName).append('|')
         sb.append(report.display.sinkWidth).append('x').append(report.display.sinkHeight).append('|')
+        sb.append(report.display.maxRefreshHz).append('/').append(report.display.maxSupportedRefreshHz)
+            .append('/').append(report.display.wideColorGamut).append('|')
         sb.append(report.display.sinkHdrTypes).append('|')
         sb.append(report.display.hdrCapsKnown).append('|')
         fun codec(tag: String, c: CodecCapabilityDto?) {

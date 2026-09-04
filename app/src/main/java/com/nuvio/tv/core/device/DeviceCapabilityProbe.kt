@@ -25,11 +25,13 @@ import kotlin.math.roundToInt
 /**
  * Assembles a device-caps/1 report for the bsm fleet view (POST /api/prov/devices/capability-report).
  *
- * Two independent surfaces are probed and then intersected:
+ * Three surfaces are probed — the box's identity, then the decode/sink pair that is intersected:
+ *  - **box**: Build.MODEL plus, when the platform exposes them, SoC and market name — which physical
+ *    device we're on, since [model] alone is often a reseller alias on ATV boxes.
  *  - **decode**: MediaCodecList — which of AVC/HEVC/AV1/VP9/DV the box decodes in hardware, its
  *    resolution ceiling, and the HDR profile flags its HEVC/DV decoders advertise.
- *  - **sink**: DisplayManager current display mode + HdrCapabilities — what the connected TV
- *    actually accepts through the HDMI/EDID path. No Activity is required.
+ *  - **sink**: DisplayManager current display mode + supported modes + HdrCapabilities — what the
+ *    connected TV actually accepts through the HDMI/EDID path. No Activity is required.
  *
  * `effective = decode ∩ sink` is the number that matters for sending streams: what this
  * box+TV pair can actually present. Read as a self-describing report, never as an answer key:
@@ -48,9 +50,22 @@ object DeviceCapabilityProbe {
     private const val MIME_VP9 = "video/x-vnd.on2.vp9"
     private const val MIME_DV = "video/dolby-vision"
 
+    /** build.prop key some ATV builds (Chromecast/Shield-class devices) set to the retail name. */
+    private const val PROP_MARKET_NAME = "ro.product.marketname"
+
     private val ISO_UTC = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
         timeZone = java.util.TimeZone.getTimeZone("UTC")
     }
+
+    /**
+     * Best-effort read of a build.prop property through the hidden SystemProperties API (reflection).
+     * runCatching absorbs hidden-API policy differences across Android versions — a build that
+     * refuses the call yields null (and may log an access warning), never a crash.
+     */
+    private fun readSystemProperty(name: String): String? = runCatching {
+        val get = Class.forName("android.os.SystemProperties").getMethod("get", String::class.java)
+        (get.invoke(null, name) as? String)?.takeIf { it.isNotBlank() }
+    }.getOrNull()
 
     fun buildReport(context: Context, installId: String): DeviceCapabilityReportDto {
         val sink = probeSink(context)
@@ -62,6 +77,13 @@ object DeviceCapabilityProbe {
                 installId = installId,
                 manufacturer = Build.MANUFACTURER,
                 model = Build.MODEL,
+                // Build.SOC_* only exists as a real field on API 31+; the SDK gate keeps the
+                // getstatic (and its NoSuchFieldError on older boxes) from ever executing.
+                socManufacturer =
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Build.SOC_MANUFACTURER.ifBlank { null } else null,
+                socModel =
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Build.SOC_MODEL.ifBlank { null } else null,
+                marketName = readSystemProperty(PROP_MARKET_NAME),
                 sdkInt = Build.VERSION.SDK_INT,
                 androidRelease = Build.VERSION.RELEASE,
                 abis = Build.SUPPORTED_ABIS.toList()
@@ -77,6 +99,8 @@ object DeviceCapabilityProbe {
                 sinkWidth = sink.width,
                 sinkHeight = sink.height,
                 maxRefreshHz = sink.refreshHz,
+                maxSupportedRefreshHz = sink.maxSupportedRefreshHz,
+                wideColorGamut = sink.wideColorGamut,
                 sinkHdrTypes = sink.hdrTypes,
                 hdrCapsKnown = sink.hdrCapsKnown
             ),
@@ -91,6 +115,10 @@ object DeviceCapabilityProbe {
         val width: Int,
         val height: Int,
         val refreshHz: Int,
+        /** Highest refresh across the sink's full advertised mode set, vs [refreshHz] = current mode. */
+        val maxSupportedRefreshHz: Int,
+        /** Null below API 26 / when the platform doesn't say. */
+        val wideColorGamut: Boolean?,
         val hdrTypes: List<String>,
         val hdrCapsKnown: Boolean
     )
@@ -99,9 +127,21 @@ object DeviceCapabilityProbe {
         val dm = context.getSystemService(DisplayManager::class.java)
         val display = dm?.getDisplay(Display.DEFAULT_DISPLAY)
         if (display == null) {
-            SinkSnapshot(0, 0, 0, emptyList(), false)
+            SinkSnapshot(0, 0, 0, 0, null, emptyList(), false)
         } else {
             val mode = display.mode
+            // supportedModes = every mode the TV's EDID advertises (API 23+; minSdk 24). Max refresh
+            // is the panel's ceiling — the current mode may be running lower (60 Hz on a 120 Hz panel),
+            // which is what refreshHz (below) reflects.
+            val maxSupportedRefreshHz = runCatching {
+                var best = mode.refreshRate
+                for (m in display.supportedModes) {
+                    if (m.refreshRate > best) best = m.refreshRate
+                }
+                best.roundToInt()
+            }.getOrElse { mode.refreshRate.roundToInt() }
+            val wideColorGamut =
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) display.isWideColorGamut else null
             val hdrTypes: IntArray? = display.hdrCapabilities?.supportedHdrTypes
             val names = hdrTypes
                 ?.toList()
@@ -114,13 +154,15 @@ object DeviceCapabilityProbe {
                 width = mode.physicalWidth,
                 height = mode.physicalHeight,
                 refreshHz = mode.refreshRate.roundToInt(),
+                maxSupportedRefreshHz = maxSupportedRefreshHz,
+                wideColorGamut = wideColorGamut,
                 hdrTypes = names,
                 hdrCapsKnown = hdrTypes != null
             )
         }
     }.getOrElse { e ->
         Log.w(TAG, "Sink probe failed; reporting unknown display", e)
-        SinkSnapshot(0, 0, 0, emptyList(), false)
+        SinkSnapshot(0, 0, 0, 0, null, emptyList(), false)
     }
 
     private val HDR_ORDER = listOf("dv", "hdr10", "hdr10plus", "hlg")

@@ -29,6 +29,12 @@ data class DeviceInfoDto(
     val installId: String = "",
     val manufacturer: String = "",
     val model: String = "",
+    /** Silicon vendor, e.g. "Amlogic" — the reliable "which box is this" when [model] is a reseller alias. Null below API 31 (Build.SOC_* is not exposed earlier). */
+    val socManufacturer: String? = null,
+    /** Silicon part, e.g. "S905X4". Same null caveat as [socManufacturer]. */
+    val socModel: String? = null,
+    /** Retail/marketing name when the build advertises one (ro.product.marketname, read via hidden SystemProperties). Best-effort and often null — notably on Fire OS, where an AFT*-code → retail map is a separate follow-up. */
+    val marketName: String? = null,
     val sdkInt: Int = 0,
     val androidRelease: String = "",
     val abis: List<String> = emptyList()
@@ -50,7 +56,12 @@ data class DisplayCapabilitiesDto(
     /** Current display-mode resolution the sink is running. 0 when unknown. */
     val sinkWidth: Int = 0,
     val sinkHeight: Int = 0,
+    /** Refresh rate of the *current* display mode. */
     val maxRefreshHz: Int = 0,
+    /** Highest refresh across every mode the sink advertises (Display.supportedModes, straight from the TV's EDID). Distinct from [maxRefreshHz]: a 120 Hz panel sitting at 60 Hz reads 60 vs 120 here. 0 when unknown. */
+    val maxSupportedRefreshHz: Int = 0,
+    /** True when the platform reports a wide-colour-gamut path to the sink (Display.isWideColorGamut, the public API 26+ capability check). Null below API 26 or when unknown. */
+    val wideColorGamut: Boolean? = null,
     /** Tokens in fixed order: "dv", "hdr10", "hdr10plus", "hlg". */
     val sinkHdrTypes: List<String> = emptyList(),
     /** False pre-API-24 or when the platform returned null — treat sinkHdrTypes as unverified. */
