@@ -299,10 +299,16 @@ class BoomioCompanionManager @Inject constructor(
             // audio_fork_stop { reason: "phone_timeout" } both land here.
             "audio_fork_start" -> handleAudioForkStart(msg)
             "audio_fork_stop" -> {
-                bridge.activePlayer.value?.stopPhoneAudioFork()
-                sendAudioForkStatus(status = "stopped")
+                val player = bridge.activePlayer.value
+                val wasActive = player?.isPhoneAudioForkActive == true
+                player?.stopPhoneAudioFork()
                 if (msg.optString("reason") == "phone_timeout") {
+                    // The hub just declared this phone dead — don't ack into the relay path it closed.
                     Log.i(TAG, "Private listening ended: phone heartbeat timed out")
+                } else if (wasActive) {
+                    // Ack only when the stop actually changed state (review F2) — an explicit stop
+                    // with nothing forked stays silent rather than claiming a state change.
+                    sendAudioForkStatus(status = "stopped")
                 }
             }
             else -> Unit
@@ -322,8 +328,16 @@ class BoomioCompanionManager @Inject constructor(
         }
         val phoneIp = msg.optString("phoneIp")
         val port = msg.optInt("port", -1)
-        if (phoneIp.isBlank() || port !in 1..65535) {
+        // Pre-flight before arming (Q6 / review F1): the phone must be a literal IPv4 on the TV's
+        // own subnet. Rejecting here avoids acking "started" to a phone on guest Wi-Fi or another
+        // VLAN (which would then deliver silence), and avoids the async dead-worker case where a
+        // malformed address acks "started" and only then dies inside the sender's runWorker.
+        if (port !in 1..65535 || parseIpv4(phoneIp) == null) {
             sendAudioForkStatus(status = "error", reason = "bad_phone_address")
+            return
+        }
+        if (!isPhoneOnTvSubnet(phoneIp)) {
+            sendAudioForkStatus(status = "error", reason = "different_network")
             return
         }
         if (player.startPhoneAudioFork(phoneIp, port)) {
@@ -499,5 +513,35 @@ class BoomioCompanionManager @Inject constructor(
         }
     } catch (_: Exception) {
         null
+    }
+
+    /**
+     * Parse a dotted-quad IPv4 literal, or null. Private listening requires the phone to send its
+     * actual LAN IP as a literal — the fork is a unicast UDP stream and a hostname has no place in
+     * that contract (it would also ack "started" and only then fail async in the sender).
+     */
+    private fun parseIpv4(ip: String): IntArray? {
+        val parts = ip.split(".")
+        if (parts.size != 4) return null
+        val out = IntArray(4)
+        for (i in 0 until 4) {
+            val v = parts[i].toIntOrNull() ?: return null
+            if (v !in 0..255) return null
+            out[i] = v
+        }
+        return out
+    }
+
+    /**
+     * True when [phoneIp] is a literal IPv4 on the same /24 subnet as the TV's own LAN address.
+     * The companion fleet sits on flat /24 LANs (the hub itself is 192.168.68.x). A phone on guest
+     * Wi-Fi or another VLAN would otherwise ack "started" and stream into the void (Q6 — same-subnet
+     * requirement). Fails closed (rejects) when the TV cannot determine its own address or the phone
+     * IP is not IPv4.
+     */
+    private fun isPhoneOnTvSubnet(phoneIp: String): Boolean {
+        val phone = parseIpv4(phoneIp) ?: return false
+        val tv = parseIpv4(bestEffortLanIp() ?: return false) ?: return false
+        return phone[0] == tv[0] && phone[1] == tv[1] && phone[2] == tv[2]
     }
 }

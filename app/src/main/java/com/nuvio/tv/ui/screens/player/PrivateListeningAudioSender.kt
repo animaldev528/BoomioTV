@@ -189,6 +189,11 @@ internal class PrivateListeningAudioSender(
      * Convert one captured buffer to PCM16 signed little-endian, stereo interleaved.
      * Returns null when the buffer's layout is not convertible (shouldn't happen — the sink only
      * forwards PCM formats).
+     *
+     * Downmix assumes the decoded PCM channel order follows the standard MediaCodec layout
+     * (FL FR FC LFE BL BR [SL SR]) exactly as indexed in the 6ch/8ch branches below — the decoder
+     * hands us a fixed channel mask, so a non-standard mask would only shift surround placement
+     * between channels, never drop or invert content (review F3).
      */
     private fun renderStereoPcm16(frame: PcmFrame): ByteArray? {
         val n = frame.channelCount
