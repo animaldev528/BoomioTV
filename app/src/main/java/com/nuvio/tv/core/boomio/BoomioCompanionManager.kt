@@ -32,8 +32,8 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
-import java.net.DatagramSocket
-import java.net.InetAddress
+import java.net.Inet4Address
+import java.net.NetworkInterface
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -505,14 +505,58 @@ class BoomioCompanionManager @Inject constructor(
         }
     }
 
-    /** Best-effort LAN address, used by the hub for party member IP discovery. */
-    private fun bestEffortLanIp(): String? = try {
-        DatagramSocket().use { socket ->
-            socket.connect(InetAddress.getByName("8.8.8.8"), 10_002)
-            socket.localAddress?.hostAddress
+    /**
+     * Best-effort LAN IPv4, used by the hub for party member IP discovery (register) and by the
+     * private-listening pre-flight [isPhoneOnTvSubnet] to compare the phone's subnet against the
+     * TV's own. Resolved from the up network interfaces — NOT the old connect-to-8.8.8.8
+     * default-route trick: that did real socket I/O, which threw NetworkOnMainThreadException when
+     * the pre-flight ran from the main-thread message handler (audio_fork_start lands here via
+     * runOnMain in [listener]) and was swallowed into null, failing a same-LAN fork as
+     * "different_network". Pure local lookup — safe on any thread, no route/DNS dependency.
+     * Prefers Wi-Fi/Ethernet site-local IPv4; skips loopback, virtual, tun/ppp/rmnet.
+     */
+    private fun bestEffortLanIp(): String? {
+        var best: String? = null
+        var bestScore = Int.MAX_VALUE
+        try {
+            val interfaces = NetworkInterface.getNetworkInterfaces() ?: return null
+            for (net in interfaces) {
+                if (!net.isUp || net.isLoopback || net.isVirtual) continue
+                val lower = net.name.lowercase()
+                if ("tun" in lower || "ppp" in lower || "rmnet" in lower) continue
+                val score = when {
+                    lower.startsWith("wlan") -> 0
+                    lower.startsWith("eth") || lower.startsWith("en") -> 1
+                    else -> 2
+                }
+                for (addr in net.inetAddresses) {
+                    if (addr !is Inet4Address) continue
+                    val ip = addr.hostAddress ?: continue
+                    if (!isPrivateLanIp(ip)) continue
+                    if (score < bestScore || (score == bestScore && best == null)) {
+                        bestScore = score
+                        best = ip
+                    }
+                }
+            }
+        } catch (_: Exception) {
+            return null
         }
-    } catch (_: Exception) {
-        null
+        return best
+    }
+
+    /** True for the RFC1918 site-local ranges the companion fleet's LAN lives on. */
+    private fun isPrivateLanIp(ip: String): Boolean {
+        val parts = ip.split(".")
+        if (parts.size != 4) return false
+        val first = parts[0].toIntOrNull() ?: return false
+        if (first == 10) return true
+        if (first == 192 && parts[1] == "168") return true
+        if (first == 172) {
+            val second = parts[1].toIntOrNull() ?: return false
+            return second in 16..31
+        }
+        return false
     }
 
     /**
