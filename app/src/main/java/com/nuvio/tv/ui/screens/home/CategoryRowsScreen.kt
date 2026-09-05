@@ -33,6 +33,10 @@ fun CategoryRowsScreen(
     addonBaseUrl: String,
     type: String,
     title: String,
+    secondaryCatalogId: String? = null,
+    secondaryAddonId: String? = null,
+    secondaryAddonBaseUrl: String? = null,
+    secondaryType: String? = null,
     onNavigateToDetail: (String, String, String) -> Unit,
     onNavigateToDrillDown: (DrillTarget) -> Unit,
     onBackPress: () -> Unit,
@@ -40,8 +44,11 @@ fun CategoryRowsScreen(
     posterOptionsViewModel: PosterOptionsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.state.collectAsStateWithLifecycle()
-    LaunchedEffect(drillCatalogId, addonId, type) {
-        viewModel.initialize(drillCatalogId, addonId, addonBaseUrl, type, title)
+    LaunchedEffect(drillCatalogId, addonId, type, secondaryCatalogId) {
+        viewModel.initialize(
+            drillCatalogId, addonId, addonBaseUrl, type, title,
+            secondaryCatalogId, secondaryAddonId, secondaryAddonBaseUrl, secondaryType
+        )
     }
     BackHandler { onBackPress() }
 

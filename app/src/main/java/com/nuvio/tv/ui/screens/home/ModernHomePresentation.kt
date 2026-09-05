@@ -7,6 +7,7 @@ import com.nuvio.tv.LocaleCache
 import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.Collection
+import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PLACEHOLDER_IMAGE_URL
 import com.nuvio.tv.domain.model.ratingGateKey
 import com.nuvio.tv.domain.model.stableItemKey
@@ -178,7 +179,11 @@ internal fun buildModernHomePresentation(
                             hasMore = row.hasMore,
                             isLoading = row.isLoading,
                             items = run {
-                                val drillTile = row.items.firstOrNull { it.isDrillTile() }
+                                // A Home hub-group row merges two sibling hub- catalogs and
+                                // carries BOTH their "More Like This ▸" tiles, so its drill opens
+                                // both kinds' sub-rows (primary + secondary). Ordinary rows carry
+                                // exactly one tile, so this collapses to today's behavior.
+                                val drillTiles = row.items.filter { it.isDrillTile() }
                                 val contentItems = row.items
                                     .filterNot { it.ratingGateKey in input.gatedItemKeys }
                                     .filterNot { it.isDrillTile() }
@@ -220,8 +225,7 @@ internal fun buildModernHomePresentation(
                                         built
                                     }
                                 }.toMutableList()
-                                if (drillTile != null) {
-                                    val drillRowId = drillTile.id.removePrefix(REC_DRILL_PREFIX)
+                                if (drillTiles.isNotEmpty()) {
                                     mapped.add(
                                         ModernCarouselItem(
                                             key = "${rowKey}_drill",
@@ -239,17 +243,8 @@ internal fun buildModernHomePresentation(
                                                 genres = emptyList<String>().asStable(),
                                                 poster = null, backdrop = null, imageUrl = null
                                             ),
-                                            payload = ModernPayload.Drill(
-                                                DrillTarget(
-                                                    rowId = drillRowId,
-                                                    drillCatalogId = "rec-$drillRowId$REC_DRILL_SUFFIX",
-                                                    addonId = row.addonId,
-                                                    addonBaseUrl = row.addonBaseUrl,
-                                                    type = row.apiType,
-                                                    title = "More Like This"
-                                                )
-                                            ),
-                                            metaPreview = drillTile
+                                            payload = ModernPayload.Drill(buildHomeDrillTarget(row, drillTiles)),
+                                            metaPreview = drillTiles.first()
                                         )
                                     )
                                 }
@@ -375,9 +370,10 @@ internal fun buildModernHomePresentation(
 }
 
 private fun resolveVisibleHomeRows(input: ModernHomePresentationInput): List<HomeRow> {
+    val resolved: List<HomeRow>
     if (input.homeRows.isNotEmpty()) {
         val latestCatalogByKey = input.catalogRows.associateBy(::catalogRowKey)
-        return input.homeRows.mapNotNull { homeRow ->
+        resolved = input.homeRows.mapNotNull { homeRow ->
             when (homeRow) {
                 is HomeRow.Catalog -> {
                     val latest = latestCatalogByKey[catalogRowKey(homeRow.row)] ?: homeRow.row
@@ -392,15 +388,154 @@ private fun resolveVisibleHomeRows(input: ModernHomePresentationInput): List<Hom
                 }
             }
         }
+    } else {
+        resolved = input.catalogRows
+            .filter { it.items.isNotEmpty() }
+            .map(HomeRow::Catalog)
+    }
+    // Home is the only place a profile's hub- movie + series siblings sit side by side
+    // (the Movies/TV hubs keep them as separate per-kind sections). Fold each same-named
+    // pair into ONE door row so Home doesn't stack two vague "Genre" / "Years" walls; the
+    // door's drill opens both kinds' sub-rows. Solo rows (Studios, Documentaries…) and
+    // distinct-named rows (Anime Series / Anime Movies) pass through untouched.
+    return collapseHubGroupHomeRows(resolved)
+}
+
+/** Category base shared by a hub- movie/series sibling pair: `hub-genremovie` +
+ *  `hub-genreseries` both key to `genre`. Returns null for anything that isn't a
+ *  kind-suffixed `hub-` catalog (rec- shelves, per-service catalogs, anime doors). */
+private fun hubGroupBaseOf(catalogId: String): String? {
+    if (!catalogId.startsWith("hub-")) return null
+    val id = catalogId.removePrefix("hub-")
+    if (id.isEmpty()) return null
+    val base = when {
+        id.endsWith("series") -> id.removeSuffix("series")
+        id.endsWith("movie") -> id.removeSuffix("movie")
+        id.endsWith("tv") -> id.removeSuffix("tv")
+        else -> return null
+    }
+    return base.takeIf { it.isNotEmpty() && !it.endsWith('-') }
+}
+
+/**
+ * Replaces each same-named hub- sibling group (≥2 present, non-empty rows) with a single
+ * merged door row at the first sibling's position: one label, an evenly-mixed sample of the
+ * kinds, and both siblings' "More Like This ▸" tiles appended so the drill covers both drill
+ * catalogs. Members merged into an earlier door are dropped. Collections/placeholders and
+ * non-group catalog rows are untouched.
+ */
+private fun collapseHubGroupHomeRows(rows: List<HomeRow>): List<HomeRow> {
+    val catalogs = rows.filterIsInstance<HomeRow.Catalog>()
+    if (catalogs.size < 2) return rows
+
+    val byBase = LinkedHashMap<String, MutableList<CatalogRow>>()
+    catalogs.forEach { homeRow ->
+        val row = homeRow.row
+        val base = hubGroupBaseOf(row.catalogId) ?: return@forEach
+        val list = byBase.getOrPut(base) { mutableListOf() }
+        val first = list.firstOrNull()
+        if (first == null || first.catalogName.equals(row.catalogName, ignoreCase = true)) list += row
     }
 
-    return input.catalogRows
-        .filter { it.items.isNotEmpty() }
-        .map(HomeRow::Catalog)
+    val merges = byBase.filterValues { it.size >= 2 }.values
+    if (merges.isEmpty()) return rows
+
+    val mergedByLeaderKey = HashMap<String, CatalogRow>()
+    val dropKeys = HashSet<String>()
+    merges.forEach { members ->
+        val merged = mergeHubGroupRows(members)
+        mergedByLeaderKey[catalogRowKey(members.first())] = merged
+        members.drop(1).forEach { dropKeys += catalogRowKey(it) }
+    }
+
+    return rows.mapNotNull { homeRow ->
+        if (homeRow is HomeRow.Catalog) {
+            val key = catalogRowKey(homeRow.row)
+            if (key in dropKeys) null
+            else {
+                val merged = mergedByLeaderKey[key]
+                if (merged != null) HomeRow.Catalog(merged) else homeRow
+            }
+        } else {
+            homeRow
+        }
+    }
 }
+
+/** Folds a hub- sibling group into one row: label + addon identity from the leader (the
+ *  first sibling in feed order), an even round-robin content mix capped at [HUB_GROUP_CAP]
+ *  posters (drill into the drill catalog for the full depth), and the members' drill tiles
+ *  appended in member order so the door's drill opens every kind's sub-rows. */
+private fun mergeHubGroupRows(members: List<CatalogRow>): CatalogRow {
+    val leader = members.first()
+    val contentByMember = members.map { member -> member.items.filterNot { it.isDrillTile() } }
+    val cap = HUB_GROUP_CAP
+    val picked = mutableListOf<MetaPreview>()
+    val seen = HashSet<String>()
+    val ptr = IntArray(members.size)
+    var guard = 0
+    val totalContent = contentByMember.sumOf { it.size }
+    while (picked.size < cap && guard < totalContent + members.size) {
+        guard++
+        var advanced = false
+        for (m in members.indices) {
+            if (picked.size >= cap) break
+            val content = contentByMember[m]
+            while (ptr[m] < content.size) {
+                val item = content[ptr[m]++]
+                val key = "${item.apiType}:${item.id}"
+                if (seen.add(key)) {
+                    picked += item
+                    advanced = true
+                    break
+                }
+            }
+        }
+        if (!advanced) break
+    }
+    val drillTiles = members.flatMap { member -> member.items.filter { it.isDrillTile() } }
+    return leader.copy(
+        catalogId = "hubgrp-${hubGroupBaseOf(leader.catalogId) ?: leader.catalogId}",
+        items = picked + drillTiles,
+        isLoading = false,
+        hasMore = false
+    )
+}
+
+private const val HUB_GROUP_CAP = 60
 
 private fun collectionRowKey(collection: Collection): String {
     return "collection_${collection.id}"
+}
+
+/** Builds a row's drill target from its trailing "More Like This ▸" tile(s). A hub-group
+ *  merged row carries two tiles (the movie + series siblings it folds together), so its
+ *  drill opens both drill catalogs ([DrillTarget.secondary]); an ordinary row carries one
+ *  tile, giving the same single-source target as before. Each tile's origin addon comes from
+ *  the tile's stamped [MetaPreview.sourceAddonBaseUrl] (catalog mapper), falling back to the
+ *  row's addon for legacy rows. */
+private fun buildHomeDrillTarget(row: CatalogRow, tiles: List<MetaPreview>): DrillTarget {
+    fun drillFor(tile: MetaPreview): DrillSource {
+        val tileRowId = tile.id.removePrefix(REC_DRILL_PREFIX)
+        return DrillSource(
+            rowId = tileRowId,
+            drillCatalogId = "rec-$tileRowId$REC_DRILL_SUFFIX",
+            addonId = row.addonId,
+            addonBaseUrl = tile.sourceAddonBaseUrl ?: row.addonBaseUrl,
+            type = tile.apiType.ifBlank { row.apiType }
+        )
+    }
+    val primary = drillFor(tiles.first())
+    val secondary = tiles.getOrNull(1)?.let { drillFor(it) }
+    return DrillTarget(
+        rowId = primary.rowId,
+        drillCatalogId = primary.drillCatalogId,
+        addonId = primary.addonId,
+        addonBaseUrl = primary.addonBaseUrl,
+        type = primary.type,
+        title = "More Like This",
+        secondary = secondary
+    )
 }
 
 private fun getLocalizedContext(context: Context): Context {

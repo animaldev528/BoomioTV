@@ -45,12 +45,21 @@ class CategoryRowsViewModel @Inject constructor(
         addonId: String,
         addonBaseUrl: String,
         type: String,
-        title: String
+        title: String,
+        secondaryCatalogId: String? = null,
+        secondaryAddonId: String? = null,
+        secondaryAddonBaseUrl: String? = null,
+        secondaryType: String? = null
     ) {
-        val key = "$drillCatalogId|$addonId|$type"
+        val key = "$drillCatalogId|$addonId|$type|${secondaryCatalogId.orEmpty()}|${secondaryAddonBaseUrl.orEmpty()}"
         if (initializedKey == key) return
         initializedKey = key
-        viewModelScope.launch { load(drillCatalogId, addonId, addonBaseUrl, type, title) }
+        viewModelScope.launch {
+            load(
+                drillCatalogId, addonId, addonBaseUrl, type, title,
+                secondaryCatalogId, secondaryAddonId, secondaryAddonBaseUrl, secondaryType
+            )
+        }
     }
 
     private suspend fun load(
@@ -58,27 +67,74 @@ class CategoryRowsViewModel @Inject constructor(
         addonId: String,
         addonBaseUrl: String,
         type: String,
-        title: String
+        title: String,
+        secondaryCatalogId: String?,
+        secondaryAddonId: String?,
+        secondaryAddonBaseUrl: String?,
+        secondaryType: String?
     ) {
         _state.value = UiState(title = title, isLoading = true)
-        val drill = fetch(drillCatalogId, addonId, addonBaseUrl, type, title)
-        if (drill == null) {
-            _state.value = UiState(title = title, isLoading = false, error = "Couldn't load this category")
+
+        // Single-drill path (rec rows, and every drill on the Movies/TV hub): the
+        // primary drill catalog alone is the whole browser, unchanged.
+        if (secondaryCatalogId.isNullOrBlank()) {
+            val drill = fetch(drillCatalogId, addonId, addonBaseUrl, type, title)
+            if (drill == null) {
+                _state.value = UiState(title = title, isLoading = false, error = "Couldn't load this category")
+                return
+            }
+            val tiles = drill.items
+            if (tiles.isEmpty()) {
+                _state.value = UiState(title = title, isLoading = false, isEmpty = true)
+                return
+            }
+            val rows = mutableListOf<RowState>()
+            for (tile in tiles) {
+                val sub = fetch(tile.id, addonId, addonBaseUrl, tile.apiType, tile.name)
+                if (sub == null || sub.items.isEmpty()) continue
+                val ex = sub.extractDrill()
+                rows.add(RowState(ex.row, ex.target))
+            }
+            _state.value = UiState(title = title, rows = rows, isLoading = false, isEmpty = rows.isEmpty())
             return
         }
-        val tiles = drill.items
-        if (tiles.isEmpty()) {
-            _state.value = UiState(title = title, isLoading = false, isEmpty = true)
-            return
-        }
+
+        // Combined-drill path: a Home hub-group door (hub-genremovie + hub-genreseries
+        // folded into one row) drills into BOTH siblings' sub-row catalogs — the movie
+        // genre rails, then the series genre rails. Each sibling's drill catalog and its
+        // sub-rows live on that sibling's own row addon, so each drain uses its own addon.
         val rows = mutableListOf<RowState>()
-        for (tile in tiles) {
-            val sub = fetch(tile.id, addonId, addonBaseUrl, tile.apiType, tile.name)
-            if (sub == null || sub.items.isEmpty()) continue
-            val ex = sub.extractDrill()
-            rows.add(RowState(ex.row, ex.target))
+        var anyDrillReachable = false
+
+        suspend fun drain(dCatalogId: String, dAddonId: String, dBaseUrl: String, dType: String) {
+            val drill = fetch(dCatalogId, dAddonId, dBaseUrl, dType, title)
+                ?: return
+            val tiles = drill.items
+            if (tiles.isEmpty()) return
+            anyDrillReachable = true
+            for (tile in tiles) {
+                val sub = fetch(tile.id, dAddonId, dBaseUrl, tile.apiType, tile.name)
+                if (sub == null || sub.items.isEmpty()) continue
+                val ex = sub.extractDrill()
+                rows.add(RowState(ex.row, ex.target))
+            }
         }
-        _state.value = UiState(title = title, rows = rows, isLoading = false, isEmpty = rows.isEmpty())
+
+        drain(drillCatalogId, addonId, addonBaseUrl, type)
+        drain(
+            secondaryCatalogId,
+            secondaryAddonId ?: addonId,
+            secondaryAddonBaseUrl ?: addonBaseUrl,
+            secondaryType ?: type
+        )
+
+        _state.value = UiState(
+            title = title,
+            rows = rows,
+            isLoading = false,
+            isEmpty = rows.isEmpty() && anyDrillReachable,
+            error = if (rows.isEmpty() && !anyDrillReachable) "Couldn't load this category" else null
+        )
     }
 
     private suspend fun fetch(
