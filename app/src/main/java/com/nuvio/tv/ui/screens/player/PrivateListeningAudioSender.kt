@@ -15,24 +15,29 @@ import java.util.concurrent.TimeUnit
  *
  * The TV already decodes the audio it is playing for its own speakers; [PrivateListeningAudioSink]
  * memcpys each decoded PCM buffer on the audio thread into a bounded queue, and this sender's own
- * worker thread drains that queue, converts to PCM16 stereo (with a dialogue-preserving downmix for
- * 5.1/7.1), and sends it to the companion phone over UDP. Because it shares the main decode clock
- * it cannot drift from the TV the way a second shadow player could.
+ * worker thread drains that queue and sends it to the companion phone over UDP as PCM16 in the
+ * DECODER'S NATIVE channel layout. The TV never downmixes: it hands 5.1/7.1 through untouched and
+ * lets the phone render them with a matching AudioTrack, so Android's own mixer (or a
+ * multichannel-capable sink) does whatever fold the earbuds need. An earlier TV-side stereo
+ * downmix was the source of an audible artifact on surround content; passthrough is clean. Because
+ * it shares the main decode clock it cannot drift from the TV the way a second shadow player could.
  *
  * Wire format (one datagram each, from the TV to phoneIp:port):
  *   bytes 0..3  sample rate in Hz, big-endian int32   — phone (re)inits its AudioTrack from this,
  *   bytes 4..5  sequence number, big-endian uint16    — increments per datagram; lets the phone
  *                                                       detect loss and gap bytes,
- *   bytes 6..   PCM16 signed little-endian, stereo interleaved.
+ *   byte   6    channel count (1..8)                  — the native layout of the decoded PCM; the
+ *                                                       phone maps it to a matching AudioTrack mask,
+ *   bytes 7..   PCM16 signed little-endian interleaved, [byte 6] channels, whole frames only.
  *
  * No separate format header is needed: every datagram is self-describing, so a phone that starts
- * listening mid-stream syncs on its very first datagram, and a mid-stream sample-rate change is
- * carried by the per-datagram rate. Sequence gaps are expected (UDP + deliberate drops under
- * backpressure); the phone should treat a gap as a short silence rather than a fatal error.
+ * listening mid-stream syncs on its very first datagram, and a mid-stream sample-rate OR channel
+ * change is carried by the per-datagram fields. Sequence gaps are expected (UDP + deliberate drops
+ * under backpressure); the phone should treat a gap as a short silence rather than a fatal error.
  *
  * The sender must never block the audio thread: [offer] only memcpys into a fresh byte[] and
- * enqueues (dropping when the bounded queue is full). All downmix/encode/network work happens on
- * the worker thread.
+ * enqueues (dropping when the bounded queue is full). All encode/network work happens on the
+ * worker thread.
  */
 internal class PrivateListeningAudioSender(
     private val phoneIp: String,
@@ -53,18 +58,15 @@ internal class PrivateListeningAudioSender(
 
         /** Keep datagrams under the typical 1500-byte Ethernet MTU (UDP/IP headers ~28B). */
         private const val MAX_DATAGRAM = 1200
-        private const val PREAMBLE_BYTES = 6
+        private const val PREAMBLE_BYTES = 7
         private const val MAX_CHUNK = MAX_DATAGRAM - PREAMBLE_BYTES
 
         /** Bounded so a stalled phone can never back-pressure the audio thread or grow memory. */
         private const val QUEUE_CAPACITY = 128
         private const val POLL_TIMEOUT_MS = 20L
 
-        // Dialogue-preserving downmix coefficients (R6). Center is retained at ~ -3 dB on both
-        // channels; the back/side surrounds are folded in at -3 dB / -6 dB.
-        private const val CENTER_GAIN = 0.7071f   // 1 / sqrt(2)
-        private const val BACK_GAIN = 0.7071f
-        private const val SIDE_GAIN = 0.5f
+        /** Layouts the wire can carry (the phone maps these to AudioFormat channel masks). */
+        private val SUPPORTED_CHANNEL_COUNTS = 1..8
     }
 
     @Volatile
@@ -155,14 +157,19 @@ internal class PrivateListeningAudioSender(
                 }
                 if (!running || frame == null) continue
                 try {
-                    val pcm16Stereo = renderStereoPcm16(frame)
-                    if (pcm16Stereo == null) {
+                    val pcm16 = renderPcm16(frame)
+                    if (pcm16 == null) {
                         droppedFrames++
                         continue
                     }
+                    val channels = frame.channelCount
+                    // Chunk on whole frames so the phone's AudioTrack write never splits a sample
+                    // (a misaligned tail would be silently dropped by write's frame rounding).
+                    val frameBytes = 2 * channels
+                    val chunkMax = (MAX_CHUNK / frameBytes) * frameBytes
                     var offset = 0
-                    while (offset < pcm16Stereo.size) {
-                        val chunk = minOf(MAX_CHUNK, pcm16Stereo.size - offset)
+                    while (offset < pcm16.size) {
+                        val chunk = minOf(chunkMax, pcm16.size - offset)
                         // Rebuild the preamble each datagram: rate is constant per frame, seq advances.
                         val datagram = ByteArray(PREAMBLE_BYTES + chunk)
                         datagram[0] = (frame.sampleRate ushr 24).toByte()
@@ -171,7 +178,8 @@ internal class PrivateListeningAudioSender(
                         datagram[3] = frame.sampleRate.toByte()
                         datagram[4] = (seq ushr 8).toByte()
                         datagram[5] = seq.toByte()
-                        System.arraycopy(pcm16Stereo, offset, datagram, PREAMBLE_BYTES, chunk)
+                        datagram[6] = channels.toByte()
+                        System.arraycopy(pcm16, offset, datagram, PREAMBLE_BYTES, chunk)
                         offset += chunk
                         seq = (seq + 1) and 0xFFFF
                         socket.send(DatagramPacket(datagram, datagram.size, address, phonePort))
@@ -186,84 +194,33 @@ internal class PrivateListeningAudioSender(
     }
 
     /**
-     * Convert one captured buffer to PCM16 signed little-endian, stereo interleaved.
-     * Returns null when the buffer's layout is not convertible (shouldn't happen — the sink only
-     * forwards PCM formats).
+     * Convert one captured buffer to PCM16 signed little-endian in its native interleaved layout.
+     * Returns null for an unsupported layout (shouldn't happen — the sink only forwards PCM).
      *
-     * Downmix assumes the decoded PCM channel order follows the standard MediaCodec layout
-     * (FL FR FC LFE BL BR [SL SR]) exactly as indexed in the 6ch/8ch branches below — the decoder
-     * hands us a fixed channel mask, so a non-standard mask would only shift surround placement
-     * between channels, never drop or invert content (review F3).
+     * int16 input is returned untouched (same reference). float input — decoders hand float buffers
+     * for Atmos/E-AC3 folds — is converted sample-by-sample with a clamp to +-1.0; a legal float
+     * never exceeds that, so in practice the clamp is a no-op. The channel ORDER is the decoder's
+     * (the standard MediaCodec layout FL FR FC LFE BL BR [SL SR]), which the phone's channel mask
+     * must match — see the phone-side receiver.
      */
-    private fun renderStereoPcm16(frame: PcmFrame): ByteArray? {
+    private fun renderPcm16(frame: PcmFrame): ByteArray? {
         val n = frame.channelCount
-        if (n <= 0) return null
-        val sampleCount = if (frame.isFloat) {
-            frame.bytes.size / (4 * n)
-        } else {
-            frame.bytes.size / (2 * n)
+        if (n !in SUPPORTED_CHANNEL_COUNTS) return null
+        if (!frame.isFloat) {
+            val whole = frame.bytes.size / (2 * n) * (2 * n)
+            if (whole <= 0) return null
+            return if (whole == frame.bytes.size) frame.bytes else frame.bytes.copyOf(whole)
         }
+        val sampleCount = frame.bytes.size / (4 * n)
         if (sampleCount <= 0) return null
-
         val input = ByteBuffer.wrap(frame.bytes).order(ByteOrder.LITTLE_ENDIAN)
-        val out = ByteArray(sampleCount * 4) // 2ch * 2 bytes
-
-        val useCenterDownmix = when (n) {
-            6 -> true   // FL FR FC LFE BL BR
-            8 -> true   // FL FR FC LFE BL BR SL SR
-            else -> false
-        }
-
+        val out = ByteArray(sampleCount * 2 * n)
         var o = 0
-        for (k in 0 until sampleCount) {
-            val (l, r) = when {
-                n == 1 -> {
-                    val s = sample(input, frame.isFloat, k * n)
-                    s to s
-                }
-                !useCenterDownmix -> {
-                    // n >= 2 with an unknown/non-surround layout: keep the first two channels.
-                    sample(input, frame.isFloat, k * n) to sample(input, frame.isFloat, k * n + 1)
-                }
-                n == 6 -> {
-                    val fl = sample(input, frame.isFloat, k * 6 + 0)
-                    val fr = sample(input, frame.isFloat, k * 6 + 1)
-                    val fc = sample(input, frame.isFloat, k * 6 + 2)
-                    // LFE (index 3) deliberately omitted — a sub path adds little to phone earbuds.
-                    val bl = sample(input, frame.isFloat, k * 6 + 4)
-                    val br = sample(input, frame.isFloat, k * 6 + 5)
-                    (fl + CENTER_GAIN * fc + BACK_GAIN * bl) to (fr + CENTER_GAIN * fc + BACK_GAIN * br)
-                }
-                else -> { // n == 8
-                    val fl = sample(input, frame.isFloat, k * 8 + 0)
-                    val fr = sample(input, frame.isFloat, k * 8 + 1)
-                    val fc = sample(input, frame.isFloat, k * 8 + 2)
-                    // LFE (index 3) deliberately omitted.
-                    val bl = sample(input, frame.isFloat, k * 8 + 4)
-                    val br = sample(input, frame.isFloat, k * 8 + 5)
-                    val sl = sample(input, frame.isFloat, k * 8 + 6)
-                    val sr = sample(input, frame.isFloat, k * 8 + 7)
-                    (fl + CENTER_GAIN * fc + BACK_GAIN * bl + SIDE_GAIN * sl) to
-                        (fr + CENTER_GAIN * fc + BACK_GAIN * br + SIDE_GAIN * sr)
-                }
-            }
-            writeS16Le(out, o, clampToS16(l))
-            writeS16Le(out, o + 2, clampToS16(r))
-            o += 4
+        for (i in 0 until sampleCount * n) {
+            writeS16Le(out, o, clampToS16(input.getFloat(i * 4)))
+            o += 2
         }
         return out
-    }
-
-    /**
-     * Sample at absolute interleaved sample index [i] (channel position within the buffer), as a
-     * float in -1..1. Converts the sample index to a byte offset internally.
-     */
-    private fun sample(input: ByteBuffer, isFloat: Boolean, i: Int): Float {
-        return if (isFloat) {
-            input.getFloat(i * 4)
-        } else {
-            input.getShort(i * 2).toFloat() / 32768f
-        }
     }
 
     private fun clampToS16(v: Float): Int {
