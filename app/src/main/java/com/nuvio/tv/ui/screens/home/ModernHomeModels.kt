@@ -516,7 +516,12 @@ internal fun buildCatalogItem(
             focusKey = "${row.key()}::${item.id}",
             itemId = item.id,
             itemType = item.apiType,
-            addonBaseUrl = row.addonBaseUrl,
+            // Items carry their origin addon (sourceAddonBaseUrl, stamped by the
+            // catalog mapper); a Home hub-group row merges content from two sibling
+            // row addons (hub-genremovie + hub-genreseries), so each poster must
+            // open detail through ITS OWN addon — fall back to the row's for rows
+            // whose items all come from that one addon.
+            addonBaseUrl = item.sourceAddonBaseUrl ?: row.addonBaseUrl,
             trailerTitle = item.name,
             trailerReleaseInfo = item.releaseInfo,
             trailerApiType = item.apiType

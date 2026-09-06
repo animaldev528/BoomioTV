@@ -10,14 +10,27 @@ import kotlinx.coroutines.flow.first
 const val REC_DRILL_PREFIX = "rec-drill:"
 const val REC_DRILL_SUFFIX = "-drilldown"
 
-/** Where a row's "More Like This ▸" drill tile leads: its sub-rows browser. */
+/** One drill-down source: a `rec-<rowId>-drilldown` catalog on one row addon. */
+data class DrillSource(
+    val rowId: String,
+    val drillCatalogId: String,
+    val addonId: String,
+    val addonBaseUrl: String,
+    val type: String
+)
+
+/** Where a row's "More Like This ▸" drill tile leads: its sub-rows browser.
+ *  [secondary] lets a Home group row (a merged hub- movie+series pair) drill into
+ *  both kinds' sub-row catalogs — the primary is the movie side, secondary the
+ *  series side (or vice versa). Non-group rows carry only the primary. */
 data class DrillTarget(
     val rowId: String,
     val drillCatalogId: String,
     val addonId: String,
     val addonBaseUrl: String,
     val type: String,
-    val title: String
+    val title: String,
+    val secondary: DrillSource? = null
 )
 
 /** True for the addon-appended "More Like This ▸" meta (id rec-drill:<rowId>). */

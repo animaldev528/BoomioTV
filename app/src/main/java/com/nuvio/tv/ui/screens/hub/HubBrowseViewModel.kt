@@ -154,8 +154,12 @@ class HubBrowseViewModel @Inject constructor(
                 }
                 if (!matchesKind) return@forEach
                 if (catalog.isSearchOnlyCatalog()) return@forEach
-                // Featured/curated catalogs stay on Home, not the hubs.
-                if (catalog.isFeaturedHomeCatalog()) return@forEach
+                // Featured/curated catalogs (rec- shelves, per-service Popular/
+                // Trending) stay on Home, not the hubs. hub- catalogs are the
+                // hubs' OWN grouped sections (Genre/Years/Networks/Studios/...),
+                // so they must never be excluded here even though Home's featured
+                // allowlist may also admit them — otherwise the hub screens starve.
+                if (!catalog.id.startsWith("hub-") && catalog.isFeaturedHomeCatalog()) return@forEach
                 if (isCatalogDisabledIn(
                         disabledKeys,
                         addon.baseUrl,

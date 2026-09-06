@@ -1,6 +1,7 @@
 package com.nuvio.tv.ui.navigation
 
 import android.os.SystemClock
+import com.nuvio.tv.ui.screens.home.DrillTarget
 import java.net.URLEncoder
 
 sealed class Screen(val route: String) {
@@ -202,7 +203,12 @@ sealed class Screen(val route: String) {
         }
     }
 
-    data object CategoryRows : Screen("category_rows/{drillCatalogId}/{addonId}/{type}?addonBaseUrl={addonBaseUrl}&title={title}") {
+    data object CategoryRows : Screen(
+        "category_rows/{drillCatalogId}/{addonId}/{type}" +
+            "?addonBaseUrl={addonBaseUrl}&title={title}" +
+            "&secondaryCatalogId={secondaryCatalogId}&secondaryAddonId={secondaryAddonId}" +
+            "&secondaryAddonBaseUrl={secondaryAddonBaseUrl}&secondaryType={secondaryType}"
+    ) {
         private fun encode(value: String): String =
             URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
@@ -211,11 +217,33 @@ sealed class Screen(val route: String) {
             addonId: String,
             type: String,
             addonBaseUrl: String,
-            title: String
+            title: String,
+            secondaryCatalogId: String = "",
+            secondaryAddonId: String = "",
+            secondaryAddonBaseUrl: String = "",
+            secondaryType: String = ""
         ): String {
             return "category_rows/${encode(drillCatalogId)}/${encode(addonId)}/${encode(type)}" +
-                "?addonBaseUrl=${encode(addonBaseUrl)}&title=${encode(title)}"
+                "?addonBaseUrl=${encode(addonBaseUrl)}&title=${encode(title)}" +
+                "&secondaryCatalogId=${encode(secondaryCatalogId)}" +
+                "&secondaryAddonId=${encode(secondaryAddonId)}" +
+                "&secondaryAddonBaseUrl=${encode(secondaryAddonBaseUrl)}" +
+                "&secondaryType=${encode(secondaryType)}"
         }
+
+        /** Route for a [DrillTarget], carrying its secondary drill source when present
+         *  (a Home hub-group door drills into both the movie and the series drill). */
+        fun createRoute(target: DrillTarget): String = createRoute(
+            target.drillCatalogId,
+            target.addonId,
+            target.type,
+            target.addonBaseUrl,
+            target.title,
+            secondaryCatalogId = target.secondary?.drillCatalogId ?: "",
+            secondaryAddonId = target.secondary?.addonId ?: "",
+            secondaryAddonBaseUrl = target.secondary?.addonBaseUrl ?: "",
+            secondaryType = target.secondary?.type ?: ""
+        )
     }
 
     data object Collections : Screen("collections")
