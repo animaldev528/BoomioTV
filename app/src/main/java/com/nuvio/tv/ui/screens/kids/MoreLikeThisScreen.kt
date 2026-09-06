@@ -234,9 +234,11 @@ fun MoreLikeThisScreen(
                             onFocused = { focusedItemKey = itemFocusKey },
                             onClick = {
                                 focusedItemKey = itemFocusKey
-                                if (addonBaseUrl != null) {
-                                    onNavigateToDetail(item.id, item.apiType, addonBaseUrl)
-                                }
+                                // TMDB-fallback tiles belong to no row addon (base null).
+                                // The navigator param is non-null; "" is Detail's canonical
+                                // "no addon" route arg (createRoute encodes null the same
+                                // way), and Detail resolves the tmdb: id through TMDB.
+                                onNavigateToDetail(item.id, item.apiType, addonBaseUrl.orEmpty())
                             },
                             onLongPress = {
                                 focusedItemKey = itemFocusKey
