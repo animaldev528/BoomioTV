@@ -262,15 +262,7 @@ private fun PlaybackNavHost(
                     navController.navigate(Screen.FolderDetail.createRoute(collectionId, folderId))
                 },
                 onNavigateToDrillDown = { target ->
-                    navController.navigate(
-                        Screen.CategoryRows.createRoute(
-                            target.drillCatalogId,
-                            target.addonId,
-                            target.type,
-                            target.addonBaseUrl,
-                            target.title
-                        )
-                    )
+                    navController.navigate(Screen.CategoryRows.createRoute(target))
                 }
             )
         }
@@ -1428,7 +1420,11 @@ private fun PlaybackNavHost(
                 navArgument("addonId") { type = NavType.StringType },
                 navArgument("type") { type = NavType.StringType },
                 navArgument("addonBaseUrl") { type = NavType.StringType; defaultValue = "" },
-                navArgument("title") { type = NavType.StringType; defaultValue = "" }
+                navArgument("title") { type = NavType.StringType; defaultValue = "" },
+                navArgument("secondaryCatalogId") { type = NavType.StringType; defaultValue = "" },
+                navArgument("secondaryAddonId") { type = NavType.StringType; defaultValue = "" },
+                navArgument("secondaryAddonBaseUrl") { type = NavType.StringType; defaultValue = "" },
+                navArgument("secondaryType") { type = NavType.StringType; defaultValue = "" }
             )
         ) { backStackEntry ->
             val drillCatalogId = backStackEntry.arguments?.getString("drillCatalogId") ?: ""
@@ -1436,25 +1432,25 @@ private fun PlaybackNavHost(
             val type = backStackEntry.arguments?.getString("type") ?: ""
             val addonBaseUrl = backStackEntry.arguments?.getString("addonBaseUrl") ?: ""
             val title = backStackEntry.arguments?.getString("title") ?: ""
+            val secondaryCatalogId = backStackEntry.arguments?.getString("secondaryCatalogId")?.takeIf { it.isNotBlank() }
+            val secondaryAddonId = backStackEntry.arguments?.getString("secondaryAddonId")?.takeIf { it.isNotBlank() }
+            val secondaryAddonBaseUrl = backStackEntry.arguments?.getString("secondaryAddonBaseUrl")?.takeIf { it.isNotBlank() }
+            val secondaryType = backStackEntry.arguments?.getString("secondaryType")?.takeIf { it.isNotBlank() }
             CategoryRowsScreen(
                 drillCatalogId = drillCatalogId,
                 addonId = addonId,
                 addonBaseUrl = addonBaseUrl,
                 type = type,
                 title = title,
+                secondaryCatalogId = secondaryCatalogId,
+                secondaryAddonId = secondaryAddonId,
+                secondaryAddonBaseUrl = secondaryAddonBaseUrl,
+                secondaryType = secondaryType,
                 onNavigateToDetail = { itemId, itemType, addonBaseUrl2 ->
                     navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl2))
                 },
                 onNavigateToDrillDown = { target ->
-                    navController.navigate(
-                        Screen.CategoryRows.createRoute(
-                            target.drillCatalogId,
-                            target.addonId,
-                            target.type,
-                            target.addonBaseUrl,
-                            target.title
-                        )
-                    )
+                    navController.navigate(Screen.CategoryRows.createRoute(target))
                 },
                 onBackPress = { navController.popBackStack() }
             )
@@ -1468,13 +1464,7 @@ private fun PlaybackNavHost(
                 },
                 onNavigateToDrillDown = { target ->
                     navController.navigate(
-                        Screen.CategoryRows.createRoute(
-                            target.drillCatalogId,
-                            target.addonId,
-                            target.type,
-                            target.addonBaseUrl,
-                            target.title
-                        )
+                        Screen.CategoryRows.createRoute(target)
                     )
                 },
                 onBackPress = { navController.popBackStack() }
@@ -1489,13 +1479,7 @@ private fun PlaybackNavHost(
                 },
                 onNavigateToDrillDown = { target ->
                     navController.navigate(
-                        Screen.CategoryRows.createRoute(
-                            target.drillCatalogId,
-                            target.addonId,
-                            target.type,
-                            target.addonBaseUrl,
-                            target.title
-                        )
+                        Screen.CategoryRows.createRoute(target)
                     )
                 },
                 onBackPress = { navController.popBackStack() }
@@ -1510,13 +1494,7 @@ private fun PlaybackNavHost(
                 },
                 onNavigateToDrillDown = { target ->
                     navController.navigate(
-                        Screen.CategoryRows.createRoute(
-                            target.drillCatalogId,
-                            target.addonId,
-                            target.type,
-                            target.addonBaseUrl,
-                            target.title
-                        )
+                        Screen.CategoryRows.createRoute(target)
                     )
                 },
                 onBackPress = { navController.popBackStack() }

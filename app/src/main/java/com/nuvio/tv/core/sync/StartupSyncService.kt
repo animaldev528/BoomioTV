@@ -193,6 +193,32 @@ class StartupSyncService @Inject constructor(
         }
     }
 
+    /** Safe, add-only addon re-list used after a taste-picks push on "Done for now": pulls
+     *  the remote addon-url snapshot and installs any addon the server has published since the
+     *  app last synced (the rebuilt /row/ taste rows land as NEW addon urls ~15-30s after the
+     *  push). Unlike [requestAddonSyncNow] it reconciles with removeMissingLocal = false, so
+     *  local-only addons are kept and no cached manifests are cleared — safe to fire while the
+     *  server is still mid-publish. Installing a new url re-emits the installed-addons flow,
+     *  whose cache-miss round fetches the manifest and surfaces the new catalogs in place.
+     *  Emits the manual refresh when done so already-loaded catalogs also re-request. */
+    fun requestAddonRelistNow() {
+        val profileId = profileManager.activeProfileId.value
+        scope.launch {
+            try {
+                val remoteAddonUrls = addonSyncService.getRemoteAddonUrls().getOrElse { throw it }
+                addonRepository.reconcileWithRemoteAddonUrls(
+                    remoteUrls = remoteAddonUrls,
+                    removeMissingLocal = false
+                )
+                Log.d(TAG, "Add-on re-list pulled ${remoteAddonUrls.size} addons for profile $profileId")
+            } catch (e: Exception) {
+                Log.e(TAG, "Add-on re-list failed for profile $profileId", e)
+            } finally {
+                _manualAddonRefreshes.tryEmit(Unit)
+            }
+        }
+    }
+
     /** Signals screens holding catalogs to re-request them immediately (TTL-bypassing),
      *  without a remote addon sync. Used after a taste-picks push on "Done for now" so the
      *  rebuilt taste rows appear right away instead of waiting out the home-refresh TTL. */

@@ -134,9 +134,10 @@ fun HomeViewModel.togglePosterLike(item: MetaPreview) {
  *  [com.nuvio.tv.core.sync.TastePickSyncService.pushTastePicks], which flips
  *  taste_completed server-side and locally. With 0 likes the push is skipped so
  *  onboarding is never burned on an empty set — the starter home stays and the
- *  hint returns later. On success the catalog refresh is re-emitted over the next
- *  ~15s (see [refreshTasteRowsUntilPublished]) so the rebuilt rows appear in
- *  place instead of waiting out the home-refresh TTL or needing an app restart. */
+ *  hint returns later. On success a safe add-only addon re-list is re-fired over
+ *  the next ~40s (see [refreshTasteRowsUntilPublished]) so the server's rebuilt
+ *  /row/ addons are installed and their rows appear in place — no app restart,
+ *  no wait on the home-refresh TTL. */
 fun HomeViewModel.completeTasteOnboarding() {
     val profile = profileManager.activeProfile ?: return
     if (!profile.needsTasteHint || _uiState.value.tasteHintBusy) return
@@ -168,15 +169,19 @@ fun HomeViewModel.completeTasteOnboarding() {
 
 /** The Done RPC returns before the server's async personal build has published
  *  (pg_net -> :3977 builder, 1-min watcher as fallback), so a single refresh
- *  lands on the old rows. Re-emit the manual catalog refresh a few times over
- *  ~15s: each emission re-requests the loaded catalogs (TTL-bypassing), so the
- *  rebuilt rows are pulled the moment they are published — no app restart, no
- *  wait on the 15-min resume TTL. No-ops harmlessly if the user has left Home. */
+ *  lands on the old rows. The rebuilt rows ride on /row/ addons the server
+ *  publishes as NEW addon urls, so a plain catalog refresh can't see them — the
+ *  addon list must be re-pulled. Fire the safe add-only re-list a few times over
+ *  ~40s (bracketing the ~15-30s publish): once the server list contains the new
+ *  row urls they are installed, the installed-addons flow re-emits, and Home's
+ *  catalog pipeline loads them in place — no app restart, no wait on the 15-min
+ *  resume TTL. Each tick also emits the manual catalog refresh. No-ops
+ *  harmlessly if the user has left Home (the install still runs app-wide). */
 private fun HomeViewModel.refreshTasteRowsUntilPublished() {
     viewModelScope.launch {
-        longArrayOf(0L, 4000L, 9000L, 14000L).forEach { delayMs ->
+        longArrayOf(0L, 8000L, 16000L, 24000L, 32000L, 40000L).forEach { delayMs ->
             if (delayMs > 0) delay(delayMs)
-            startupSyncService.requestCatalogRefresh()
+            startupSyncService.requestAddonRelistNow()
         }
     }
 }

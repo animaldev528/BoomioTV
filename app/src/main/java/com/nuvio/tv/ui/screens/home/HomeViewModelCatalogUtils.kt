@@ -385,7 +385,14 @@ internal fun CatalogDescriptor.shouldShowOnHome(): Boolean {
  * The per-service catalog list lives in tmdb-discover-plus's Postgres config,
  * so this allowlist is tuned by the field-test step in the hub-redesign build.
  */
-private val FEATURED_HOME_CATALOG_ID_PREFIXES = setOf("rec-") // per-user rec rows
+// Per-user rec rows + curated hub browse rows. The taste pipeline publishes a
+// profile's personal shelves as rec- row addons AND its genre/Years/Network/Studio
+// browse hubs as hub- row addons (addon.ts prefixes 'hub' for hub:true row docs).
+// Home historically kept only rec- so the browse breadth lived on the Movies/TV hub
+// screens; surfacing hub- too puts the genre/era rows on Home below the personal
+// shelves (hub rows carry a "More Like This ▸" drill into their per-genre sub-rows).
+// Only /row/ addons ever emit hub- catalogs, so no per-service catalog leaks in.
+private val FEATURED_HOME_CATALOG_ID_PREFIXES = setOf("rec-", "hub-")
 private val FEATURED_HOME_CATALOG_IDS = setOf("golden-age") // lists addon rows
 private val FEATURED_HOME_CATALOG_NAME_KEYWORDS = setOf(
     "popular", "trending", "top", "new", "upcoming", "recent",
