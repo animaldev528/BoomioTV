@@ -1,9 +1,13 @@
 package com.nuvio.tv.ui.screens.kids
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.network.NetworkResult
+import com.nuvio.tv.core.tmdb.TmdbMetadataService
+import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.domain.model.Addon
+import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.MoreLikeThisList
 import com.nuvio.tv.domain.model.enabledAddons
@@ -12,6 +16,7 @@ import com.nuvio.tv.domain.repository.MoreLikeThisRepository
 import com.nuvio.tv.ui.components.posteroptions.PosterOptionsController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -39,21 +44,31 @@ import kotlinx.coroutines.launch
  * It then lazily pages the endpoint's curated co-members: page 0 on discovery,
  * later pages on scroll via [loadMore] (server offsets by skip = items seen so
  * far). The facet [lists] returned on page 0 feed the screen's caption chips. A
- * title outside the profile's curated universe returns an empty page, surfaced
- * as a friendly empty wall.
+ * title outside the profile's curated universe returns an empty page (or the
+ * endpoint errors) — both fall back to TMDB recommendations so the wall always
+ * has an answer instead of dead-ending on an empty state.
  */
 @HiltViewModel
 class MoreLikeThisViewModel @Inject constructor(
     private val addonRepository: AddonRepository,
     private val moreLikeThisRepository: MoreLikeThisRepository,
+    private val tmdbService: TmdbService,
+    private val tmdbMetadataService: TmdbMetadataService,
     val posterOptions: PosterOptionsController
 ) : ViewModel() {
+
+    companion object {
+        private const val TAG = "MoreLikeThisViewModel"
+    }
 
     private val _uiState = MutableStateFlow(MoreLikeThisUiState())
     val uiState: StateFlow<MoreLikeThisUiState> = _uiState.asStateFlow()
 
     private var discoveryJob: Job? = null
     private var loadedForKey: String? = null
+
+    /** Keys already answered from the TMDB fallback while no curated row addon exists. */
+    private val tmdbFallbackKeys = mutableSetOf<String>()
 
     init {
         posterOptions.bind(viewModelScope)
@@ -76,11 +91,15 @@ class MoreLikeThisViewModel @Inject constructor(
 
                 val addon = curatedRowAddonFor(enabled, itemType)
                 if (addon == null) {
-                    // Enabled set is loaded but none serves this profile's curated rows yet
-                    // (row addons not synced since publish). Soft error; re-evaluate on the
-                    // next emission.
-                    _uiState.update {
-                        it.copy(isInitialLoading = false, missingCatalog = true, loadError = null)
+                    // Enabled set is loaded but none serves this profile's curated rows yet —
+                    // either still syncing after a publish or a profile with no curated rows
+                    // at all (onboarding starter). Don't leave a dead "not available yet" wall:
+                    // answer from TMDB now. loadedForKey is deliberately NOT set and the key is
+                    // only guarded once, so when row addons do appear the collector above falls
+                    // through and the curated page replaces this.
+                    if (key !in tmdbFallbackKeys) {
+                        tmdbFallbackKeys += key
+                        loadTmdbFallback(metaId, normalizedType(itemType))
                     }
                     return@collect
                 }
@@ -112,26 +131,84 @@ class MoreLikeThisViewModel @Inject constructor(
             when (result) {
                 is NetworkResult.Success -> {
                     val page = result.data
-                    _uiState.update {
-                        it.copy(
-                            metaId = metaId,
-                            addonId = addon.id,
-                            addonName = addon.displayName,
-                            lists = page.lists,
-                            items = page.items,
-                            addonBaseUrl = page.addonBaseUrl,
-                            itemType = page.itemType,
-                            exclude = exclude,
-                            isInitialLoading = false,
-                            hasMore = page.hasMore,
-                            isLoadingMore = false,
-                            loadError = null
-                        )
+                    if (page.items.isNotEmpty()) {
+                        _uiState.update {
+                            it.copy(
+                                metaId = metaId,
+                                addonId = addon.id,
+                                addonName = addon.displayName,
+                                lists = page.lists,
+                                items = page.items,
+                                addonBaseUrl = page.addonBaseUrl,
+                                itemType = page.itemType,
+                                exclude = exclude,
+                                isInitialLoading = false,
+                                hasMore = page.hasMore,
+                                isLoadingMore = false,
+                                loadError = null
+                            )
+                        }
+                    } else {
+                        // The resolver is a membership query over the profile's curated doc,
+                        // so an arbitrary title (not a curated member) correctly returns no
+                        // co-members. Don't dead-end on an empty wall — answer from TMDB.
+                        loadTmdbFallback(metaId, requestType)
                     }
                 }
-                is NetworkResult.Error ->
-                    _uiState.update { it.copy(isInitialLoading = false, loadError = result.message) }
+                is NetworkResult.Error -> {
+                    // Resolver errored (e.g. unknown tt for this profile). Log and answer
+                    // from TMDB rather than surfacing a dead "not available" wall.
+                    Log.w(TAG, "curated more-like-this failed for $requestType:$metaId — ${result.message}")
+                    loadTmdbFallback(metaId, requestType)
+                }
                 NetworkResult.Loading -> Unit
+            }
+        }
+    }
+
+    /**
+     * TMDB fallback for the curated resolver's empty/error answers (see
+     * [loadFirstPage]). Resolves the pressed tt id to a tmdb id via
+     * [TmdbService.ensureTmdbId], then asks [TmdbMetadataService.fetchMoreLikeThis]
+     * for landscape similar-title cards. The tiles belong to no curated row, so
+     * the addon base is cleared (null): Detail and poster-options resolve the
+     * `tmdb:` ids through TMDB, and paging is off ([MoreLikeThisUiState.hasMore]
+     * false). Returns an empty list when the title has no tmdb mapping or no
+     * recommendations — the screen's ordinary empty wall then stands.
+     */
+    private fun loadTmdbFallback(metaId: String, requestType: String) {
+        viewModelScope.launch {
+            val contentType = if (requestType == "movie") ContentType.MOVIE else ContentType.SERIES
+            val items = try {
+                val tmdbId = tmdbService.ensureTmdbId(metaId, if (contentType == ContentType.MOVIE) "movie" else "tv")
+                if (tmdbId == null) {
+                    Log.w(TAG, "no tmdb id for $requestType:$metaId — nothing to recommend from")
+                    emptyList()
+                } else {
+                    tmdbMetadataService.fetchMoreLikeThis(tmdbId, contentType)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "tmdb more-like-this fallback failed for $requestType:$metaId — ${e.message}")
+                emptyList()
+            }
+
+            _uiState.update { s ->
+                s.copy(
+                    items = items,
+                    lists = emptyList(),
+                    isInitialLoading = false,
+                    hasMore = false,
+                    isLoadingMore = false,
+                    loadError = null,
+                    addonBaseUrl = null,
+                    addonId = "",
+                    addonName = "",
+                    metaId = metaId,
+                    itemType = requestType,
+                    exclude = s.exclude
+                )
             }
         }
     }
