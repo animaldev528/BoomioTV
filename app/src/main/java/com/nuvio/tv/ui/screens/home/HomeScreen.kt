@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Divider
@@ -878,12 +879,17 @@ private fun HomeTasteHintBanner(
             .background(color = Color(0xFF1C4A2E), shape = RoundedCornerShape(10.dp))
             .padding(horizontal = 20.dp, vertical = 12.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.widthIn(max = 1480.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
                 text = stringResource(R.string.taste_hint_message),
                 style = MaterialTheme.typography.bodyMedium,
                 color = NuvioTheme.colors.TextPrimary,
-                modifier = Modifier.padding(end = 18.dp)
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .padding(end = 18.dp)
             )
             Button(
                 onClick = onDone,
