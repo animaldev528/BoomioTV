@@ -8,6 +8,7 @@ import com.nuvio.tv.data.local.LikePreferences
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.TastePick
 import com.nuvio.tv.domain.model.TastePickType
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
@@ -131,25 +132,52 @@ fun HomeViewModel.togglePosterLike(item: MetaPreview) {
 
 /** "Done for now": pushes the profile's full current like set through
  *  [com.nuvio.tv.core.sync.TastePickSyncService.pushTastePicks], which flips
- *  taste_completed server-side and locally. With 0 likes the starter home simply
- *  stays and the hint returns later. */
+ *  taste_completed server-side and locally. With 0 likes the push is skipped so
+ *  onboarding is never burned on an empty set — the starter home stays and the
+ *  hint returns later. On success the catalog refresh is re-emitted over the next
+ *  ~15s (see [refreshTasteRowsUntilPublished]) so the rebuilt rows appear in
+ *  place instead of waiting out the home-refresh TTL or needing an app restart. */
 fun HomeViewModel.completeTasteOnboarding() {
     val profile = profileManager.activeProfile ?: return
     if (!profile.needsTasteHint || _uiState.value.tasteHintBusy) return
     val profileId = profileManager.activeProfileId.value
     _uiState.update { it.copy(tasteHintBusy = true) }
     viewModelScope.launch {
+        var pushed = false
         try {
             val picks = buildLikedPicks(profileId)
-            tastePickSyncService.pushTastePicks(profileId, picks).onFailure { error ->
-                Log.w(HomeViewModel.TAG, "Failed to push taste picks on Done: ${error.message}")
+            if (picks.isEmpty()) {
+                Log.i(HomeViewModel.TAG, "Done for now with 0 likes — skipping push; hint stays for this profile")
+            } else {
+                tastePickSyncService.pushTastePicks(profileId, picks)
+                    .onSuccess { pushed = true }
+                    .onFailure { error ->
+                        Log.w(HomeViewModel.TAG, "Failed to push taste picks on Done: ${error.message}")
+                    }
+                // markProfileTasteCompleted happens inside pushTastePicks on server success;
+                // on failure we intentionally stay on the hint so it returns later.
             }
-            // markProfileTasteCompleted happens inside pushTastePicks on server success;
-            // on failure we intentionally stay on the hint so it returns later.
         } catch (error: Exception) {
             Log.w(HomeViewModel.TAG, "Failed to complete taste onboarding: ${error.message}")
+        } finally {
+            _uiState.update { it.copy(tasteHintBusy = false) }
         }
-        _uiState.update { it.copy(tasteHintBusy = false) }
+        if (pushed) refreshTasteRowsUntilPublished()
+    }
+}
+
+/** The Done RPC returns before the server's async personal build has published
+ *  (pg_net -> :3977 builder, 1-min watcher as fallback), so a single refresh
+ *  lands on the old rows. Re-emit the manual catalog refresh a few times over
+ *  ~15s: each emission re-requests the loaded catalogs (TTL-bypassing), so the
+ *  rebuilt rows are pulled the moment they are published — no app restart, no
+ *  wait on the 15-min resume TTL. No-ops harmlessly if the user has left Home. */
+private fun HomeViewModel.refreshTasteRowsUntilPublished() {
+    viewModelScope.launch {
+        longArrayOf(0L, 4000L, 9000L, 14000L).forEach { delayMs ->
+            if (delayMs > 0) delay(delayMs)
+            startupSyncService.requestCatalogRefresh()
+        }
     }
 }
 

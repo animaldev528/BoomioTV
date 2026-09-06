@@ -193,6 +193,13 @@ class StartupSyncService @Inject constructor(
         }
     }
 
+    /** Signals screens holding catalogs to re-request them immediately (TTL-bypassing),
+     *  without a remote addon sync. Used after a taste-picks push on "Done for now" so the
+     *  rebuilt taste rows appear right away instead of waiting out the home-refresh TTL. */
+    fun requestCatalogRefresh() {
+        _manualAddonRefreshes.tryEmit(Unit)
+    }
+
     fun requestRealtimeSurfacePull(profileId: Int, surface: String) {
         if (!authManager.isAuthenticated) return
         if (surface != "profiles" && profileManager.activeProfileId.value != profileId) {
