@@ -1,5 +1,6 @@
 package com.nuvio.tv.data.remote.dto
 
+import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 /**
@@ -19,7 +20,9 @@ data class DeviceCapabilityReportDto(
     val app: AppInfoDto = AppInfoDto(),
     val display: DisplayCapabilitiesDto = DisplayCapabilitiesDto(),
     val decode: DecodeCapabilitiesDto = DecodeCapabilitiesDto(),
-    val effective: EffectiveCapabilitiesDto = EffectiveCapabilitiesDto()
+    val effective: EffectiveCapabilitiesDto = EffectiveCapabilitiesDto(),
+    /** Active-link measurement + cheap OS network facts. Optional — absent until the box has a number or an active network. Persists verbatim under `devices.capabilities.network.*` (WS3 stores the whole body). */
+    val network: NetworkCapabilitiesDto? = null
 )
 
 /** Identifies the install to the fleet view. */
@@ -113,4 +116,29 @@ data class EffectiveCapabilitiesDto(
     val maxResolution: String = "",
     /** HDR tokens the sink advertises AND the box can decode, fixed order: dv, hdr10, hdr10plus, hlg. */
     val hdrUsable: List<String> = emptyList()
+)
+
+/**
+ * The active link the box reports through. `estimated_bandwidth_mbps` is a *measured* value
+ * ([com.nuvio.tv.core.network.NetworkMeter]) and is deliberately **not** mirrored into operator-policy
+ * columns (`devices.bandwidth_cap_mbps` etc.) — measurement and operator policy stay separate. The other
+ * fields are filled only when the OS exposes them cheaply (all-`null` if there is no active network).
+ * Wire names are snake_case to match the bandwidth-report plan contract.
+ */
+@JsonClass(generateAdapter = true)
+data class NetworkCapabilitiesDto(
+    /** Transport token: "wifi", "ethernet", "cellular", "vpn", or "other". Null when the OS exposes no active network. */
+    val type: String? = null,
+    /** Last download measurement, Mbps, 1 decimal. Null before the first successful measure. */
+    @Json(name = "estimated_bandwidth_mbps")
+    val estimatedBandwidthMbps: Double? = null,
+    /** Wi-Fi band in GHz (2.4/5/6). Null off Wi-Fi or when the OS hides it. */
+    @Json(name = "frequency_ghz")
+    val frequencyGhz: Double? = null,
+    /** Wi-Fi RSSI in dBm. Null off Wi-Fi. */
+    @Json(name = "signal_strength_dbm")
+    val signalStrengthDbm: Int? = null,
+    /** True when the active network is metered (NET_CAPABILITY_NOT_METERED absent). Null when unknown. */
+    @Json(name = "is_metered")
+    val isMetered: Boolean? = null
 )

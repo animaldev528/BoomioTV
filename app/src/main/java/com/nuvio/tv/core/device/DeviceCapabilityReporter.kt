@@ -2,14 +2,19 @@ package com.nuvio.tv.core.device
 
 import android.content.Context
 import android.hardware.display.DisplayManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.net.wifi.WifiManager
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import com.nuvio.tv.BuildConfig
+import com.nuvio.tv.core.network.NetworkMeter
 import com.nuvio.tv.core.sync.SyncClientIdentity
 import com.nuvio.tv.data.remote.api.BsmApi
 import com.nuvio.tv.data.remote.dto.CodecCapabilityDto
 import com.nuvio.tv.data.remote.dto.DeviceCapabilityReportDto
+import com.nuvio.tv.data.remote.dto.NetworkCapabilitiesDto
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.security.MessageDigest
 import javax.inject.Inject
@@ -42,7 +47,8 @@ import kotlinx.coroutines.withContext
 class DeviceCapabilityReporter @Inject constructor(
     @ApplicationContext private val context: Context,
     private val bsmApi: BsmApi,
-    private val syncClientIdentity: SyncClientIdentity
+    private val syncClientIdentity: SyncClientIdentity,
+    private val networkMeter: NetworkMeter
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -60,12 +66,32 @@ class DeviceCapabilityReporter @Inject constructor(
         installDisplayListener()
         heartbeatJob = scope.launch {
             delay(INITIAL_REPORT_DELAY_MS)
+            // Boot report first (prompt, cached network value if any) so the fleet row appears ~15s
+            // after boot; then a fresh measurement, re-reporting only if it changed the payload.
             reportOnce(force = true)
+            measureThenReReportIfChanged()
             while (isActive) {
                 delay(HEARTBEAT_MS)
-                reportOnce(force = true)
+                // Heartbeat: fresh measurement first, then the always-send report (keeps last_seen
+                // honest AND carries the new number — the bandwidth-report plan's 12h cadence).
+                measureThenReport()
             }
         }
+    }
+
+    /** One download measurement, then re-report only if it changed the payload (signature differs). */
+    private suspend fun measureThenReReportIfChanged() {
+        val before = networkMeter.lastMeasuredMbps()
+        val measured = networkMeter.measure()
+        if (measured != null && measured != before) {
+            reportOnce(force = false)
+        }
+    }
+
+    /** Fresh download measurement, then the always-send report. */
+    private suspend fun measureThenReport() {
+        networkMeter.measure()
+        reportOnce(force = true)
     }
 
     /**
@@ -110,6 +136,7 @@ class DeviceCapabilityReporter @Inject constructor(
 
         val report = withContext(Dispatchers.Default) {
             DeviceCapabilityProbe.buildReport(context, syncClientIdentity.currentClientId())
+                .copy(network = buildNetworkSection(networkMeter.lastMeasuredMbps()))
         }
         val signature = signatureOf(report)
 
@@ -161,8 +188,51 @@ class DeviceCapabilityReporter @Inject constructor(
         report.decode.dolbyVision?.let {
             sb.append("dv:").append(it.decoderPresent).append(it.profiles).append('|')
         }
+        report.network?.let { n ->
+            sb.append("net:").append(n.type).append('/').append(n.isMetered)
+                .append('/').append(n.frequencyGhz).append('/').append(n.signalStrengthDbm)
+                .append('/').append(n.estimatedBandwidthMbps).append('|')
+        }
         val bytes = MessageDigest.getInstance("SHA-256").digest(sb.toString().toByteArray(Charsets.UTF_8))
         return bytes.joinToString("") { b -> (b.toInt() and 0xff).toString(16).padStart(2, '0') }
+    }
+
+    /**
+     * The report's `network` section: the measured value from the meter plus whatever the OS exposes
+     * about the active link cheaply. Returns null only when there is neither a measured value nor an
+     * active network — so an all-null object is never sent.
+     */
+    private fun buildNetworkSection(measuredMbps: Double?): NetworkCapabilitiesDto? {
+        var type: String? = null
+        var isMetered: Boolean? = null
+        var frequencyGhz: Double? = null
+        var signalStrengthDbm: Int? = null
+        runCatching {
+            val cm = context.getSystemService(ConnectivityManager::class.java) ?: return@runCatching
+            val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return@runCatching
+            val onWifi = caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+            type = when {
+                onWifi -> "wifi"
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "ethernet"
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "cellular"
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) -> "vpn"
+                else -> "other"
+            }
+            isMetered = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+            if (onWifi) {
+                val wifiInfo = context.getSystemService(WifiManager::class.java)?.connectionInfo
+                wifiInfo?.frequency?.takeIf { it > 0 }?.let { frequencyGhz = it / 1000.0 }
+                wifiInfo?.rssi?.takeIf { it != Int.MAX_VALUE }?.let { signalStrengthDbm = it }
+            }
+        }
+        if (measuredMbps == null && type == null) return null
+        return NetworkCapabilitiesDto(
+            type = type,
+            estimatedBandwidthMbps = measuredMbps,
+            frequencyGhz = frequencyGhz,
+            signalStrengthDbm = signalStrengthDbm,
+            isMetered = isMetered
+        )
     }
 
     private companion object {

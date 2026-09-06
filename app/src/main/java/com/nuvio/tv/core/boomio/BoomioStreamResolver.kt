@@ -2,10 +2,12 @@ package com.nuvio.tv.core.boomio
 
 import android.util.Log
 import com.nuvio.tv.BuildConfig
+import com.nuvio.tv.core.network.NetworkMeter
 import com.nuvio.tv.data.mapper.toDomain
 import com.nuvio.tv.data.remote.dto.StreamResponseDto
 import com.nuvio.tv.domain.model.Stream
 import com.squareup.moshi.Moshi
+import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -37,7 +39,8 @@ private const val TAG = "BoomioStreamResolver"
 @Singleton
 class BoomioStreamResolver @Inject constructor(
     private val okHttpClient: OkHttpClient,
-    private val moshi: Moshi
+    private val moshi: Moshi,
+    private val networkMeter: NetworkMeter
 ) {
     private val responseAdapter = moshi.adapter(StreamResponseDto::class.java)
 
@@ -110,8 +113,14 @@ class BoomioStreamResolver @Inject constructor(
         // Install-level capability hint: when this build was compiled with a max
         // resolution (BOOMIO_MAX_RESOLUTION, e.g. "1080p"), ask bsf to cap the
         // streams it feeds back so higher resolutions never reach the picker.
+        // (snake_case: bsf's GET parser reads maxres|max_resolution, not camelCase maxResolution.)
         BuildConfig.BOOMIO_MAX_RESOLUTION.trim().takeIf { it.isNotBlank() }?.let {
-            builder.addQueryParameter("maxResolution", it)
+            builder.addQueryParameter("max_resolution", it)
+        }
+        // Measured link cap (Mbps): bsf's gates hard-drop streams above mobileCapMbps, so the box is
+        // only offered qualities its measured link can actually hold. Absent until the meter has run.
+        networkMeter.lastMeasuredMbps()?.let { mbps ->
+            builder.addQueryParameter("mobileCapMbps", String.format(Locale.US, "%.1f", mbps))
         }
         return builder.build().toString()
     }
