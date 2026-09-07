@@ -29,7 +29,7 @@
 # broader kotlin.** keep rule below for DexClassLoader extension compatibility.
 -keep,allowobfuscation,allowshrinking class kotlin.coroutines.Continuation
 # Keep all project API interfaces
--keep class com.nuvio.tv.data.remote.api.** { *; }
+-keep class com.boomio.tv.data.remote.api.** { *; }
 
 # ── OkHttp ─────────────────────────────────────────────────────────────────────
 -dontwarn okhttp3.internal.platform.**
@@ -39,8 +39,8 @@
 
 # ── Data classes (DTOs) ────────────────────────────────────────────────────────
 # Keep all DTO classes used with Moshi/Retrofit
--keep class com.nuvio.tv.data.remote.dto.** { *; }
--keep class com.nuvio.tv.domain.model.** { *; }
+-keep class com.boomio.tv.data.remote.dto.** { *; }
+-keep class com.boomio.tv.domain.model.** { *; }
 
 # ── Kotlin ─────────────────────────────────────────────────────────────────────
 -keepattributes *Annotation*
@@ -53,18 +53,18 @@
 # ── NanoHTTPD (used by local server) ───────────────────────────────────────────
 -keep class fi.iki.elonen.** { *; }
 # Keep server classes and their inner data classes (serialized with Gson)
--keep class com.nuvio.tv.core.server.** { *; }
+-keep class com.boomio.tv.core.server.** { *; }
 
 # ── Torrent streaming (TorrServer) ─────────────────────────────────────────────
--keep class com.nuvio.tv.core.torrent.** { *; }
+-keep class com.boomio.tv.core.torrent.** { *; }
 
 #── QuickJS ────────────────────────────────────────────────────────────────────
 # Keep quickjs-kt library classes for proper type conversion
 -keep class com.dokar.quickjs.** { *; }
 -keepclassmembers class com.dokar.quickjs.** { *; }
 # Keep PluginRuntime and related classes for JS bindings
--keep class com.nuvio.tv.core.plugin.** { *; }
--keepclassmembers class com.nuvio.tv.core.plugin.** { *; }
+-keep class com.boomio.tv.core.plugin.** { *; }
+-keepclassmembers class com.boomio.tv.core.plugin.** { *; }
 
 # ── ExoPlayer / Media3 ────────────────────────────────────────────────────────
 -dontwarn androidx.media3.**
@@ -94,7 +94,7 @@
 -keep class io.github.jan.supabase.** { *; }
 -keep class io.ktor.** { *; }
 -dontwarn io.ktor.**
--keep class com.nuvio.tv.data.remote.supabase.** { *; }
+-keep class com.boomio.tv.data.remote.supabase.** { *; }
 # Keep @Serializable classes and their generated serializers
 -keepclassmembers class * {
     kotlinx.serialization.KSerializer serializer(...);

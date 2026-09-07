@@ -96,7 +96,7 @@ val releaseStorePasswordValue = env("NUVIO_RELEASE_STORE_PASSWORD")
     ?: localProperties.getProperty("NUVIO_RELEASE_STORE_PASSWORD", "815787")
 
 android {
-    namespace = "com.nuvio.tv"
+    namespace = "com.boomio.tv"
     compileSdk = 36
     lint {
         checkReleaseBuilds = false
@@ -105,7 +105,7 @@ android {
     ndkVersion = "29.0.14206865"
 
     defaultConfig {
-        applicationId = "com.nuvio.tv"
+        applicationId = "com.boomio.tv"
         minSdk = 24
         targetSdk = 36
         versionCode = 1057
@@ -121,7 +121,7 @@ android {
         buildConfigField("String", "TRAKT_API_URL", "\"${localProperties.getProperty("TRAKT_API_URL", "https://api.trakt.tv/")}\"")
         buildConfigField("String", "TRAKT_REDIRECT_URI", "\"${localProperties.getProperty("TRAKT_REDIRECT_URI", "urn:ietf:wg:oauth:2.0:oob")}\"")
         buildConfigField("String", "SIMKL_CLIENT_ID", buildConfigString(resolveProperty(devProperties, localProperties, "SIMKL_CLIENT_ID")))
-        buildConfigField("String", "SIMKL_APP_NAME", buildConfigString(resolveProperty(devProperties, localProperties, "SIMKL_APP_NAME", "nuvio")))
+        buildConfigField("String", "SIMKL_APP_NAME", buildConfigString(resolveProperty(devProperties, localProperties, "SIMKL_APP_NAME", "boomio")))
         buildConfigField("String", "TMDB_API_KEY", "\"${localProperties.getProperty("TMDB_API_KEY", "")}\"")
         buildConfigField("String", "TV_LOGIN_WEB_BASE_URL", "\"${localProperties.getProperty("TV_LOGIN_WEB_BASE_URL", "https://nuvio.tv/tv-login")}\"")
         buildConfigField("String", "DEVICE_LOGIN_WEB_BASE_URL", "\"${localProperties.getProperty("DEVICE_LOGIN_WEB_BASE_URL", "https://nuvio.tv/link")}\"")
@@ -156,7 +156,7 @@ android {
         buildConfigField("String", "SENTRY_DSN", buildConfigString(sentryDsn))
 
         // In-app updater (GitHub Releases)
-        buildConfigField("String", "GITHUB_OWNER", "\"tapframe\"")
+        buildConfigField("String", "GITHUB_OWNER", "\"animaldev528\"")
         buildConfigField("String", "GITHUB_REPO", "\"NuvioTV\"")
     }
 
@@ -173,7 +173,7 @@ android {
         }
         create("playstore") {
             dimension = "distribution"
-            applicationId = "com.nuvio.app"
+            applicationId = "com.boomio.app"
             buildConfigField("boolean", "FEATURE_PLUGINS_ENABLED", "false")
             buildConfigField("boolean", "FEATURE_IN_APP_UPDATES_ENABLED", "false")
             buildConfigField("boolean", "FEATURE_IN_APP_TRAILERS_ENABLED", "false")
@@ -347,7 +347,7 @@ android {
 androidComponents {
     onVariants(selector().withBuildType("debug")) { variant ->
         val isPlaystore = variant.productFlavors.any { it.second == "playstore" }
-        variant.applicationId.set(if (isPlaystore) "com.nuvio.appdebug" else "com.nuviodebug.com")
+        variant.applicationId.set(if (isPlaystore) "com.boomio.appdebug" else "com.boomiodebug.com")
     }
 }
 
@@ -374,7 +374,7 @@ baselineProfile {
     mergeIntoMain = true
     baselineProfileOutputDir = "generated/baselineProfiles"
     filter {
-        include("com.nuvio.tv.**")
+        include("com.boomio.tv.**")
     }
 }
 
@@ -406,7 +406,7 @@ dependencies {
 
     // Source-retention nullness annotations (MonotonicNonNull / RequiresNonNull /
     // EnsuresNonNull) used by the vendored Matroska extractor in
-    // com.nuvio.tv.core.player.dvmkv. Media3 keeps these compileOnly in its own
+    // com.boomio.tv.core.player.dvmkv. Media3 keeps these compileOnly in its own
     // build, so they aren't on our classpath via the prebuilt AARs.
     compileOnly("org.checkerframework:checker-qual:3.43.0")
 
