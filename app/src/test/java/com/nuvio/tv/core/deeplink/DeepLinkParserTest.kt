@@ -10,7 +10,7 @@ class DeepLinkParserTest {
     fun parsesMetaQueryDeepLink() {
         assertEquals(
             AppDeepLink.Meta(type = "series", id = "tt0944947"),
-            DeepLinkParser.parse("nuvio://meta?type=series&id=tt0944947")
+            DeepLinkParser.parse("boomio://meta?type=series&id=tt0944947")
         )
     }
 
@@ -18,7 +18,7 @@ class DeepLinkParserTest {
     fun parsesAddonInstallDeepLink() {
         assertEquals(
             AppDeepLink.AddonInstall("https://free.nebulapro.xyz/sports/i/free/manifest.json"),
-            DeepLinkParser.parse("nuvio://free.nebulapro.xyz/sports/i/free/manifest.json")
+            DeepLinkParser.parse("boomio://free.nebulapro.xyz/sports/i/free/manifest.json")
         )
     }
 
@@ -34,7 +34,7 @@ class DeepLinkParserTest {
     fun parsesDirectImdbDetailDeepLink() {
         assertEquals(
             AppDeepLink.Meta(type = "series", id = "tt0944947"),
-            DeepLinkParser.parse("nuvio://series/tt0944947")
+            DeepLinkParser.parse("boomio://series/tt0944947")
         )
     }
 
@@ -42,7 +42,7 @@ class DeepLinkParserTest {
     fun parsesProviderImdbDetailDeepLink() {
         assertEquals(
             AppDeepLink.Meta(type = "series", id = "tt0944947"),
-            DeepLinkParser.parse("nuvio://imdb/series/tt0944947")
+            DeepLinkParser.parse("boomio://imdb/series/tt0944947")
         )
     }
 
@@ -50,13 +50,13 @@ class DeepLinkParserTest {
     fun parsesProviderTmdbDetailDeepLink() {
         assertEquals(
             AppDeepLink.Meta(type = "series", id = "tmdb:1399"),
-            DeepLinkParser.parse("nuvio://tmdb/tv/1399")
+            DeepLinkParser.parse("boomio://tmdb/tv/1399")
         )
     }
 
     @Test
     fun doesNotTreatAuthLinkAsAddonInstall() {
-        assertNull(DeepLinkParser.parse("nuvio://auth/trakt?code=abc"))
+        assertNull(DeepLinkParser.parse("boomio://auth/trakt?code=abc"))
     }
 
     @Test

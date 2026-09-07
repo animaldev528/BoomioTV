@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Nuvio</string>
+    <string name="app_name">Boomio</string>
     <string name="tv_channel_continue_watching">Continuar Assistindo</string>
     <string name="type_movie">Filme</string>
     <string name="type_movies">Filmes</string>
@@ -98,7 +98,7 @@
 
     <string name="home_no_addons">Nenhum addon instalado. Adicione um para começar.</string>
     <string name="home_no_catalog_addons">Nenhum addon de catálogo instalado. Instale um para ver conteúdos.</string>
-    <string name="auth_notice_nuvio_logged_out">Você foi desconectado do Nuvio. Faça login novamente.</string>
+    <string name="auth_notice_nuvio_logged_out">Você foi desconectado do Boomio. Faça login novamente.</string>
     <string name="auth_notice_trakt_logged_out">Você foi desconectado do Trakt. Reconecte-se.</string>
     <string name="error_generic">Ocorreu um erro</string>
 
@@ -362,34 +362,34 @@
     <string name="about_check_updates_subtitle">Baixar a versão mais recente</string>
     <string name="about_privacy_policy">Política de Privacidade</string>
     <string name="about_privacy_policy_subtitle">Ler nossa política de privacidade</string>
-    <string name="support_nuvio_name">Apoiar o Nuvio</string>
-    <string name="about_supporters_contributors">Apoiar o Nuvio</string>
+    <string name="support_nuvio_name">Apoiar o Boomio</string>
+    <string name="about_supporters_contributors">Apoiar o Boomio</string>
     <string name="about_supporters_contributors_subtitle">Apoie o projeto e veja os créditos da comunidade</string>
     <string name="about_licenses_attributions">Licenças e Atribuições</string>
     <string name="about_licenses_attributions_subtitle">Fontes de dados, agradecimentos e licenças Android</string>
     <string name="licenses_attributions_title">Licenças e Atribuições</string>
-    <string name="licenses_attributions_subtitle">Provedores de dados, créditos de serviços e licenças de reprodução Android usadas pelo Nuvio TV.</string>
+    <string name="licenses_attributions_subtitle">Provedores de dados, créditos de serviços e licenças de reprodução Android usadas pelo Boomio.</string>
     <string name="licenses_attributions_section_app">LICENÇA DO APP</string>
     <string name="licenses_attributions_section_data">DADOS e SERVIÇOS</string>
     <string name="licenses_attributions_section_playback">LICENÇAS DE REPRODUÇÃO ANDROID</string>
-    <string name="licenses_attributions_nuvio_title">Nuvio TV</string>
+    <string name="licenses_attributions_nuvio_title">Boomio</string>
     <string name="licenses_attributions_nuvio_body">Código-fonte e os termos de licença estão disponíveis no repositório do projeto. Licenciado sob a GNU General Public License v3.0.</string>
     <string name="licenses_attributions_tmdb_title">The Movie Database (TMDB)</string>
-    <string name="licenses_attributions_tmdb_body">O Nuvio utiliza a API do TMDB para metadados de filmes e séries, artes, trailers, elenco, detalhes de produção, coleções e recomendações. Este produto usa a API do TMDB, mas não é endossado ou certificado pelo TMDB.</string>
+    <string name="licenses_attributions_tmdb_body">O Boomio utiliza a API do TMDB para metadados de filmes e séries, artes, trailers, elenco, detalhes de produção, coleções e recomendações. Este produto usa a API do TMDB, mas não é endossado ou certificado pelo TMDB.</string>
     <string name="licenses_attributions_trakt_title">Trakt</string>
-    <string name="licenses_attributions_trakt_body">O Nuvio conecta-se ao Trakt para autenticação de contas, histórico de assistidos, sincronização de progresso, dados de biblioteca, avaliações, listas e comentários. O Nuvio não é afiliado nem endossado pelo Trakt.</string>
+    <string name="licenses_attributions_trakt_body">O Boomio conecta-se ao Trakt para autenticação de contas, histórico de assistidos, sincronização de progresso, dados de biblioteca, avaliações, listas e comentários. O Boomio não é afiliado nem endossado pelo Trakt.</string>
     <string name="licenses_attributions_simkl_title">Simkl</string>
-    <string name="licenses_attributions_simkl_body">O Nuvio conecta-se ao Simkl para autenticação de contas, listas de interesse, histórico de assistidos, progresso de reprodução e scrobbling. Os dados de acompanhamento de filmes, séries e animes são fornecidos pelo Simkl. O Nuvio não é afiliado nem endossado pelo Simkl.</string>
+    <string name="licenses_attributions_simkl_body">O Boomio conecta-se ao Simkl para autenticação de contas, listas de interesse, histórico de assistidos, progresso de reprodução e scrobbling. Os dados de acompanhamento de filmes, séries e animes são fornecidos pelo Simkl. O Boomio não é afiliado nem endossado pelo Simkl.</string>
     <string name="licenses_attributions_premiumize_title">Premiumize</string>
-    <string name="licenses_attributions_premiumize_body">O Nuvio se conecta ao Premiumize para autenticação de conta, acesso à biblioteca na nuvem, verificação de cache e recursos de reprodução na nuvem. O Nuvio não é afiliado ou endossado pelo Premiumize.</string>
+    <string name="licenses_attributions_premiumize_body">O Boomio se conecta ao Premiumize para autenticação de conta, acesso à biblioteca na nuvem, verificação de cache e recursos de reprodução na nuvem. O Boomio não é afiliado ou endossado pelo Premiumize.</string>
     <string name="licenses_attributions_torbox_title">TorBox</string>
-    <string name="licenses_attributions_torbox_body">O Nuvio se conecta ao TorBox para autenticação de conta, acesso à biblioteca na nuvem, verificação de cache e recursos de reprodução na nuvem. O Nuvio não é afiliado ou endossado pelo TorBox.</string>
+    <string name="licenses_attributions_torbox_body">O Boomio se conecta ao TorBox para autenticação de conta, acesso à biblioteca na nuvem, verificação de cache e recursos de reprodução na nuvem. O Boomio não é afiliado ou endossado pelo TorBox.</string>
     <string name="licenses_attributions_mdblist_title">MDBList</string>
-    <string name="licenses_attributions_mdblist_body">O Nuvio utiliza o MDBList para avaliações e dados de provedores de pontuação externa. O Nuvio não é afiliado nem endossado pelo MDBList.</string>
+    <string name="licenses_attributions_mdblist_body">O Boomio utiliza o MDBList para avaliações e dados de provedores de pontuação externa. O Boomio não é afiliado nem endossado pelo MDBList.</string>
     <string name="licenses_attributions_introdb_title">IntroDB</string>
-    <string name="licenses_attributions_introdb_body">O Nuvio utiliza a API do IntroDB para introduções, recaps, créditos e marcações de prévias fornecidas pela comunidade, usadas nos controles de pular. O Nuvio não é afiliado nem endossado pelo IntroDB.</string>
+    <string name="licenses_attributions_introdb_body">O Boomio utiliza a API do IntroDB para introduções, recaps, créditos e marcações de prévias fornecidas pela comunidade, usadas nos controles de pular. O Boomio não é afiliado nem endossado pelo IntroDB.</string>
     <string name="licenses_attributions_imdb_title">IMDb Conjuntos de Dados Não-Comerciais</string>
-    <string name="licenses_attributions_imdb_body">O Nuvio utiliza conjuntos de dados não-comerciais do IMDb, incluindo title.ratings.tsv.gz, para avaliações e contagem de votos do IMDb. Informações cortesia do IMDb (https://www.imdb.com). Usado com permissão. Os dados do IMDb são para uso pessoal e não-comercial sob os termos do IMDb.</string>
+    <string name="licenses_attributions_imdb_body">O Boomio utiliza conjuntos de dados não-comerciais do IMDb, incluindo title.ratings.tsv.gz, para avaliações e contagem de votos do IMDb. Informações cortesia do IMDb (https://www.imdb.com). Usado com permissão. Os dados do IMDb são para uso pessoal e não-comercial sob os termos do IMDb.</string>
     <string name="licenses_attributions_exoplayer_title">AndroidX Media3 ExoPlayer 1.8.0</string>
     <string name="licenses_attributions_exoplayer_body">Usado como motor de reprodução Android. Licenciado sob a Apache License, Versão 2.0.</string>
     <string name="licenses_attributions_libmpv_title">libmpv / libmpv-android</string>
@@ -420,7 +420,7 @@
     <string name="tracking_accounts_title">Contas</string>
     <string name="tracking_accounts_subtitle">Conectar e gerenciar serviços de rastreamento</string>
     <string name="tracking_sources_title">Fontes</string>
-    <string name="tracking_sources_subtitle">Escolha de onde o Nuvio lê sua biblioteca e progresso de reprodução. O scrobbling é enviado para todos os serviços conectados.</string>
+    <string name="tracking_sources_subtitle">Escolha de onde o Boomio lê sua biblioteca e progresso de reprodução. O scrobbling é enviado para todos os serviços conectados.</string>
     <string name="tracking_trakt_features_title">Recursos do Trakt</string>
     <string name="tracking_trakt_features_subtitle">Histórico, avaliações e recomendações específicas do Trakt</string>
     <string name="tracking_simkl_features_title">Recursos do Simkl</string>
@@ -436,8 +436,8 @@
     <string name="tracking_status_connecting">Conectando</string>
     <string name="tracking_finish_connection">Finalizar aprovação da conexão</string>
     <string name="tracking_connecting_provider">Iniciando conexão com %1$s…</string>
-    <string name="tracking_watch_progress_dialog_subtitle">Escolha o serviço que o Nuvio usa para retomar e Continuar Assistindo. O scrobbling permanece ativo para todos os serviços conectados.</string>
-    <string name="tracking_library_source_dialog_subtitle">Escolha o serviço que o Nuvio usa para sua Biblioteca. O scrobbling de reprodução é enviado para todos os serviços conectados.</string>
+    <string name="tracking_watch_progress_dialog_subtitle">Escolha o serviço que o Boomio usa para retomar e Continuar Assistindo. O scrobbling permanece ativo para todos os serviços conectados.</string>
+    <string name="tracking_library_source_dialog_subtitle">Escolha o serviço que o Boomio usa para sua Biblioteca. O scrobbling de reprodução é enviado para todos os serviços conectados.</string>
     <string name="tracking_trakt_progress_required">Disponível quando o Trakt é a fonte de Progresso de Assistidos</string>
     <string name="trakt_name">Trakt</string>
     <string name="simkl_name">Simkl</string>
@@ -448,7 +448,7 @@
     <string name="settings_advanced_subtitle">Desempenho, navegação, cache e diagnósticos</string>
     <string name="experience_mode_essential">Essencial</string>
     <string name="experience_mode_advanced">Avançado</string>
-    <string name="experience_mode_choose_title">Escolha sua experiência Nuvio</string>
+    <string name="experience_mode_choose_title">Escolha sua experiência Boomio</string>
     <string name="experience_mode_choose_subtitle">Simples ou completo, mude a qualquer hora</string>
     <string name="experience_mode_essential_card_subtitle">Configurações básicas, addons e Trakt</string>
     <string name="experience_mode_advanced_card_subtitle">Configurações, layout, catálogo e diagnósticos</string>
@@ -555,8 +555,8 @@
     <string name="buffer_safe_status">Seguro: Dentro do limite recomendado para o seu dispositivo.</string>
     <string name="buffer_unsafe_warning">Aviso: Excede o limite seguro recomendado (%1$d MB) para seu dispositivo %2$s. Pode causar travamentos no aplicativo.</string>
     <string name="buffer_auto_limit_active">Limite seguro autoajustado: %d MB</string>
-    <string name="advanced_nuvio_focus_scroll">Rolagem de foco Nuvio</string>
-    <string name="advanced_nuvio_focus_scroll_subtitle">Usa animação de foco personalizada do Nuvio</string>
+    <string name="advanced_nuvio_focus_scroll">Rolagem de foco Boomio</string>
+    <string name="advanced_nuvio_focus_scroll_subtitle">Usa animação de foco personalizada do Boomio</string>
     <string name="advanced_memory_only_vertical_scroll">Rolagem vertical via memória</string>
     <string name="advanced_memory_only_vertical_scroll_subtitle">Não carrega imagens ao rolar as fileiras</string>
     <string name="advanced_compose_highlighter">Destacador de interface</string>
@@ -593,21 +593,21 @@
     <string name="action_none">Nenhum</string>
     <string name="action_close">Fechar</string>
 
-    <string name="supporters_contributors_title">Apoiar o Nuvio</string>
-    <string name="supporters_contributors_subtitle">As pessoas que apoiam o Nuvio e os colaboradores que o constroem para TV e celular.</string>
+    <string name="supporters_contributors_title">Apoiar o Boomio</string>
+    <string name="supporters_contributors_subtitle">As pessoas que apoiam o Boomio e os colaboradores que o constroem para TV e celular.</string>
     <string name="supporters_contributors_supporters_copy">Apoiadores e doadores ajudam a manter o projeto ativo, financiam a infraestrutura e abrem espaço para recursos ambiciosos.</string>
-    <string name="supporters_contributors_donate_copy">O Nuvio continuará sendo gratuito e de código aberto. Se você quiser apoiar o projeto, pode ajudar com os custos de tempo e infraestrutura.</string>
+    <string name="supporters_contributors_donate_copy">O Boomio continuará sendo gratuito e de código aberto. Se você quiser apoiar o projeto, pode ajudar com os custos de tempo e infraestrutura.</string>
     <string name="supporters_contributors_donation_progress_title">Servidores e manutenção deste mês</string>
     <string name="supporters_contributors_donation_progress_complete">Coberto. Apoio adicional será direcionado ao desenvolvimento.</string>
     <string name="supporters_contributors_donation_progress_remaining">Após atingir 100%, o apoio extra é destinado ao desenvolvimento.</string>
     <string name="supporters_contributors_loading_donation_progress">Carregando progresso do financiamento...</string>
-    <string name="supporters_contributors_donate_button">Apoiar o Nuvio</string>
+    <string name="supporters_contributors_donate_button">Apoiar o Boomio</string>
     <string name="supporters_contributors_qr_title">Escaneie para apoiar</string>
-    <string name="supporters_contributors_qr_subtitle">Abra o link no seu celular para apoiar o Nuvio.</string>
+    <string name="supporters_contributors_qr_subtitle">Abra o link no seu celular para apoiar o Boomio.</string>
     <string name="supporters_contributors_qr_hint">Aponte a câmera para o código QR ou use o botão abaixo.</string>
     <string name="supporters_contributors_back_button">Voltar para detalhes</string>
-    <string name="supporter_membership_title">Assinatura de Apoio do Nuvio</string>
-    <string name="supporter_membership_description">Apoiar o Nuvio ajuda a cobrir custos de infraestrutura e o desenvolvimento contínuo, mantendo a experiência principal gratuita para todos.</string>
+    <string name="supporter_membership_title">Assinatura de Apoio do Boomio</string>
+    <string name="supporter_membership_description">Apoiar o Boomio ajuda a cobrir custos de infraestrutura e o desenvolvimento contínuo, mantendo a experiência principal gratuita para todos.</string>
     <string name="supporter_membership_view">Ver assinatura</string>
     <string name="supporter_membership_manage">Gerenciar assinatura</string>
     <string name="supporter_membership_refresh">Atualizar</string>
@@ -620,7 +620,7 @@
     <string name="supporter_membership_tier_supporter">Apoiador</string>
     <string name="supporter_membership_tier_supporter_plus">Apoiador Plus</string>
     <string name="supporter_membership_connected_title">Patreon conectado</string>
-    <string name="supporter_membership_connected_description">Nenhum nível ativo do Nuvio foi encontrado nesta conta do Patreon. Veja as opções disponíveis ou atualize após alterar sua assinatura no Patreon.</string>
+    <string name="supporter_membership_connected_description">Nenhum nível ativo do Boomio foi encontrado nesta conta do Patreon. Veja as opções disponíveis ou atualize após alterar sua assinatura no Patreon.</string>
     <string name="supporter_membership_scan_support">Escaneie para ver a assinatura</string>
     <string name="supporter_membership_scan_support_description">Abra a página de Assinatura de Apoio no seu celular.</string>
     <string name="supporter_membership_scan_manage">Escaneie para gerenciar a assinatura</string>
@@ -635,13 +635,13 @@
     <string name="supporters_no_message">Nenhuma mensagem compartilhada.</string>
     <string name="supporters_level_supporter">Apoiador</string>
     <string name="supporters_level_supporter_plus">Apoiador+</string>
-    <string name="supporters_since">Apoiando o Nuvio desde %1$s</string>
-    <string name="supporters_since_unknown">Apoiando o Nuvio com orgulho</string>
+    <string name="supporters_since">Apoiando o Boomio desde %1$s</string>
+    <string name="supporters_since_unknown">Apoiando o Boomio com orgulho</string>
     <string name="supporters_open_donations">Abrir página de apoio</string>
     <string name="sponsors_loading">Carregando patrocinadores…</string>
     <string name="sponsors_empty">Nenhum patrocinador encontrado ainda.</string>
     <string name="sponsors_error_title">Não foi possível carregar patrocinadores</string>
-    <string name="sponsors_detail_copy">Patrocinadores ajudam o Nuvio a avançar no desenvolvimento.</string>
+    <string name="sponsors_detail_copy">Patrocinadores ajudam o Boomio a avançar no desenvolvimento.</string>
     <string name="sponsors_channel_unavailable">Canal de patrocinadores indisponível.</string>
     <string name="sponsors_open_channel">Abrir canal de patrocinadores</string>
     <string name="contributors_loading">Carregando colaboradores do GitHub…</string>
@@ -715,8 +715,8 @@
     <string name="playback_player_ask_desc">Escolher player sempre</string>
     <string name="playback_player_auto">Automático (Melhor para conteúdo)</string>
     <string name="playback_player_auto_desc">ExoPlayer: Filmes/Séries · MPV: Animes</string>
-    <string name="playback_engine_exoplayer_desc">Compatível com recursos atuais do Nuvio</string>
-    <string name="playback_engine_mvplayer_desc">Usa libmpv com OSD do Nuvio (Experimental)</string>
+    <string name="playback_engine_exoplayer_desc">Compatível com recursos atuais do Boomio</string>
+    <string name="playback_engine_mvplayer_desc">Usa libmpv com OSD do Boomio (Experimental)</string>
 
     <string name="video_section">Vídeo</string>
     <string name="audio_trailer_section">Trailer</string>
@@ -1127,7 +1127,7 @@
     <string name="debrid_disconnect">Desconectar</string>
     <string name="debrid_device_auth_connected">%1$s está conectado neste dispositivo.</string>
     <string name="debrid_device_auth_starting">Iniciando login seguro...</string>
-    <string name="debrid_device_auth_instructions">Escaneie o QR Code e digite este código para aprovar o Nuvio.</string>
+    <string name="debrid_device_auth_instructions">Escaneie o QR Code e digite este código para aprovar o Boomio.</string>
     <string name="debrid_device_auth_code_copied">Código copiado.</string>
     <string name="debrid_device_auth_waiting">Aguardando aprovação...</string>
     <string name="debrid_device_auth_failed">Não foi possível iniciar o login.</string>
@@ -1319,21 +1319,21 @@
     <string name="trakt_watch_progress_title">Progresso de Reprodução</string>
     <string name="trakt_watch_progress_subtitle">Escolha qual fonte controla o progresso e o continuar assistindo</string>
     <string name="trakt_watch_progress_dialog_title">Progresso de Reprodução</string>
-    <string name="trakt_watch_progress_dialog_subtitle">Escolha se o progresso deve usar o Trakt ou o Nuvio Sync (o registro no Trakt continuará ativo).</string>
+    <string name="trakt_watch_progress_dialog_subtitle">Escolha se o progresso deve usar o Trakt ou o Boomio Sync (o registro no Trakt continuará ativo).</string>
     <string name="trakt_watch_progress_source_trakt">Trakt</string>
-    <string name="trakt_watch_progress_source_nuvio">Nuvio Sync</string>
+    <string name="trakt_watch_progress_source_nuvio">Boomio Sync</string>
     <string name="trakt_library_source_title">Fonte para Biblioteca</string>
-    <string name="trakt_library_source_subtitle">Escolha qual fonte o Nuvio usa para sua Biblioteca</string>
+    <string name="trakt_library_source_subtitle">Escolha qual fonte o Boomio usa para sua Biblioteca</string>
     <string name="trakt_library_source_dialog_title">Fonte para Biblioteca</string>
     <string name="trakt_library_source_dialog_subtitle">Escolha onde salvar e gerenciar os itens da sua biblioteca</string>
     <string name="trakt_library_source_trakt">Trakt</string>
-    <string name="trakt_library_source_nuvio">Nuvio</string>
+    <string name="trakt_library_source_nuvio">Boomio</string>
     <string name="trakt_library_source_trakt_selected">Biblioteca Trakt selecionada</string>
-    <string name="trakt_library_source_nuvio_selected">Biblioteca Nuvio selecionada</string>
+    <string name="trakt_library_source_nuvio_selected">Biblioteca Boomio selecionada</string>
     <string name="trakt_setting_on">Ativado</string>
     <string name="trakt_setting_off">Desativado</string>
     <string name="trakt_watch_progress_trakt_selected">Fonte de progresso definida para Trakt</string>
-    <string name="trakt_watch_progress_nuvio_selected">Fonte de progresso definida para Nuvio Sync</string>
+    <string name="trakt_watch_progress_nuvio_selected">Fonte de progresso definida para Boomio Sync</string>
     <string name="trakt_continue_watching_window">Continuar Assistindo</string>
     <string name="trakt_continue_watching_subtitle">Período considerado para exibir.</string>
     <string name="trakt_unaired_next_up">Próximos episódios não exibidos</string>
@@ -1361,7 +1361,7 @@
     <string name="trakt_stat_watched_hours">Horas assistidas</string>
     <string name="trakt_disconnect">Desconectar</string>
     <string name="trakt_disconnect_title">Desconectar Trakt?</string>
-    <string name="trakt_disconnect_subtitle">Isso removerá sua conta Trakt do Nuvio.</string>
+    <string name="trakt_disconnect_subtitle">Isso removerá sua conta Trakt do Boomio.</string>
     <string name="trakt_login">Login</string>
     <string name="trakt_retry">Tentar novamente</string>
     <string name="trakt_back">Voltar</string>
@@ -1438,11 +1438,11 @@
     <string name="profile_addons">addons</string>
     <string name="profile_plugins">plugins</string>
     <string name="profile_choose_avatar">Escolher Avatar</string>
-    <string name="profile_custom_avatar_web_panel_note">URLs de avatar personalizados podem ser configurados pelo painel web do Nuvio.</string>
+    <string name="profile_custom_avatar_web_panel_note">URLs de avatar personalizados podem ser configurados pelo painel web do Boomio.</string>
     <string name="profile_editor_tab_avatar">Avatar</string>
     <string name="profile_editor_tab_background">Plano de fundo</string>
     <string name="profile_choose_background">Escolher plano de fundo do perfil</string>
-    <string name="profile_background_member_note">URLs de plano de fundo personalizados podem ser configurados pelo painel web do Nuvio.</string>
+    <string name="profile_background_member_note">URLs de plano de fundo personalizados podem ser configurados pelo painel web do Boomio.</string>
     <string name="profile_background_normal">Normal</string>
     <string name="profile_background_custom">Personalizado</string>
     <string name="profile_avatar_none_selected">Nenhum avatar selecionado</string>
@@ -1488,7 +1488,7 @@
     <string name="profile_pin_overlay_set_support">Este PIN será solicitado sempre que abrir este perfil.</string>
     <string name="profile_pin_overlay_confirm_support">Digite os mesmos 4 dígitos novamente para finalizar.</string>
     <string name="profile_pin_overlay_mismatch">Os PINs não coincidem. Tente novamente.</string>
-    <string name="profile_pin_overlay_forgot_hint">Esqueceu o PIN? Redefina-o pelo site do Nuvio na sua conta.</string>
+    <string name="profile_pin_overlay_forgot_hint">Esqueceu o PIN? Redefina-o pelo site do Boomio na sua conta.</string>
     <string name="profile_pin_overlay_back_hint">Pressione "Voltar" para cancelar.</string>
 
    
@@ -1569,7 +1569,7 @@
     <string name="stream_type_torrent">Torrent</string>
     <string name="stream_type_youtube">YouTube</string>
     <string name="p2p_consent_title">Fontes P2P</string>
-    <string name="p2p_consent_body">Esta fonte usa tecnologia peer-to-peer (P2P). Ao habilitar o P2P, você reconhece e concorda que:\n\n\u2022 Seu endereço IP ficará visível para outros peers na rede\n\u2022 Você é o único responsável pelo conteúdo que acessa\n\u2022 Você confirma que possui o direito legal de transmitir este conteúdo em sua jurisdição\n\u2022 O Nuvio não hospeda, distribui ou controla nenhum conteúdo P2P\n\u2022 O Nuvio não se responsabiliza por quaisquer consequências legais decorrentes do uso de streaming P2P\n\nVocê usa este recurso inteiramente por sua conta e risco. O P2P pode ser desativado a qualquer momento nas Configurações.</string>
+    <string name="p2p_consent_body">Esta fonte usa tecnologia peer-to-peer (P2P). Ao habilitar o P2P, você reconhece e concorda que:\n\n\u2022 Seu endereço IP ficará visível para outros peers na rede\n\u2022 Você é o único responsável pelo conteúdo que acessa\n\u2022 Você confirma que possui o direito legal de transmitir este conteúdo em sua jurisdição\n\u2022 O Boomio não hospeda, distribui ou controla nenhum conteúdo P2P\n\u2022 O Boomio não se responsabiliza por quaisquer consequências legais decorrentes do uso de streaming P2P\n\nVocê usa este recurso inteiramente por sua conta e risco. O P2P pode ser desativado a qualquer momento nas Configurações.</string>
     <string name="p2p_consent_enable">Ativar P2P</string>
     <string name="p2p_consent_cancel">Cancelar</string>
     <string name="settings_p2p_title">Fonte P2P</string>
@@ -1886,7 +1886,7 @@
     <string name="library_delete_subtitle">Isso removerá a lista e todos os seus itens do Trakt.</string>
     <string name="library_delete_confirm">Excluir</string>
     <string name="library_source_local">LOCAL</string>
-    <string name="library_source_nuvio">NUVIO</string>
+    <string name="library_source_nuvio">BOOMIO</string>
     <string name="library_source_trakt">TRAKT</string>
     <string name="library_source_saved">Salvos</string>
     <string name="library_source_cloud">Nuvem</string>
@@ -2128,7 +2128,7 @@
     <string name="catalog_see_all_empty_title">Nada por aqui</string>
     <string name="catalog_see_all_empty_subtitle">Tente outro catálogo ou volte mais tarde</string>
 
-    <string name="layout_selection_welcome">Bem-vindo ao Nuvio</string>
+    <string name="layout_selection_welcome">Bem-vindo ao Boomio</string>
     <string name="layout_selection_subtitle">Escolha o layout da sua tela inicial</string>
     <string name="layout_selection_continue">Continuar</string>
 
@@ -2145,7 +2145,7 @@
     <string name="update_unknown_sources">Permita a instalação de fontes desconhecidas para continuar.</string>
     <!-- AccountScreen -->
     <string name="account_title">Conta</string>
-    <string name="account_sign_in_description">Acesse sua conta para manter sua biblioteca, progresso e addons sempre sincronizados entre os dispositivos. O Nuvio Sync gerencia sua biblioteca quando o Trakt não está conectado, e o progresso pode usar tanto o Trakt quanto o Nuvio Sync.</string>
+    <string name="account_sign_in_description">Acesse sua conta para manter sua biblioteca, progresso e addons sempre sincronizados entre os dispositivos. O Boomio Sync gerencia sua biblioteca quando o Trakt não está conectado, e o progresso pode usar tanto o Trakt quanto o Boomio Sync.</string>
     <string name="account_sync_code_title">Código de Sincronia</string>
     <string name="account_sync_code_description">Sincronize entre dispositivos sem precisar criar uma conta.</string>
     <string name="account_linked_devices">Aparelhos Vinculados (%1$d)</string>
@@ -2312,7 +2312,7 @@
     <string name="cd_preview">Pré-visualizar</string>
     <string name="cd_test">Testar</string>
     <string name="cd_unlink">Desvincular</string>
-    <string name="cd_nuvio_logo">NuvioTV</string>
+    <string name="cd_nuvio_logo">Boomio</string>
     <string name="cd_trakt_logo">Logo Trakt</string>
     <string name="cd_trakt_qr">QR de ativação Trakt</string>
     <string name="cd_imdb">IMDb</string>
@@ -2324,7 +2324,7 @@
     <string name="cd_expand">Expandir %1$s</string>
     <string name="cd_collapse">Recolher %1$s</string>
     <string name="cd_qr_login">Código QR de login</string>
-    <string name="cd_nuvio">Nuvio</string>
+    <string name="cd_nuvio">Boomio</string>
 
     <string name="debug_signin_success">Login realizado com sucesso</string>
     <string name="debug_generate_description">Item %1$s gerado em debug #%2$d</string>
@@ -2466,7 +2466,7 @@
     <string name="collections_editor_tmdb_list_helper">Exemplo: https://www.themoviedb.org/list/8504994 ou 8504994.</string>
     <string name="collections_editor_tmdb_person_id">ID da pessoa</string>
     <string name="collections_editor_tmdb_person_helper">Exemplo: https://www.themoviedb.org/person/31-tom-hanks ou 31.</string>
-    <string name="collections_editor_tmdb_title_helper">Exibido como o nome da fileira/aba. Se estiver em branco, o Nuvio criará um baseado na fonte.</string>
+    <string name="collections_editor_tmdb_title_helper">Exibido como o nome da fileira/aba. Se estiver em branco, o Boomio criará um baseado na fonte.</string>
     <string name="collections_editor_tmdb_quick_genres">Gêneros rápidos</string>
     <string name="collections_editor_tmdb_quick_languages">Idiomas rápidos</string>
     <string name="collections_editor_tmdb_quick_countries">Países rápidos</string>
@@ -2648,7 +2648,7 @@
     <string name="autoplay_regex_preset_no_remux_hdr">Sem REMUX/HDR</string>
 
     <!-- Playback settings sections -->
-    <string name="playback_player_internal_desc">Usar player interno do NuvioTV</string>
+    <string name="playback_player_internal_desc">Usar player interno do Boomio</string>
 
     <!-- Player runtime: torrent overlay + tracks -->
     <string name="player_torrent_peer_info">%1$d seeds · %2$d peers</string>
@@ -2749,9 +2749,9 @@
     <string name="simkl_visit">Visitar Simkl</string>
     <string name="simkl_sync_info_action">Como funciona a sincronização</string>
     <string name="simkl_sync_info_title">Como funciona a sincronização do Simkl</string>
-    <string name="simkl_sync_info_description">O Nuvio verifica automaticamente o Simkl no máximo uma vez a cada %1$d minutos. Alterações feitas em outro app ou no site do Simkl podem levar esse tempo para aparecer.</string>
+    <string name="simkl_sync_info_description">O Boomio verifica automaticamente o Simkl no máximo uma vez a cada %1$d minutos. Alterações feitas em outro app ou no site do Simkl podem levar esse tempo para aparecer.</string>
     <string name="simkl_sync_info_activity">Cada atualização verifica primeiro se o Simkl reporta alguma mudança e baixa apenas as atualizações. Isso segue as regras da API do Simkl, reduz o uso desnecessário de dados e ajuda a manter o serviço estável.</string>
-    <string name="simkl_sync_info_manual">Alterações feitas no Nuvio são enviadas ao Simkl imediatamente. Use “Sincronizar agora” sempre que quiser que o Nuvio verifique mudanças remotas mais cedo.</string>
+    <string name="simkl_sync_info_manual">Alterações feitas no Boomio são enviadas ao Simkl imediatamente. Use “Sincronizar agora” sempre que quiser que o Boomio verifique mudanças remotas mais cedo.</string>
     <string name="simkl_sync_info_library_statuses">Séries colocadas nas listas “Em espera” ou “Abandonadas” do Simkl ficam ocultas em Continuar assistindo. Elas permanecem ocultas enquanto estiverem em uma dessas listas.</string>
     <string name="simkl_sync_info_docs">Leia o guia de sincronização do Simkl</string>
     <string name="error_open_browser_failed">Falha ao abrir o navegador</string>
