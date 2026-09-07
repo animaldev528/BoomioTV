@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.runtime.Composable
@@ -107,6 +108,7 @@ internal enum class SettingsCategory {
     CONTENT_DISCOVERY,
     INTEGRATION,
     PLAYBACK,
+    STREAM_QUALITY,
     ADVANCED,
     TRACKING,
     ABOUT,
@@ -222,6 +224,13 @@ private fun rememberSettingsSectionSpecs() = listOf(
         destination = SettingsSectionDestination.Inline
     ),
     SettingsSectionSpec(
+        category = SettingsCategory.STREAM_QUALITY,
+        title = stringResource(R.string.settings_stream_quality),
+        icon = Icons.Default.Speed,
+        subtitle = stringResource(R.string.settings_stream_quality_subtitle),
+        destination = SettingsSectionDestination.Inline
+    ),
+    SettingsSectionSpec(
         category = SettingsCategory.TRACKING,
         title = stringResource(R.string.settings_tracking_title),
         icon = Icons.Default.Sync,
@@ -320,6 +329,7 @@ fun SettingsScreen(
             SettingsCategory.CONTENT_DISCOVERY to FocusRequester(),
             SettingsCategory.INTEGRATION to FocusRequester(),
             SettingsCategory.PLAYBACK to FocusRequester(),
+            SettingsCategory.STREAM_QUALITY to FocusRequester(),
             SettingsCategory.ADVANCED to FocusRequester(),
             SettingsCategory.ABOUT to FocusRequester(),
             SettingsCategory.ACCOUNT to FocusRequester()
@@ -974,6 +984,13 @@ private fun SettingsDetailPane(
                 }
             )
         }
+        SettingsCategory.STREAM_QUALITY -> DeviceStreamLimitsContent(
+            initialFocusRequester = if (allowDetailAutofocus) {
+                contentFocusRequesters[SettingsCategory.STREAM_QUALITY]
+            } else {
+                null
+            }
+        )
         SettingsCategory.ADVANCED -> if (isEssentialMode) {
             EssentialAdvancedSettingsContent(
                 experienceModeViewModel = experienceModeViewModel,

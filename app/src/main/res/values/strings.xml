@@ -434,6 +434,14 @@
     <string name="settings_integration">Integrations</string>
     <string name="settings_playback">Playback</string>
     <string name="settings_playback_subtitle">Player, subtitles, and auto-play</string>
+    <string name="settings_stream_quality">Stream quality</string>
+    <string name="settings_stream_quality_subtitle">Cap bitrate and codecs to what this device can handle</string>
+    <string name="settings_stream_quality_master_title">Device stream limits</string>
+    <string name="settings_stream_quality_master_subtitle">Only offer streams this device can actually play. Devices lie about what they can decode - tune it here.</string>
+    <string name="settings_stream_quality_codec_on_subtitle">Decode on this device</string>
+    <string name="settings_stream_quality_codec_off_subtitle">Hidden entirely</string>
+    <string name="settings_stream_quality_ceiling_title">%1$s bitrate ceiling</string>
+    <string name="settings_stream_quality_mbps_format">%1$d Mbps</string>
     <string name="settings_trakt_subtitle">Open Trakt connection screen</string>
     <string name="settings_tracking_title">Tracking</string>
     <string name="settings_tracking_subtitle">Manage Trakt and Simkl connections</string>
