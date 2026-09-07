@@ -8,7 +8,7 @@ import com.lagradost.cloudstream3.utils.DataStoreHelper
 /**
  * Compatibility stub for CloudStream's HomeViewModel.
  *
- * NuvioTV's real home screen lives at [com.nuvio.tv.ui.screens.home.HomeViewModel].
+ * NuvioTV's real home screen lives at [com.boomio.tv.ui.screens.home.HomeViewModel].
  * original package at runtime. Without this class the plugin coroutine crashes the
  * process with NoClassDefFoundError when it calls [getResumeWatching].
  */
