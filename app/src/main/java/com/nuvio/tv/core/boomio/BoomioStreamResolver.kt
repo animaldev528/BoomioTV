@@ -3,6 +3,7 @@ package com.nuvio.tv.core.boomio
 import android.util.Log
 import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.core.network.NetworkMeter
+import com.nuvio.tv.data.local.DeviceStreamLimitsDataStore
 import com.nuvio.tv.data.mapper.toDomain
 import com.nuvio.tv.data.remote.dto.StreamResponseDto
 import com.nuvio.tv.domain.model.Stream
@@ -10,6 +11,7 @@ import com.squareup.moshi.Moshi
 import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
@@ -40,7 +42,8 @@ private const val TAG = "BoomioStreamResolver"
 class BoomioStreamResolver @Inject constructor(
     private val okHttpClient: OkHttpClient,
     private val moshi: Moshi,
-    private val networkMeter: NetworkMeter
+    private val networkMeter: NetworkMeter,
+    private val deviceStreamLimitsDataStore: DeviceStreamLimitsDataStore
 ) {
     private val responseAdapter = moshi.adapter(StreamResponseDto::class.java)
 
@@ -94,7 +97,7 @@ class BoomioStreamResolver @Inject constructor(
      * everything else uses `/find/:stremioId`, which boomio normalizes (it accepts
      * `tt…` and `tmdb:…` ids and infers the type from the presence of a `:`).
      */
-    private fun buildFindUrl(videoId: String, season: Int?, episode: Int?): String? {
+    private suspend fun buildFindUrl(videoId: String, season: Int?, episode: Int?): String? {
         val base = BuildConfig.BOOMIO_BASE_URL.trim().trimEnd('/')
         val baseUrl = base.toHttpUrlOrNull() ?: run {
             Log.w(TAG, "boomio: invalid BOOMIO_BASE_URL")
@@ -117,8 +120,20 @@ class BoomioStreamResolver @Inject constructor(
         BuildConfig.BOOMIO_MAX_RESOLUTION.trim().takeIf { it.isNotBlank() }?.let {
             builder.addQueryParameter("max_resolution", it)
         }
+        // Device stream limits (runtime, per-profile): when the master toggle is on,
+        // declare what this device can decode (codecs= allow-list) and a per-codec
+        // bitrate ceiling (codecCapsMbps= family:mbps) so bsf drops codecs the box
+        // can't decode and caps each family's effective bitrate. Canonical family
+        // keys are lowercase avc|hevc|av1|vp9 (bsf matches those verbatim). When the
+        // toggle is off neither param is sent — today's behavior exactly.
+        val limits = deviceStreamLimitsDataStore.settings.first()
+        if (limits.enabled) {
+            limits.codecsParam()?.let { builder.addQueryParameter("codecs", it) }
+            limits.codecCapsMbpsParam()?.let { builder.addQueryParameter("codecCapsMbps", it) }
+        }
         // Measured link cap (Mbps): bsf's gates hard-drop streams above mobileCapMbps, so the box is
         // only offered qualities its measured link can actually hold. Absent until the meter has run.
+        // Always sent — bsf min()s it against the per-codec ceilings above.
         networkMeter.lastMeasuredMbps()?.let { mbps ->
             builder.addQueryParameter("mobileCapMbps", String.format(Locale.US, "%.1f", mbps))
         }
