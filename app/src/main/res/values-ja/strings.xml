@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Nuvio</string>
+    <string name="app_name">Boomio</string>
     <string name="tv_channel_continue_watching">視聴を続ける</string>
     <string name="type_movie">映画</string>
     <string name="type_movies">映画</string>
@@ -98,7 +98,7 @@
 
     <string name="home_no_addons">アドオンがインストールされていません。追加して始めましょう</string>
     <string name="home_no_catalog_addons">カタログアドオンがインストールされていません。コンテンツを表示するにはカタログアドオンをインストールしてください</string>
-    <string name="auth_notice_nuvio_logged_out">Nuvioからサインアウトされました。再度サインインしてください</string>
+    <string name="auth_notice_nuvio_logged_out">Boomioからサインアウトされました。再度サインインしてください</string>
     <string name="auth_notice_trakt_logged_out">Traktからサインアウトされました。再接続してください</string>
     <string name="error_generic">エラーが発生しました</string>
 
@@ -347,26 +347,26 @@
     <string name="about_licenses_attributions">ライセンス &amp; 帰属</string>
     <string name="about_licenses_attributions_subtitle">データソース、謝辞、Androidライセンス</string>
     <string name="licenses_attributions_title">ライセンス &amp; 帰属</string>
-    <string name="licenses_attributions_subtitle">Nuvio TVが使用するデータプロバイダー、サービス、Android再生ライセンス</string>
+    <string name="licenses_attributions_subtitle">Boomioが使用するデータプロバイダー、サービス、Android再生ライセンス</string>
     <string name="licenses_attributions_section_app">アプリライセンス</string>
     <string name="licenses_attributions_section_data">データ &amp; サービス</string>
     <string name="licenses_attributions_section_playback">Android再生ライセンス</string>
-    <string name="licenses_attributions_nuvio_title">Nuvio TV</string>
+    <string name="licenses_attributions_nuvio_title">Boomio</string>
     <string name="licenses_attributions_nuvio_body">ソースコードとライセンス条項はプロジェクトリポジトリで入手可能です。GNU General Public License v3.0 の下でライセンスされています。</string>
     <string name="licenses_attributions_tmdb_title">The Movie Database (TMDB)</string>
-    <string name="licenses_attributions_tmdb_body">Nuvioは映画・TVのメタデータ、アートワーク、予告編、キャスト、制作詳細、コレクション、レコメンドにTMDB APIを使用しています。この製品はTMDB APIを使用していますが、TMDBによって承認または認定されていません。</string>
+    <string name="licenses_attributions_tmdb_body">Boomioは映画・TVのメタデータ、アートワーク、予告編、キャスト、制作詳細、コレクション、レコメンドにTMDB APIを使用しています。この製品はTMDB APIを使用していますが、TMDBによって承認または認定されていません。</string>
     <string name="licenses_attributions_trakt_title">Trakt</string>
-    <string name="licenses_attributions_trakt_body">NuvioはTraktと接続し、アカウント認証、視聴履歴、進行状況同期、ライブラリデータ、評価、リスト、コメントを利用します。NuvioはTraktと提携または承認されていません。</string>
+    <string name="licenses_attributions_trakt_body">BoomioはTraktと接続し、アカウント認証、視聴履歴、進行状況同期、ライブラリデータ、評価、リスト、コメントを利用します。BoomioはTraktと提携または承認されていません。</string>
     <string name="licenses_attributions_premiumize_title">Premiumize</string>
-    <string name="licenses_attributions_premiumize_body">NuvioはPremiumizeと接続し、アカウント認証、クラウドライブラリアクセス、キャッシュチェック、クラウド再生機能を利用します。NuvioはPremiumizeと提携または承認されていません。</string>
+    <string name="licenses_attributions_premiumize_body">BoomioはPremiumizeと接続し、アカウント認証、クラウドライブラリアクセス、キャッシュチェック、クラウド再生機能を利用します。BoomioはPremiumizeと提携または承認されていません。</string>
     <string name="licenses_attributions_torbox_title">TorBox</string>
-    <string name="licenses_attributions_torbox_body">NuvioはTorBoxと接続し、アカウント認証、クラウドライブラリアクセス、キャッシュチェック、クラウド再生機能を利用します。NuvioはTorBoxと提携または承認されていません。</string>
+    <string name="licenses_attributions_torbox_body">BoomioはTorBoxと接続し、アカウント認証、クラウドライブラリアクセス、キャッシュチェック、クラウド再生機能を利用します。BoomioはTorBoxと提携または承認されていません。</string>
     <string name="licenses_attributions_mdblist_title">MDBList</string>
-    <string name="licenses_attributions_mdblist_body">Nuvioは評価と外部スコアプロバイダーデータにMDBListを使用します。NuvioはMDBListと提携または承認されていません。</string>
+    <string name="licenses_attributions_mdblist_body">Boomioは評価と外部スコアプロバイダーデータにMDBListを使用します。BoomioはMDBListと提携または承認されていません。</string>
     <string name="licenses_attributions_introdb_title">IntroDB</string>
-    <string name="licenses_attributions_introdb_body">Nuvioはコミュニティ提供のイントロ、リキャップ、クレジット、プレビューのタイムスタンプにIntroDB APIを使用します（スキップコントロール用）。NuvioはIntroDBと提携または承認されていません。</string>
+    <string name="licenses_attributions_introdb_body">Boomioはコミュニティ提供のイントロ、リキャップ、クレジット、プレビューのタイムスタンプにIntroDB APIを使用します（スキップコントロール用）。BoomioはIntroDBと提携または承認されていません。</string>
     <string name="licenses_attributions_imdb_title">IMDb非商用データセット</string>
-    <string name="licenses_attributions_imdb_body">NuvioはIMDb非商用データセット（title.ratings.tsv.gzを含む）を使用し、IMDb評価と投票数を取得します。情報提供: IMDb (https://www.imdb.com)。許可を得て使用。IMDbデータは個人・非商用利用に限ります。</string>
+    <string name="licenses_attributions_imdb_body">BoomioはIMDb非商用データセット（title.ratings.tsv.gzを含む）を使用し、IMDb評価と投票数を取得します。情報提供: IMDb (https://www.imdb.com)。許可を得て使用。IMDbデータは個人・非商用利用に限ります。</string>
     <string name="licenses_attributions_exoplayer_title">AndroidX Media3 ExoPlayer 1.8.0</string>
     <string name="licenses_attributions_exoplayer_body">Android再生エンジンとして使用。Apache License, Version 2.0 の下でライセンスされています。</string>
     <string name="licenses_attributions_libmpv_title">libmpv / libmpv-android</string>
@@ -398,7 +398,7 @@
     <string name="settings_advanced_subtitle">パフォーマンス、ナビゲーション、キャッシュ、診断</string>
     <string name="experience_mode_essential">基本</string>
     <string name="experience_mode_advanced">詳細</string>
-    <string name="experience_mode_choose_title">Nuvioのエクスペリエンスを選択</string>
+    <string name="experience_mode_choose_title">Boomioのエクスペリエンスを選択</string>
     <string name="experience_mode_choose_subtitle">シンプルに始めるか、すべてのカスタマイズを解除。いつでも切り替え可能です。</string>
     <string name="experience_mode_essential_card_subtitle">基本設定、アドオン、再生の基本、Trakt、アカウント設定に焦点。</string>
     <string name="experience_mode_advanced_card_subtitle">すべての設定、レイアウト制御、カタログ順序、コレクション、プラグイン、診断。</string>
@@ -480,8 +480,8 @@
     <string name="advanced_section_dv_diagnostics" translatable="false">DV Diagnostics</string>
     <string name="advanced_fast_horizontal_navigation">高速水平ナビゲーション</string>
     <string name="advanced_fast_horizontal_navigation_subtitle">D-padのリピート速度を上げます（リピートスロットリングは有効のまま）。</string>
-    <string name="advanced_nuvio_focus_scroll">Nuvioフォーカススクロール</string>
-    <string name="advanced_nuvio_focus_scroll_subtitle">Nuvioのカスタムグローバルフォーカススクロールアニメーションと位置決めを使用します。</string>
+    <string name="advanced_nuvio_focus_scroll">Boomioフォーカススクロール</string>
+    <string name="advanced_nuvio_focus_scroll_subtitle">Boomioのカスタムグローバルフォーカススクロールアニメーションと位置決めを使用します。</string>
     <string name="advanced_memory_only_vertical_scroll">メモリのみの垂直スクロール</string>
     <string name="advanced_memory_only_vertical_scroll_subtitle">ホーム行を垂直スクロール中にディスクやネットワークの画像リクエストをスキップします。</string>
     <string name="advanced_compose_highlighter">Composeハイライター</string>
@@ -518,16 +518,16 @@
     <string name="action_close">閉じる</string>
 
     <string name="supporters_contributors_title">サポーター &amp; 貢献者</string>
-    <string name="supporters_contributors_subtitle">Nuvioを支援するサポーターとTV・モバイルで開発する貢献者</string>
+    <string name="supporters_contributors_subtitle">Boomioを支援するサポーターとTV・モバイルで開発する貢献者</string>
     <string name="supporters_contributors_supporters_copy">サポーターと寄付者はプロジェクトの継続を支え、インフラを維持し、新機能の実現を後押しします</string>
-    <string name="supporters_contributors_donate_copy">Nuvioは無料のオープンソースプロジェクトです。サポートしたい方は、開発・インフラの維持にご協力いただけます</string>
+    <string name="supporters_contributors_donate_copy">Boomioは無料のオープンソースプロジェクトです。サポートしたい方は、開発・インフラの維持にご協力いただけます</string>
     <string name="supporters_contributors_donation_progress_title">今月のサーバー &amp; メンテナンス</string>
     <string name="supporters_contributors_donation_progress_complete">達成済み。追加のサポートは開発に充てられます。</string>
     <string name="supporters_contributors_donation_progress_remaining">100% を超えると、追加のサポートは開発に充てられます。</string>
     <string name="supporters_contributors_loading_donation_progress">資金調達の進捗を読み込み中…</string>
-    <string name="supporters_contributors_donate_button">Nuvioに寄付</string>
+    <string name="supporters_contributors_donate_button">Boomioに寄付</string>
     <string name="supporters_contributors_qr_title">QRをスキャンして寄付</string>
-    <string name="supporters_contributors_qr_subtitle">スマートフォンでリンクを開いてNuvioをサポート</string>
+    <string name="supporters_contributors_qr_subtitle">スマートフォンでリンクを開いてBoomioをサポート</string>
     <string name="supporters_contributors_qr_hint">カメラをQRコードに向けるか、下のボタンを使用してください</string>
     <string name="supporters_contributors_back_button">詳細に戻る</string>
     <string name="supporters_tab">サポーター</string>
@@ -541,7 +541,7 @@
     <string name="sponsors_loading">スポンサーを読み込み中…</string>
     <string name="sponsors_empty">まだスポンサーが見つかりません</string>
     <string name="sponsors_error_title">スポンサーを読み込めませんでした</string>
-    <string name="sponsors_detail_copy">スポンサーは開発のさまざまな部分を支援することでNuvioを前進させます。</string>
+    <string name="sponsors_detail_copy">スポンサーは開発のさまざまな部分を支援することでBoomioを前進させます。</string>
     <string name="sponsors_channel_unavailable">スポンサーチャンネルは利用できません。</string>
     <string name="sponsors_open_channel">スポンサーチャンネルを開く</string>
     <string name="contributors_loading">GitHub貢献者を読み込み中…</string>
@@ -613,8 +613,8 @@
     <string name="playback_player_ask_desc">毎回プレーヤーを選択する</string>
     <string name="playback_player_auto">自動（コンテンツに最適化）</string>
     <string name="playback_player_auto_desc">映画やドラマにはExoPlayer・アニメにはMPV</string>
-    <string name="playback_engine_exoplayer_desc">現在のNuvio機能との互換性が最も高い。</string>
-    <string name="playback_engine_mvplayer_desc">Nuvio OSDコントロール付きのlibmpvを使用。実験的。</string>
+    <string name="playback_engine_exoplayer_desc">現在のBoomio機能との互換性が最も高い。</string>
+    <string name="playback_engine_mvplayer_desc">Boomio OSDコントロール付きのlibmpvを使用。実験的。</string>
 
     <string name="video_section">映像</string>
     <string name="audio_trailer_section">予告編</string>
@@ -965,7 +965,7 @@
     <string name="debrid_disconnect">切断</string>
     <string name="debrid_device_auth_connected">%1$sがこのデバイスに接続されています。</string>
     <string name="debrid_device_auth_starting">セキュアサインインを開始中…</string>
-    <string name="debrid_device_auth_instructions">QRをスキャンし、このコードを入力してNuvioを承認してください。</string>
+    <string name="debrid_device_auth_instructions">QRをスキャンし、このコードを入力してBoomioを承認してください。</string>
     <string name="debrid_device_auth_code_copied">コードをコピーしました。</string>
     <string name="debrid_device_auth_waiting">承認待ち…</string>
     <string name="debrid_device_auth_failed">サインインを開始できませんでした。</string>
@@ -1157,21 +1157,21 @@
     <string name="trakt_watch_progress_title">視聴進行状況</string>
     <string name="trakt_watch_progress_subtitle">再開と「視聴を続ける」を管理する進行状況ソースを選択</string>
     <string name="trakt_watch_progress_dialog_title">視聴進行状況</string>
-    <string name="trakt_watch_progress_dialog_subtitle">Traktのスクロブルが有効な間、再開と視聴を続けるにTraktとNuvio Syncのどちらを使用するか選択してください</string>
+    <string name="trakt_watch_progress_dialog_subtitle">Traktのスクロブルが有効な間、再開と視聴を続けるにTraktとBoomio Syncのどちらを使用するか選択してください</string>
     <string name="trakt_watch_progress_source_trakt">Trakt</string>
-    <string name="trakt_watch_progress_source_nuvio">Nuvio Sync</string>
+    <string name="trakt_watch_progress_source_nuvio">Boomio Sync</string>
     <string name="trakt_library_source_title">ライブラリソース</string>
     <string name="trakt_library_source_subtitle">コレクションの保存と表示に使用するライブラリを選択</string>
     <string name="trakt_library_source_dialog_title">ライブラリソース</string>
     <string name="trakt_library_source_dialog_subtitle">ライブラリアイテムの保存・管理先を選択</string>
     <string name="trakt_library_source_trakt">Trakt</string>
-    <string name="trakt_library_source_nuvio">Nuvioライブラリ</string>
+    <string name="trakt_library_source_nuvio">Boomioライブラリ</string>
     <string name="trakt_library_source_trakt_selected">Traktライブラリを選択しました</string>
-    <string name="trakt_library_source_nuvio_selected">Nuvioライブラリを選択しました</string>
+    <string name="trakt_library_source_nuvio_selected">Boomioライブラリを選択しました</string>
     <string name="trakt_setting_on">オン</string>
     <string name="trakt_setting_off">オフ</string>
     <string name="trakt_watch_progress_trakt_selected">視聴進行状況ソースをTraktに設定しました</string>
-    <string name="trakt_watch_progress_nuvio_selected">視聴進行状況ソースをNuvio Syncに設定しました</string>
+    <string name="trakt_watch_progress_nuvio_selected">視聴進行状況ソースをBoomio Syncに設定しました</string>
     <string name="trakt_continue_watching_window">視聴継続ウィンドウ</string>
     <string name="trakt_continue_watching_subtitle">「視聴を続ける」に表示するTraktの履歴期間</string>
     <string name="trakt_unaired_next_up">未放送の次のエピソード</string>
@@ -1199,7 +1199,7 @@
     <string name="trakt_stat_watched_hours">視聴時間</string>
     <string name="trakt_disconnect">切断</string>
     <string name="trakt_disconnect_title">Traktを切断しますか？</string>
-    <string name="trakt_disconnect_subtitle">NuvioからTraktアカウントが切断されます</string>
+    <string name="trakt_disconnect_subtitle">BoomioからTraktアカウントが切断されます</string>
     <string name="trakt_login">ログイン</string>
     <string name="trakt_retry">再試行</string>
     <string name="trakt_back">戻る</string>
@@ -1265,7 +1265,7 @@
     <string name="profile_addons">アドオン</string>
     <string name="profile_plugins">プラグイン</string>
     <string name="profile_choose_avatar">アバターを選択</string>
-    <string name="profile_custom_avatar_web_panel_note">カスタムアバターURLはNuvioウェブパネルから設定できます。</string>
+    <string name="profile_custom_avatar_web_panel_note">カスタムアバターURLはBoomioウェブパネルから設定できます。</string>
     <string name="profile_avatar_none_selected">アバターが選択されていません</string>
     <string name="profile_avatar_focus_hint">アバターを選択して名前を確認</string>
     <string name="profile_avatar_category_all">すべて</string>
@@ -1308,7 +1308,7 @@
     <string name="profile_pin_overlay_set_support">このプロフィールを開く前にPINの入力が必要になります</string>
     <string name="profile_pin_overlay_confirm_support">設定を完了するには同じ4桁を再入力してください</string>
     <string name="profile_pin_overlay_mismatch">PINが一致しませんでした。もう一度新しいPINを入力してください</string>
-    <string name="profile_pin_overlay_forgot_hint">PINを忘れた場合はNuvioウェブサイトのアカウントページからリセットできます</string>
+    <string name="profile_pin_overlay_forgot_hint">PINを忘れた場合はBoomioウェブサイトのアカウントページからリセットできます</string>
     <string name="profile_pin_overlay_back_hint">戻るボタンでキャンセル</string>
 
     
@@ -1385,7 +1385,7 @@
     <string name="stream_type_torrent">トレント</string>
     <string name="stream_type_youtube">YouTube</string>
     <string name="p2p_consent_title">P2Pストリーミング</string>
-    <string name="p2p_consent_body">このストリームはピアツーピア（P2P）技術を使用します。P2Pを有効にすると、以下を了承したものとみなされます:\n\n\u2022 あなたのIPアドレスはネットワーク上の他のピアに公開されます\n\u2022 アクセスするコンテンツに対する責任はすべてあなた自身にあります\n\u2022 あなたの管轄区域でこのコンテンツをストリーミングする法的権利を有することを確認します\n\u2022 NuvioはP2Pコンテンツをホスト、配布、または制御しません\n\u2022 NuvioはP2Pストリーミングの使用に起因する法的結果に対して一切の責任を負いません\n\nこの機能は完全に自己責任で使用してください。P2Pはいつでも設定で無効にできます。</string>
+    <string name="p2p_consent_body">このストリームはピアツーピア（P2P）技術を使用します。P2Pを有効にすると、以下を了承したものとみなされます:\n\n\u2022 あなたのIPアドレスはネットワーク上の他のピアに公開されます\n\u2022 アクセスするコンテンツに対する責任はすべてあなた自身にあります\n\u2022 あなたの管轄区域でこのコンテンツをストリーミングする法的権利を有することを確認します\n\u2022 BoomioはP2Pコンテンツをホスト、配布、または制御しません\n\u2022 BoomioはP2Pストリーミングの使用に起因する法的結果に対して一切の責任を負いません\n\nこの機能は完全に自己責任で使用してください。P2Pはいつでも設定で無効にできます。</string>
     <string name="p2p_consent_enable">P2Pを有効にする</string>
     <string name="p2p_consent_cancel">キャンセル</string>
     <string name="settings_p2p_title">P2Pストリーミング</string>
@@ -1659,7 +1659,7 @@
     <string name="library_delete_subtitle">Traktからリストとすべてのリストアイテムが削除されます</string>
     <string name="library_delete_confirm">削除</string>
     <string name="library_source_local">ローカル</string>
-    <string name="library_source_nuvio">NUVIO</string>
+    <string name="library_source_nuvio">BOOMIO</string>
     <string name="library_source_trakt">TRAKT</string>
     <string name="library_source_saved">保存済み</string>
     <string name="library_source_cloud">クラウド</string>
@@ -1837,7 +1837,7 @@
     <string name="catalog_see_all_empty_title">利用可能なアイテムがありません</string>
     <string name="catalog_see_all_empty_subtitle">別のカタログを試すか、後でもう一度ご確認ください</string>
 
-    <string name="layout_selection_welcome">Nuvioへようこそ</string>
+    <string name="layout_selection_welcome">Boomioへようこそ</string>
     <string name="layout_selection_subtitle">ホーム画面のレイアウトを選択</string>
     <string name="layout_selection_continue">続ける</string>
 
@@ -1848,7 +1848,7 @@
     <string name="update_unknown_sources">続けるには不明なソースからのインストールを許可してください</string>
     <!-- AccountScreen -->
     <string name="account_title">アカウント</string>
-    <string name="account_sign_in_description">サインインしてデバイス間でライブラリ、視聴進行状況、アドオン、プラグインを同期。ライブラリ同期はTraktが接続されていない場合はNuvio Syncを使用し、視聴進行状況はTraktまたはNuvio Syncのどちらかを使用できます</string>
+    <string name="account_sign_in_description">サインインしてデバイス間でライブラリ、視聴進行状況、アドオン、プラグインを同期。ライブラリ同期はTraktが接続されていない場合はBoomio Syncを使用し、視聴進行状況はTraktまたはBoomio Syncのどちらかを使用できます</string>
     <string name="account_sync_code_title">同期コード</string>
     <string name="account_sync_code_description">アカウントを作成せずにデバイス間で同期</string>
     <string name="account_linked_devices">リンク済みデバイス (%1$d)</string>
@@ -2012,7 +2012,7 @@
     <string name="cd_preview">プレビュー</string>
     <string name="cd_test">テスト</string>
     <string name="cd_unlink">リンク解除</string>
-    <string name="cd_nuvio_logo">NuvioTV</string>
+    <string name="cd_nuvio_logo">Boomio</string>
     <string name="cd_trakt_logo">Traktロゴ</string>
     <string name="cd_trakt_qr">Trakt認証QR</string>
     <string name="cd_imdb">IMDb</string>
@@ -2023,7 +2023,7 @@
     <string name="cd_expand">%1$sを展開</string>
     <string name="cd_collapse">%1$sを折りたたむ</string>
     <string name="cd_qr_login">QRログインコード</string>
-    <string name="cd_nuvio">Nuvio</string>
+    <string name="cd_nuvio">Boomio</string>
 
     <string name="debug_signin_success">サインイン成功</string>
     <string name="debug_generate_description">デバッグ生成 %1$s アイテム #%2$d</string>
@@ -2165,7 +2165,7 @@
     <string name="collections_editor_tmdb_list_helper">例: https://www.themoviedb.org/list/8504994 または 8504994。</string>
     <string name="collections_editor_tmdb_person_id">人物ID</string>
     <string name="collections_editor_tmdb_person_helper">例: https://www.themoviedb.org/person/31-tom-hanks または 31。</string>
-    <string name="collections_editor_tmdb_title_helper">行/タブ名として表示されます。空の場合はNuvioがソースから生成します。</string>
+    <string name="collections_editor_tmdb_title_helper">行/タブ名として表示されます。空の場合はBoomioがソースから生成します。</string>
     <string name="collections_editor_tmdb_quick_genres">クイックジャンル</string>
     <string name="collections_editor_tmdb_quick_languages">クイック言語</string>
     <string name="collections_editor_tmdb_quick_countries">クイック国</string>
@@ -2338,7 +2338,7 @@
     <string name="autoplay_regex_preset_no_remux_hdr">REMUX/HDRなし</string>
 
     <!-- Playback settings sections -->
-    <string name="playback_player_internal_desc">NuvioTVの内蔵プレーヤーを使用</string>
+    <string name="playback_player_internal_desc">Boomioの内蔵プレーヤーを使用</string>
 
     <!-- Player runtime: torrent overlay + tracks -->
     <string name="player_torrent_peer_info">%1$dシード · %2$dピア</string>

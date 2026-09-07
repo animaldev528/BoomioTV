@@ -41,7 +41,7 @@ fun simklRequestHeaders(
 
 fun defaultSimklApiConfiguration(): SimklApiConfiguration = SimklApiConfiguration(
     clientId = BuildConfig.SIMKL_CLIENT_ID,
-    appName = BuildConfig.SIMKL_APP_NAME.ifBlank { "nuvio" },
+    appName = BuildConfig.SIMKL_APP_NAME.ifBlank { "boomio" },
     appVersion = BuildConfig.VERSION_NAME.ifBlank { "dev" }
 )
 

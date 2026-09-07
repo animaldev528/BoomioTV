@@ -41,7 +41,7 @@ import kotlinx.coroutines.withContext
  *    re-negotiation) doesn't spam the fleet table — but a report always goes out at least once per
  *    heartbeat so bsm's last_seen stays fresh.
  *
- * Start once from [com.nuvio.tv.NuvioApplication.onCreate]; [start] is idempotent.
+ * Start once from [com.nuvio.tv.BoomioApplication.onCreate]; [start] is idempotent.
  */
 @Singleton
 class DeviceCapabilityReporter @Inject constructor(

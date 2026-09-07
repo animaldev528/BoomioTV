@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Nuvio</string>
+    <string name="app_name">Boomio</string>
     <string name="tv_channel_continue_watching">İzlemeye Devam Et</string>
     <string name="type_movie">Film</string>
     <string name="type_movies">Filmler</string>
@@ -100,7 +100,7 @@
     <!-- HomeScreen -->
     <string name="home_no_addons">Yüklü eklenti yok. Başlamak için bir eklenti ekleyin.</string>
     <string name="home_no_catalog_addons">Katalog eklentisi yok. İçerikleri görmek için bir katalog eklentisi yükleyin.</string>
-    <string name="auth_notice_nuvio_logged_out">Nuvio hesabınızdan çıkış yapıldı. Lütfen tekrar giriş yapın.</string>
+    <string name="auth_notice_nuvio_logged_out">Boomio hesabınızdan çıkış yapıldı. Lütfen tekrar giriş yapın.</string>
     <string name="auth_notice_trakt_logged_out">Trakt hesabınızdan çıkış yapıldı. Lütfen yeniden bağlanın.</string>
     <string name="error_generic">Bir hata oluştu</string>
 
@@ -365,34 +365,34 @@
     <string name="about_check_updates_subtitle">En son sürümü indir</string>
     <string name="about_privacy_policy">Gizlilik Politikası</string>
     <string name="about_privacy_policy_subtitle">Gizlilik politikamızı görüntüleyin</string>
-    <string name="support_nuvio_name">Nuvio\'yu Destekle</string>
+    <string name="support_nuvio_name">Boomio\'yu Destekle</string>
     <string name="about_supporters_contributors">Destekleyenler ve Katkıda Bulunanlar</string>
     <string name="about_supporters_contributors_subtitle">Projede emeği geçenler ve açık kaynak destekçileri</string>
     <string name="about_licenses_attributions">Lisanslar ve Atıflar</string>
     <string name="about_licenses_attributions_subtitle">Veri kaynakları, teşekkürler ve Android lisansları</string>
     <string name="licenses_attributions_title">Lisanslar ve Atıflar</string>
-    <string name="licenses_attributions_subtitle">Nuvio TV tarafından kullanılan veri sağlayıcıları, hizmet kredileri ve Android oynatma lisansları.</string>
+    <string name="licenses_attributions_subtitle">Boomio tarafından kullanılan veri sağlayıcıları, hizmet kredileri ve Android oynatma lisansları.</string>
     <string name="licenses_attributions_section_app">UYGULAMA LİSANSI</string>
     <string name="licenses_attributions_section_data">VERİ VE HİZMETLER</string>
     <string name="licenses_attributions_section_playback">ANDROID OYNATMA LİSANSLARI</string>
-    <string name="licenses_attributions_nuvio_title">Nuvio TV</string>
+    <string name="licenses_attributions_nuvio_title">Boomio</string>
     <string name="licenses_attributions_nuvio_body">Kaynak kodu ve lisans koşulları proje deposunda mevcuttur. GNU Genel Kamu Lisansı v3.0 altında lisanslanmıştır.</string>
     <string name="licenses_attributions_tmdb_title">The Movie Database (TMDB)</string>
-    <string name="licenses_attributions_tmdb_body">Nuvio, film ve dizi meta verileri, görseller, fragmanlar, oyuncular, yapım detayları, koleksiyonlar ve öneriler için TMDB API\'sini kullanır. Bu ürün TMDB API\'sini kullanır ancak TMDB tarafından onaylanmamıştır veya sertifikalandırılmamıştır.</string>
+    <string name="licenses_attributions_tmdb_body">Boomio, film ve dizi meta verileri, görseller, fragmanlar, oyuncular, yapım detayları, koleksiyonlar ve öneriler için TMDB API\'sini kullanır. Bu ürün TMDB API\'sini kullanır ancak TMDB tarafından onaylanmamıştır veya sertifikalandırılmamıştır.</string>
     <string name="licenses_attributions_trakt_title">Trakt</string>
-    <string name="licenses_attributions_trakt_body">Nuvio, hesap doğrulama, izleme geçmişi, ilerleme senkronizasyonu, kütüphane verileri, puanlar, listeler ve yorumlar için Trakt\'a bağlanır. Nuvio Trakt ile bağlantılı veya onaylanmış değildir.</string>
+    <string name="licenses_attributions_trakt_body">Boomio, hesap doğrulama, izleme geçmişi, ilerleme senkronizasyonu, kütüphane verileri, puanlar, listeler ve yorumlar için Trakt\'a bağlanır. Boomio Trakt ile bağlantılı veya onaylanmış değildir.</string>
     <string name="licenses_attributions_simkl_title">Simkl</string>
-    <string name="licenses_attributions_simkl_body">Nuvio; hesap doğrulama, izleme listeleri, izleme geçmişi, oynatma ilerlemesi ve scrobbling için Simkl\'a bağlanır. Film, dizi ve anime takip verileri Simkl tarafından sağlanır. Nuvio, Simkl ile bağlantılı veya onaylanmış değildir.</string>
+    <string name="licenses_attributions_simkl_body">Boomio; hesap doğrulama, izleme listeleri, izleme geçmişi, oynatma ilerlemesi ve scrobbling için Simkl\'a bağlanır. Film, dizi ve anime takip verileri Simkl tarafından sağlanır. Boomio, Simkl ile bağlantılı veya onaylanmış değildir.</string>
     <string name="licenses_attributions_premiumize_title">Premiumize</string>
-    <string name="licenses_attributions_premiumize_body">Nuvio; hesap doğrulama, bulut kütüphanesine erişim, önbellek kontrolü ve bulut oynatma özellikleri için Premiumize\'a bağlanır. Nuvio\'nun Premiumize ile herhangi bir ortaklığı veya resmi bağı yoktur.</string>
+    <string name="licenses_attributions_premiumize_body">Boomio; hesap doğrulama, bulut kütüphanesine erişim, önbellek kontrolü ve bulut oynatma özellikleri için Premiumize\'a bağlanır. Boomio\'nun Premiumize ile herhangi bir ortaklığı veya resmi bağı yoktur.</string>
     <string name="licenses_attributions_torbox_title">TorBox</string>
-    <string name="licenses_attributions_torbox_body">Nuvio; hesap doğrulama, bulut kütüphanesine erişim, önbellek kontrolü ve bulut oynatma özellikleri için TorBox\'a bağlanır. Nuvio\'nun TorBox ile herhangi bir ortaklığı veya resmi bağı yoktur.</string>
+    <string name="licenses_attributions_torbox_body">Boomio; hesap doğrulama, bulut kütüphanesine erişim, önbellek kontrolü ve bulut oynatma özellikleri için TorBox\'a bağlanır. Boomio\'nun TorBox ile herhangi bir ortaklığı veya resmi bağı yoktur.</string>
     <string name="licenses_attributions_mdblist_title">MDBList</string>
-    <string name="licenses_attributions_mdblist_body">Nuvio, puanlar ve harici skor sağlayıcı verileri için MDBList\'i kullanır. Nuvio MDBList ile bağlantılı veya onaylanmış değildir.</string>
+    <string name="licenses_attributions_mdblist_body">Boomio, puanlar ve harici skor sağlayıcı verileri için MDBList\'i kullanır. Boomio MDBList ile bağlantılı veya onaylanmış değildir.</string>
     <string name="licenses_attributions_introdb_title">IntroDB</string>
-    <string name="licenses_attributions_introdb_body">Nuvio, atlatma kontrolleri için topluluk tarafından sağlanan intro, özet, jenerik ve önizleme zaman damgaları için IntroDB API\'sini kullanır. Nuvio IntroDB ile bağlantılı veya onaylanmış değildir.</string>
+    <string name="licenses_attributions_introdb_body">Boomio, atlatma kontrolleri için topluluk tarafından sağlanan intro, özet, jenerik ve önizleme zaman damgaları için IntroDB API\'sini kullanır. Boomio IntroDB ile bağlantılı veya onaylanmış değildir.</string>
     <string name="licenses_attributions_imdb_title">IMDb Non-Commercial Datasets</string>
-    <string name="licenses_attributions_imdb_body">Nuvio, IMDb Non-Commercial Datasets (title.ratings.tsv.gz dahil) kullanarak IMDb puanları ve oy sayılarını gösterir. Bilgiler IMDb\'nin izniyle sunulmaktadır (https://www.imdb.com). IMDb verileri yalnızca kişisel ve ticari olmayan kullanım içindir.</string>
+    <string name="licenses_attributions_imdb_body">Boomio, IMDb Non-Commercial Datasets (title.ratings.tsv.gz dahil) kullanarak IMDb puanları ve oy sayılarını gösterir. Bilgiler IMDb\'nin izniyle sunulmaktadır (https://www.imdb.com). IMDb verileri yalnızca kişisel ve ticari olmayan kullanım içindir.</string>
     <string name="licenses_attributions_exoplayer_title">AndroidX Media3 ExoPlayer 1.8.0</string>
     <string name="licenses_attributions_exoplayer_body">Android oynatma motoru olarak kullanılır. Apache License, Version 2.0 altında lisanslanmıştır.</string>
     <string name="licenses_attributions_libmpv_title">libmpv / libmpv-android</string>
@@ -423,7 +423,7 @@
     <string name="tracking_accounts_title">Hesaplar</string>
     <string name="tracking_accounts_subtitle">Takip servislerini bağla ve yönet</string>
     <string name="tracking_sources_title">Kaynaklar</string>
-    <string name="tracking_sources_subtitle">Nuvio\'nun kütüphane ve izleme ilerlemesini nereden okuyacağını seç. Oynatma, bağlı tüm servislere scrobble edilir.</string>
+    <string name="tracking_sources_subtitle">Boomio\'nun kütüphane ve izleme ilerlemesini nereden okuyacağını seç. Oynatma, bağlı tüm servislere scrobble edilir.</string>
     <string name="tracking_trakt_features_title">Trakt özellikleri</string>
     <string name="tracking_trakt_features_subtitle">Trakt\'a özel geçmiş, incelemeler ve öneriler</string>
     <string name="tracking_simkl_features_title">Simkl özellikleri</string>
@@ -439,8 +439,8 @@
     <string name="tracking_status_connecting">Bağlanıyor</string>
     <string name="tracking_finish_connection">Bağlantı onayını tamamla</string>
     <string name="tracking_connecting_provider">%1$s bağlantısı başlatılıyor…</string>
-    <string name="tracking_watch_progress_dialog_subtitle">Nuvio\'nun devam etme ve İzlemeye Devam Et için okuyacağı servisi seç. Scrobbling bağlı tüm servislerde açık kalır.</string>
-    <string name="tracking_library_source_dialog_subtitle">Nuvio\'nun Kütüphane için okuyacağı servisi seç. Oynatma, bağlı tüm servislere scrobble edilir.</string>
+    <string name="tracking_watch_progress_dialog_subtitle">Boomio\'nun devam etme ve İzlemeye Devam Et için okuyacağı servisi seç. Scrobbling bağlı tüm servislerde açık kalır.</string>
+    <string name="tracking_library_source_dialog_subtitle">Boomio\'nun Kütüphane için okuyacağı servisi seç. Oynatma, bağlı tüm servislere scrobble edilir.</string>
     <string name="tracking_trakt_progress_required">İzleme İlerlemesi kaynağı Trakt olduğunda kullanılabilir</string>
     <string name="trakt_name">Trakt</string>
     <string name="simkl_name">Simkl</string>
@@ -453,7 +453,7 @@
     <!-- ExperienceMode -->
     <string name="experience_mode_essential">Basit</string>
     <string name="experience_mode_advanced">Gelişmiş</string>
-    <string name="experience_mode_choose_title">Nuvio deneyimini seç</string>
+    <string name="experience_mode_choose_title">Boomio deneyimini seç</string>
     <string name="experience_mode_choose_subtitle">Basit başla veya tüm özelleştirmeleri aç. İstediğin zaman değiştirebilirsin.</string>
     <string name="experience_mode_essential_card_subtitle">Odaklı kurulum, eklentiler, oynatma temelleri, Trakt ve hesap ayarları.</string>
     <string name="experience_mode_advanced_card_subtitle">Tam ayarlar, düzen kontrolleri, katalog sırası, koleksiyonlar, uzantılar ve teşhis.</string>
@@ -559,8 +559,8 @@
     <string name="buffer_safe_status">Güvenli: Cihazınız için önerilen sınırlar dahilinde.</string>
     <string name="buffer_unsafe_warning">Uyarı: %2$s cihazınız için önerilen güvenli sınırı (%1$d MB) aşıyor. Çökmeler yaşanabilir.</string>
     <string name="buffer_auto_limit_active">Otomatik Ayarlanan Güvenli Sınır: %d MB</string>
-    <string name="advanced_nuvio_focus_scroll">Nuvio Odak Kaydırma</string>
-    <string name="advanced_nuvio_focus_scroll_subtitle">Varsayılan Android TV odak davranışını Nuvio\'nun özel kaydırma sistemi ile değiştirir</string>
+    <string name="advanced_nuvio_focus_scroll">Boomio Odak Kaydırma</string>
+    <string name="advanced_nuvio_focus_scroll_subtitle">Varsayılan Android TV odak davranışını Boomio\'nun özel kaydırma sistemi ile değiştirir</string>
     <string name="advanced_memory_only_vertical_scroll">Yalnızca Bellekte Dikey Kaydırma</string>
     <string name="advanced_memory_only_vertical_scroll_subtitle">Tüm listeyi bellekte tutarak dikey gezinmeyi hızlandırır (daha fazla RAM kullanır)</string>
     <string name="advanced_compose_highlighter">Compose Vurgulayıcı</string>
@@ -601,20 +601,20 @@
 
     <!-- SupportersContributorsScreen -->
     <string name="supporters_contributors_title">Destekleyenler ve Katkıda Bulunanlar</string>
-    <string name="supporters_contributors_subtitle">Nuvio\'nun arkasındaki güç: Projeyi destekleyenler ile TV ve mobil uygulamaları geliştiren ekip.</string>
+    <string name="supporters_contributors_subtitle">Boomio\'nun arkasındaki güç: Projeyi destekleyenler ile TV ve mobil uygulamaları geliştiren ekip.</string>
     <string name="supporters_contributors_supporters_copy">Bağışçı ve destekçilerimiz, projenin sürekliliğini sağlıyor, altyapı maliyetlerini karşılıyor ve yepyeni özellikler için bize alan yaratıyor.</string>
-    <string name="supporters_contributors_donate_copy">Nuvio tamamen ücretsiz ve açık kaynak kalmaya devam edecektir. Ancak projeye destek olmak isterseniz, geliştirme süremi ve altyapı giderlerini karşılamama yardımcı olabilirsiniz.</string>
+    <string name="supporters_contributors_donate_copy">Boomio tamamen ücretsiz ve açık kaynak kalmaya devam edecektir. Ancak projeye destek olmak isterseniz, geliştirme süremi ve altyapı giderlerini karşılamama yardımcı olabilirsiniz.</string>
     <string name="supporters_contributors_donation_progress_title">Bu ayki sunucu ve bakım masrafları</string>
     <string name="supporters_contributors_donation_progress_complete">Karşılandı. Ek destekler artık geliştirmelere aktarılıyor.</string>
     <string name="supporters_contributors_donation_progress_remaining">%100\'e ulaştıktan sonra, gelen ek destekler geliştirmelere aktarılır.</string>
     <string name="supporters_contributors_loading_donation_progress">Destek ilerlemesi yükleniyor...</string>
-    <string name="supporters_contributors_donate_button">Nuvio\'ya Destek Ol</string>
+    <string name="supporters_contributors_donate_button">Boomio\'ya Destek Ol</string>
     <string name="supporters_contributors_qr_title">Bağış yapmak için kodu taratın</string>
-    <string name="supporters_contributors_qr_subtitle">Nuvio\'ya destek olmak için bağlantıyı telefonunuzda açın.</string>
+    <string name="supporters_contributors_qr_subtitle">Boomio\'ya destek olmak için bağlantıyı telefonunuzda açın.</string>
     <string name="supporters_contributors_qr_hint">Kameranızı ekrandaki QR koda doğru tutun veya aşağıdaki butona tıklayın.</string>
     <string name="supporters_contributors_back_button">Ayrıntılara Dön</string>
-    <string name="supporter_membership_title">Nuvio Destekçi Üyeliği</string>
-    <string name="supporter_membership_description">Nuvio\'yu desteklemek, temel deneyimi herkes için ücretsiz tutarken altyapı ve geliştirme masraflarını karşılamaya yardımcı olur.</string>
+    <string name="supporter_membership_title">Boomio Destekçi Üyeliği</string>
+    <string name="supporter_membership_description">Boomio\'yu desteklemek, temel deneyimi herkes için ücretsiz tutarken altyapı ve geliştirme masraflarını karşılamaya yardımcı olur.</string>
     <string name="supporter_membership_view">Üyeliği Görüntüle</string>
     <string name="supporter_membership_manage">Üyeliği yönet</string>
     <string name="supporter_membership_refresh">Yenile</string>
@@ -627,7 +627,7 @@
     <string name="supporter_membership_tier_supporter">Destekçi</string>
     <string name="supporter_membership_tier_supporter_plus">Destekçi Plus</string>
     <string name="supporter_membership_connected_title">Patreon bağlandı</string>
-    <string name="supporter_membership_connected_description">Bu Patreon hesabında aktif bir Nuvio seviyesi bulunamadı. Mevcut seçenekleri görüntüleyin veya Patreon üyeliğinizi değiştirdikten sonra yenileyin.</string>
+    <string name="supporter_membership_connected_description">Bu Patreon hesabında aktif bir Boomio seviyesi bulunamadı. Mevcut seçenekleri görüntüleyin veya Patreon üyeliğinizi değiştirdikten sonra yenileyin.</string>
     <string name="supporter_membership_scan_support">Üyeliği görüntülemek için taratın</string>
     <string name="supporter_membership_scan_support_description">Telefonunuzda Destekçi Üyeliği sayfasını açın.</string>
     <string name="supporter_membership_scan_manage">Üyeliği yönetmek için taratın</string>
@@ -642,8 +642,8 @@
     <string name="supporters_no_message">Herhangi bir mesaj bırakılmamış.</string>
     <string name="supporters_level_supporter">Destekçi</string>
     <string name="supporters_level_supporter_plus">Destekçi+</string>
-    <string name="supporters_since">%1$s tarihinden beri Nuvio\'yu destekliyor</string>
-    <string name="supporters_since_unknown">Nuvio\'yu gururla destekliyor</string>
+    <string name="supporters_since">%1$s tarihinden beri Boomio\'yu destekliyor</string>
+    <string name="supporters_since_unknown">Boomio\'yu gururla destekliyor</string>
     <string name="supporters_open_donations">Bağış Sayfasına Git</string>
     <string name="sponsors_loading">Sponsorlar yükleniyor...</string>
     <string name="sponsors_empty">Sponsor bulunamadı</string>
@@ -723,8 +723,8 @@
     <string name="playback_player_ask_desc">Her seferinde hangi oynatıcının kullanılacağını seçin</string>
     <string name="playback_player_auto">Otomatik (İçerik için en iyisi)</string>
     <string name="playback_player_auto_desc">Filmler ve Diziler için ExoPlayer · Anime için MPV</string>
-    <string name="playback_engine_exoplayer_desc">Nuvio\'nun mevcut özellikleriyle en uyumlu seçenek.</string>
-    <string name="playback_engine_mvplayer_desc">Nuvio ekran kontrolleriyle libmpv kullanır. Deneysel.</string>
+    <string name="playback_engine_exoplayer_desc">Boomio\'nun mevcut özellikleriyle en uyumlu seçenek.</string>
+    <string name="playback_engine_mvplayer_desc">Boomio ekran kontrolleriyle libmpv kullanır. Deneysel.</string>
 
     <string name="video_section">Video</string>
 
@@ -1130,7 +1130,7 @@
     <string name="debrid_disconnect">Bağlantıyı Kes</string>
     <string name="debrid_device_auth_connected">%1$s bu cihaza bağlandı.</string>
     <string name="debrid_device_auth_starting">Güvenli giriş başlatılıyor...</string>
-    <string name="debrid_device_auth_instructions">Nuvio\'yu onaylamak için QR kodu taratın ve bu kodu girin.</string>
+    <string name="debrid_device_auth_instructions">Boomio\'yu onaylamak için QR kodu taratın ve bu kodu girin.</string>
     <string name="debrid_device_auth_code_copied">Kod kopyalandı.</string>
     <string name="debrid_device_auth_waiting">Onay bekleniyor...</string>
     <string name="debrid_device_auth_failed">Giriş başlatıladı.</string>
@@ -1323,21 +1323,21 @@
     <string name="trakt_watch_progress_title">İzleme İlerlemesi</string>
     <string name="trakt_watch_progress_subtitle">Devam etme ve izlemeye devam etme için hangi ilerleme kaynağının kullanılacağını seçin</string>
     <string name="trakt_watch_progress_dialog_title">İzleme İlerlemesi</string>
-    <string name="trakt_watch_progress_dialog_subtitle">Trakt scrobbling aktifken devam etme ve izlemeye devam etmenin Trakt mı yoksa Nuvio Sync mi kullanacağını seçin.</string>
+    <string name="trakt_watch_progress_dialog_subtitle">Trakt scrobbling aktifken devam etme ve izlemeye devam etmenin Trakt mı yoksa Boomio Sync mi kullanacağını seçin.</string>
     <string name="trakt_watch_progress_source_trakt">Trakt</string>
-    <string name="trakt_watch_progress_source_nuvio">Nuvio Sync</string>
+    <string name="trakt_watch_progress_source_nuvio">Boomio Sync</string>
     <string name="trakt_library_source_title">Kütüphane Kaynağı</string>
     <string name="trakt_library_source_subtitle">Koleksiyonunuzu kaydetmek ve görüntülemek için hangi kütüphanenin kullanılacağını seçin</string>
     <string name="trakt_library_source_dialog_title">Kütüphane Kaynağı</string>
     <string name="trakt_library_source_dialog_subtitle">Kütüphane öğelerinizi nerede kaydedeceğinizi ve yöneteceğinizi seçin</string>
     <string name="trakt_library_source_trakt">Trakt</string>
-    <string name="trakt_library_source_nuvio">Nuvio Kütüphanesi</string>
+    <string name="trakt_library_source_nuvio">Boomio Kütüphanesi</string>
     <string name="trakt_library_source_trakt_selected">Trakt kütüphanesi seçildi</string>
-    <string name="trakt_library_source_nuvio_selected">Nuvio kütüphanesi seçildi</string>
+    <string name="trakt_library_source_nuvio_selected">Boomio kütüphanesi seçildi</string>
     <string name="trakt_setting_on">Açık</string>
     <string name="trakt_setting_off">Kapalı</string>
     <string name="trakt_watch_progress_trakt_selected">İzleme ilerlemesi kaynağı Trakt olarak ayarlandı</string>
-    <string name="trakt_watch_progress_nuvio_selected">İzleme ilerlemesi kaynağı Nuvio Sync olarak ayarlandı</string>
+    <string name="trakt_watch_progress_nuvio_selected">İzleme ilerlemesi kaynağı Boomio Sync olarak ayarlandı</string>
     <string name="trakt_continue_watching_window">İzlemeye Devam Etme Penceresi</string>
     <string name="trakt_continue_watching_subtitle">İzlemeye devam etme için dikkate alınan Trakt geçmişi</string>
     <string name="trakt_unaired_next_up">Yayınlanmamış Sıradaki Bölümler</string>
@@ -1359,7 +1359,7 @@
     <string name="trakt_stat_watched_hours">İzlenen Saat</string>
     <string name="trakt_disconnect">Bağlantıyı Kes</string>
     <string name="trakt_disconnect_title">Trakt bağlantısı kesilsin mi?</string>
-    <string name="trakt_disconnect_subtitle">Bu işlem Trakt hesabınızın Nuvio ile bağlantısını kesecektir.</string>
+    <string name="trakt_disconnect_subtitle">Bu işlem Trakt hesabınızın Boomio ile bağlantısını kesecektir.</string>
     <string name="trakt_login">Giriş Yap</string>
     <string name="trakt_retry">Tekrar Dene</string>
     <string name="trakt_back">Geri</string>
@@ -1438,11 +1438,11 @@
     <string name="profile_addons">eklentiler</string>
     <string name="profile_plugins">uzantılar</string>
     <string name="profile_choose_avatar">Profil Resmi Seçin</string>
-    <string name="profile_custom_avatar_web_panel_note">Özel avatar URL\'leri Nuvio web panelinden yapılandırılabilir.</string>
+    <string name="profile_custom_avatar_web_panel_note">Özel avatar URL\'leri Boomio web panelinden yapılandırılabilir.</string>
     <string name="profile_editor_tab_avatar">Avatar</string>
     <string name="profile_editor_tab_background">Arka Plan</string>
     <string name="profile_choose_background">Profil Arka Planını Seçin</string>
-    <string name="profile_background_member_note">Özel arka plan URL\'leri Nuvio web panelinden yapılandırılabilir.</string>
+    <string name="profile_background_member_note">Özel arka plan URL\'leri Boomio web panelinden yapılandırılabilir.</string>
     <string name="profile_background_normal">Normal</string>
     <string name="profile_background_custom">Özel</string>
     <string name="profile_avatar_none_selected">Görsel seçilmedi</string>
@@ -1488,7 +1488,7 @@
     <string name="profile_pin_overlay_set_support">Bu PIN, profil açılmadan önce her seferinde istenecek.</string>
     <string name="profile_pin_overlay_confirm_support">Kurulumu tamamlamak için aynı 4 rakamı tekrar girin.</string>
     <string name="profile_pin_overlay_mismatch">PINler eşleşmedi. Tekrar deneyin.</string>
-    <string name="profile_pin_overlay_forgot_hint">PIN mi unuttunuz? Nuvio web sitesinden sıfırlayabilirsiniz.</string>
+    <string name="profile_pin_overlay_forgot_hint">PIN mi unuttunuz? Boomio web sitesinden sıfırlayabilirsiniz.</string>
     <string name="profile_pin_overlay_back_hint">İptal etmek için geri tuşuna basın</string>
 
 
@@ -1568,7 +1568,7 @@
     <string name="stream_type_torrent">Torrent</string>
     <string name="stream_type_youtube">YouTube</string>
     <string name="p2p_consent_title">P2P Yayın</string>
-    <string name="p2p_consent_body">Bu yayın eşler arası (P2P) teknolojisini kullanmaktadır. P2P\'yi etkinleştirerek şunları kabul etmiş olursunuz:\n\n\u2022 IP adresiniz ağdaki diğer kullanıcılara görünür hale gelecektir\n\u2022 Eriştiğiniz içerikten yalnızca siz sorumlusunuz\n\u2022 Bulunduğunuz yerde bu içeriği yasal olarak izleme hakkınız olduğunu onaylayıyorsunuz\n\u2022 Nuvio hiçbir P2P içeriği barındırmaz, dağıtmaz veya kontrol etmez\n\u2022 Nuvio, P2P yayını kullanımınızdan doğabilecek hukuki sonuçlardan sorumlu değildir\n\nBu özelliği tamamen kendi riskinizle kullanırsınız. P2P, istediğiniz zaman Ayarlar\'dan kapatılabilir.</string>
+    <string name="p2p_consent_body">Bu yayın eşler arası (P2P) teknolojisini kullanmaktadır. P2P\'yi etkinleştirerek şunları kabul etmiş olursunuz:\n\n\u2022 IP adresiniz ağdaki diğer kullanıcılara görünür hale gelecektir\n\u2022 Eriştiğiniz içerikten yalnızca siz sorumlusunuz\n\u2022 Bulunduğunuz yerde bu içeriği yasal olarak izleme hakkınız olduğunu onaylayıyorsunuz\n\u2022 Boomio hiçbir P2P içeriği barındırmaz, dağıtmaz veya kontrol etmez\n\u2022 Boomio, P2P yayını kullanımınızdan doğabilecek hukuki sonuçlardan sorumlu değildir\n\nBu özelliği tamamen kendi riskinizle kullanırsınız. P2P, istediğiniz zaman Ayarlar\'dan kapatılabilir.</string>
     <string name="p2p_consent_enable">P2P\'yi Etkinleştir</string>
     <string name="p2p_consent_cancel">İptal</string>
     <string name="settings_p2p_title">P2P Yayın</string>
@@ -2089,7 +2089,7 @@
     <string name="catalog_see_all_empty_subtitle">Daha sonra başka bir alt alan türünü denemek de faydalı olacaktır</string>
 
     <!-- LayoutSelectionScreen -->
-    <string name="layout_selection_welcome">Nuvio\'ya Hoş Geldiniz</string>
+    <string name="layout_selection_welcome">Boomio\'ya Hoş Geldiniz</string>
     <string name="layout_selection_subtitle">Ana sayfa düzeninizi seçin</string>
     <string name="layout_selection_continue">Devam Et</string>
 
@@ -2104,10 +2104,10 @@
     <string name="update_release_notes">Sürüm notları</string>
     <string name="update_no_release_notes">Sürüm notu paylaşılmamış.</string>
     <string name="update_latest_version">En güncel sürümü kullanıyorsun.</string>
-    <string name="update_unknown_sources">Nuvio\'nun indirdiği eklentileri yüklayabilmek adına `Bilinmeyen kaynaklar` veya `Dışarıdan yükleme` iznine ihtiyaç var.</string>
+    <string name="update_unknown_sources">Boomio\'nun indirdiği eklentileri yüklayabilmek adına `Bilinmeyen kaynaklar` veya `Dışarıdan yükleme` iznine ihtiyaç var.</string>
     <!-- AccountScreen -->
     <string name="account_title">Hesap</string>
-    <string name="account_sign_in_description">Kütüphanenizi, izleme ilerlemenizi, eklenti ve uzantılarınızı cihazlar arasında eşleyin. Trakt bağlı değilken Nuvio Sync kullanılır.</string>
+    <string name="account_sign_in_description">Kütüphanenizi, izleme ilerlemenizi, eklenti ve uzantılarınızı cihazlar arasında eşleyin. Trakt bağlı değilken Boomio Sync kullanılır.</string>
     <string name="account_sync_code_title">Eşleştirme Kodu</string>
     <string name="account_sync_code_description">Hesap oluşturmadan cihazlarınızı eşleyin.</string>
     <string name="account_linked_devices">Bağlı Cihazlar (%1$d)</string>
@@ -2534,7 +2534,7 @@
     <string name="cd_preview">Önizle</string>
     <string name="cd_test">Test et</string>
     <string name="cd_unlink">Bağlantıyı kes</string>
-    <string name="cd_nuvio_logo">NuvioTV</string>
+    <string name="cd_nuvio_logo">Boomio</string>
     <string name="cd_trakt_logo">Trakt logosu</string>
     <string name="cd_trakt_qr">Trakt etkinleştirme QR kodu</string>
     <string name="cd_simkl_qr">Simkl etkinleştirme QR kodu</string>
@@ -2548,7 +2548,7 @@
     <string name="cd_expand">%1$s öğesini genişlet</string>
     <string name="cd_collapse">%1$s öğesini daralt</string>
     <string name="cd_qr_login">QR giriş kodu</string>
-    <string name="cd_nuvio">Nuvio</string>
+    <string name="cd_nuvio">Boomio</string>
 
     <!-- Debug -->
     <string name="debug_signin_success">Giriş başarılı</string>
@@ -2693,7 +2693,7 @@
     <string name="collections_editor_tmdb_list_helper">Örnek: https://www.themoviedb.org/list/8504994 veya 8504994.</string>
     <string name="collections_editor_tmdb_person_id">Kişi ID</string>
     <string name="collections_editor_tmdb_person_helper">Örnek: https://www.themoviedb.org/person/31-tom-hanks veya 31.</string>
-    <string name="collections_editor_tmdb_title_helper">Satır/sekme adı olarak gösterilir. Boş bırakırsanız, Nuvio kaynaktan otomatik olarak oluşturur.</string>
+    <string name="collections_editor_tmdb_title_helper">Satır/sekme adı olarak gösterilir. Boş bırakırsanız, Boomio kaynaktan otomatik olarak oluşturur.</string>
     <string name="collections_editor_tmdb_quick_genres">Hızlı Türler</string>
     <string name="collections_editor_tmdb_quick_languages">Hızlı Diller</string>
     <string name="collections_editor_tmdb_quick_countries">Hızlı Ülkeler</string>
@@ -2883,7 +2883,7 @@
     <string name="autoplay_regex_preset_no_remux_hdr">REMUX/HDR olmasın</string>
 
     <!-- Playback settings sections -->
-    <string name="playback_player_internal_desc">NuvioTV\'nin dahili oynatıcısını kullan</string>
+    <string name="playback_player_internal_desc">Boomio\'nin dahili oynatıcısını kullan</string>
 
     <!-- Player runtime: torrent overlay + tracks -->
     <string name="player_torrent_peer_info">%1$d seed · %2$d peer</string>
@@ -2990,9 +2990,9 @@
     <string name="simkl_visit">Simkl\'ı ziyaret et</string>
     <string name="simkl_sync_info_action">Eşitleme nasıl çalışır</string>
     <string name="simkl_sync_info_title">Simkl eşitlemesi nasıl çalışır</string>
-    <string name="simkl_sync_info_description">Nuvio, Simkl\'ı en fazla her %1$d dakikada bir otomatik kontrol eder. Başka bir uygulama veya Simkl sitesinden yapılan değişikliklerin görünmesi bu kadar sürebilir.</string>
+    <string name="simkl_sync_info_description">Boomio, Simkl\'ı en fazla her %1$d dakikada bir otomatik kontrol eder. Başka bir uygulama veya Simkl sitesinden yapılan değişikliklerin görünmesi bu kadar sürebilir.</string>
     <string name="simkl_sync_info_activity">Her yenilemede önce Simkl\'da değişiklik olup olmadığı kontrol edilir ve yalnızca güncellemeler indirilir. Bu, Simkl\'ın API kurallarına uyar, gereksiz veri kullanımını azaltır ve servisin stabil kalmasına yardımcı olur.</string>
-    <string name="simkl_sync_info_manual">Nuvio\'da yaptığın değişiklikler hemen Simkl\'a gönderilir. Uzak değişiklikleri daha erken kontrol ettirmek istediğinde Şimdi eşitle\'ye bas.</string>
+    <string name="simkl_sync_info_manual">Boomio\'da yaptığın değişiklikler hemen Simkl\'a gönderilir. Uzak değişiklikleri daha erken kontrol ettirmek istediğinde Şimdi eşitle\'ye bas.</string>
     <string name="simkl_sync_info_library_statuses">Simkl\'daki Beklemede veya Bırakıldı listelerine koyulan diziler İzlemeye Devam Et\'te gizlenir. Bu listelerde kaldıkları sürece gizli kalırlar.</string>
     <string name="simkl_sync_info_docs">Simkl eşitleme rehberini oku</string>
     <string name="error_open_browser_failed">Tarayıcı açılamadı</string>
