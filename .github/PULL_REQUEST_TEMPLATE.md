@@ -44,7 +44,7 @@
 - [ ] This PR includes a linked issue, reproduction steps, and testing notes if it is a critical bug fix.
 - [ ] I listed the testing performed below.
 
-> Feature additions, feature requests, UI changes, refactors, and other non-critical changes may be closed or deferred without review while NuvioTV is being prepared for a stable release.
+> Feature additions, feature requests, UI changes, refactors, and other non-critical changes may be closed or deferred without review while Boomio is being prepared for a stable release.
 
 ## Scope boundaries
 

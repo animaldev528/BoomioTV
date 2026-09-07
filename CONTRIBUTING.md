@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping improve NuvioTV.
+Thanks for helping improve Boomio.
 
 ## Strict rules - read before opening anything
 
@@ -8,7 +8,7 @@ These rules are enforced strictly. Issues and PRs that do not follow them will b
 
 ## Current PR policy (2026-05-23)
 
-We are currently focusing on getting NuvioTV ready for a stable release.
+We are currently focusing on getting Boomio ready for a stable release.
 
 Until further notice, please do not open:
 

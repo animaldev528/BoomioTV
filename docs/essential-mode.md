@@ -1,8 +1,8 @@
-# NuvioTV Essential Mode Documentation
+# Boomio Essential Mode Documentation
 
 ## Purpose
 
-Essential mode is a streamlined NuvioTV experience for users who want to install add-ons, find something, and play it without navigating the full customization surface.
+Essential mode is a streamlined Boomio experience for users who want to install add-ons, find something, and play it without navigating the full customization surface.
 
 Advanced mode remains the existing power-user experience. It keeps the complete settings rail, layout controls, integrations, plug-ins, diagnostics, and detailed playback tuning.
 
@@ -26,7 +26,7 @@ This spec is based on the current app structure in:
 
 Current first launch flow:
 
-1. `MainActivity` shows the Nuvio account QR sign-in flow if the first-launch auth prompt has not been completed.
+1. `MainActivity` shows the Boomio account QR sign-in flow if the first-launch auth prompt has not been completed.
 2. If multiple profiles or a PIN are present, `ProfileSelectionScreen` is shown.
 3. If `LayoutPreferenceDataStore.hasChosenLayout` is false, `LayoutSelectionScreen` is shown.
 4. Main app shell loads with root routes for Home, Search, Library, Add-ons, and Settings.
@@ -67,7 +67,7 @@ Current playback path:
 
 Essential mode should answer one user need:
 
-> I just want NuvioTV to work with the least setup possible.
+> I just want Boomio to work with the least setup possible.
 
 Essential mode keeps:
 
@@ -335,7 +335,7 @@ Advanced settings should continue to use the existing `SettingsScreen` rail.
 | TMDB settings | Hide | Show | Keep defaults in Essential. |
 | MDBList settings | Hide | Show | Advanced ratings integration. |
 | Anime-Skip settings | Hide | Show | Advanced integration. |
-| Trakt connection | Show as optional account integration or hide under Advanced | Show full | For Essential, prefer Nuvio account sync first. |
+| Trakt connection | Show as optional account integration or hide under Advanced | Show full | For Essential, prefer Boomio account sync first. |
 | Trakt library/progress/comment settings | Hide | Show | Advanced integration. |
 | Advanced performance settings | Hide | Show | Advanced only. |
 | Network speed test | Hide | Show | Diagnostics. |
@@ -563,7 +563,7 @@ Recommended approach:
 - Use profile-scoped storage through `ProfileDataStoreFactory` if mode should follow each profile.
 - Use app-scoped storage if mode should be device-wide.
 
-Best fit for NuvioTV:
+Best fit for Boomio:
 
 - Use app-scoped storage for first MVP, because experience mode changes the device UI complexity rather than media data.
 - Keep a future option to sync mode per profile.

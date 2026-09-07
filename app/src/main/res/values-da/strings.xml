@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Nuvio</string>
+    <string name="app_name">Boomio</string>
     <string name="tv_channel_continue_watching">Fortsæt med at se</string>
     <string name="type_movie">Film</string>
     <string name="type_movies">Film</string>
@@ -98,7 +98,7 @@
 
     <string name="home_no_addons">Ingen addons installeret. Tilføj en for at komme i gang.</string>
     <string name="home_no_catalog_addons">Ingen katalog-addons installeret. Installer en katalog-addon for at se indhold.</string>
-    <string name="auth_notice_nuvio_logged_out">Du er blevet logget ud af Nuvio. Log venligst ind igen.</string>
+    <string name="auth_notice_nuvio_logged_out">Du er blevet logget ud af Boomio. Log venligst ind igen.</string>
     <string name="auth_notice_trakt_logged_out">Du er blevet logget ud af Trakt. Tilslut venligst igen.</string>
     <string name="error_generic">Der opstod en fejl</string>
 
@@ -347,26 +347,26 @@
     <string name="about_licenses_attributions">Licenser &amp; attributioner</string>
     <string name="about_licenses_attributions_subtitle">Datakilder, anerkendelser og Android-licenser</string>
     <string name="licenses_attributions_title">Licenser &amp; attributioner</string>
-    <string name="licenses_attributions_subtitle">Dataleverandører, servicekreditter og Android-afspilningslicenser brugt af Nuvio TV.</string>
+    <string name="licenses_attributions_subtitle">Dataleverandører, servicekreditter og Android-afspilningslicenser brugt af Boomio.</string>
     <string name="licenses_attributions_section_app">APP-LICENS</string>
     <string name="licenses_attributions_section_data">DATA &amp; TJENESTER</string>
     <string name="licenses_attributions_section_playback">ANDROID-AFSPILNINGSLICENSER</string>
-    <string name="licenses_attributions_nuvio_title">Nuvio TV</string>
+    <string name="licenses_attributions_nuvio_title">Boomio</string>
     <string name="licenses_attributions_nuvio_body">Kildekode og licensvilkår er tilgængelige i projektets repository. Licenseret under GNU General Public License v3.0.</string>
     <string name="licenses_attributions_tmdb_title">The Movie Database (TMDB)</string>
-    <string name="licenses_attributions_tmdb_body">Nuvio bruger TMDB API til film- og TV-metadata, artwork, trailere, cast, produktionsdetaljer, samlinger og anbefalinger. Dette produkt bruger TMDB API, men er ikke godkendt eller certificeret af TMDB.</string>
+    <string name="licenses_attributions_tmdb_body">Boomio bruger TMDB API til film- og TV-metadata, artwork, trailere, cast, produktionsdetaljer, samlinger og anbefalinger. Dette produkt bruger TMDB API, men er ikke godkendt eller certificeret af TMDB.</string>
     <string name="licenses_attributions_trakt_title">Trakt</string>
-    <string name="licenses_attributions_trakt_body">Nuvio forbinder til Trakt til kontoautentificering, se-historik, fremskridtssynkronisering, biblioteksdata, vurderinger, lister og kommentarer. Nuvio er ikke tilknyttet eller godkendt af Trakt.</string>
+    <string name="licenses_attributions_trakt_body">Boomio forbinder til Trakt til kontoautentificering, se-historik, fremskridtssynkronisering, biblioteksdata, vurderinger, lister og kommentarer. Boomio er ikke tilknyttet eller godkendt af Trakt.</string>
     <string name="licenses_attributions_premiumize_title">Premiumize</string>
-    <string name="licenses_attributions_premiumize_body">Nuvio forbinder til Premiumize til kontoautentificering, adgang til cloudbibliotek, cache-tjek og cloud-afspilningsfunktioner. Nuvio er ikke tilknyttet eller godkendt af Premiumize.</string>
+    <string name="licenses_attributions_premiumize_body">Boomio forbinder til Premiumize til kontoautentificering, adgang til cloudbibliotek, cache-tjek og cloud-afspilningsfunktioner. Boomio er ikke tilknyttet eller godkendt af Premiumize.</string>
     <string name="licenses_attributions_torbox_title">TorBox</string>
-    <string name="licenses_attributions_torbox_body">Nuvio forbinder til TorBox til kontoautentificering, adgang til cloudbibliotek, cache-tjek og cloud-afspilningsfunktioner. Nuvio er ikke tilknyttet eller godkendt af TorBox.</string>
+    <string name="licenses_attributions_torbox_body">Boomio forbinder til TorBox til kontoautentificering, adgang til cloudbibliotek, cache-tjek og cloud-afspilningsfunktioner. Boomio er ikke tilknyttet eller godkendt af TorBox.</string>
     <string name="licenses_attributions_mdblist_title">MDBList</string>
-    <string name="licenses_attributions_mdblist_body">Nuvio bruger MDBList til vurderinger og data fra eksterne scoreudbydere. Nuvio er ikke tilknyttet eller godkendt af MDBList.</string>
+    <string name="licenses_attributions_mdblist_body">Boomio bruger MDBList til vurderinger og data fra eksterne scoreudbydere. Boomio er ikke tilknyttet eller godkendt af MDBList.</string>
     <string name="licenses_attributions_introdb_title">IntroDB</string>
-    <string name="licenses_attributions_introdb_body">Nuvio bruger IntroDB API til fællesskabsleverede intro-, recap-, credits- og preview-tidsstempler brugt af spring-over-kontrolelementer. Nuvio er ikke tilknyttet eller godkendt af IntroDB.</string>
+    <string name="licenses_attributions_introdb_body">Boomio bruger IntroDB API til fællesskabsleverede intro-, recap-, credits- og preview-tidsstempler brugt af spring-over-kontrolelementer. Boomio er ikke tilknyttet eller godkendt af IntroDB.</string>
     <string name="licenses_attributions_imdb_title">IMDb Non-Commercial Datasets</string>
-    <string name="licenses_attributions_imdb_body">Nuvio bruger IMDb Non-Commercial Datasets, herunder title.ratings.tsv.gz, til IMDb-vurderinger og stemmeantal. Information venligst stillet til rådighed af IMDb (https://www.imdb.com). Brugt med tilladelse. IMDb-data er til personlig og ikke-kommerciel brug under IMDb\'s vilkår.</string>
+    <string name="licenses_attributions_imdb_body">Boomio bruger IMDb Non-Commercial Datasets, herunder title.ratings.tsv.gz, til IMDb-vurderinger og stemmeantal. Information venligst stillet til rådighed af IMDb (https://www.imdb.com). Brugt med tilladelse. IMDb-data er til personlig og ikke-kommerciel brug under IMDb\'s vilkår.</string>
     <string name="licenses_attributions_exoplayer_title">AndroidX Media3 ExoPlayer 1.8.0</string>
     <string name="licenses_attributions_exoplayer_body">Brugt som Android-afspilningsmotor. Licenseret under Apache License, Version 2.0.</string>
     <string name="licenses_attributions_libmpv_title">libmpv / libmpv-android</string>
@@ -398,7 +398,7 @@
     <string name="settings_advanced_subtitle">Ydeevne, navigation, cache og diagnostik</string>
     <string name="experience_mode_essential">Grundlæggende</string>
     <string name="experience_mode_advanced">Avanceret</string>
-    <string name="experience_mode_choose_title">Vælg din Nuvio-oplevelse</string>
+    <string name="experience_mode_choose_title">Vælg din Boomio-oplevelse</string>
     <string name="experience_mode_choose_subtitle">Start simpelt eller lås alle tilpasninger op. Du kan skifte når som helst.</string>
     <string name="experience_mode_essential_card_subtitle">Fokuseret opsætning, add-ons, afspilningsgrundlag, Trakt og kontoindstillinger.</string>
     <string name="experience_mode_advanced_card_subtitle">Fulde indstillinger, layoutkontrol, katalogrækkefølge, samlinger, plug-ins og diagnostik.</string>
@@ -480,8 +480,8 @@
     <string name="advanced_section_dv_diagnostics" translatable="false">DV Diagnostics</string>
     <string name="advanced_fast_horizontal_navigation">Hurtig vandret navigation</string>
     <string name="advanced_fast_horizontal_navigation_subtitle">Øg D-pad-gentagnelseshastighed i rækker mens gentagelsesbegrænsning forbliver aktiv.</string>
-    <string name="advanced_nuvio_focus_scroll">Nuvio fokusscrolling</string>
-    <string name="advanced_nuvio_focus_scroll_subtitle">Brug Nuvio\'s brugerdefinerede globale fokusscroll-animation og -positionering.</string>
+    <string name="advanced_nuvio_focus_scroll">Boomio fokusscrolling</string>
+    <string name="advanced_nuvio_focus_scroll_subtitle">Brug Boomio\'s brugerdefinerede globale fokusscroll-animation og -positionering.</string>
     <string name="advanced_memory_only_vertical_scroll">Hukommelsesbaseret lodret scrolling</string>
     <string name="advanced_memory_only_vertical_scroll_subtitle">Spring disk- og netværksbilledanmodninger over under lodret scrolling af startsiderækkerne.</string>
     <string name="advanced_compose_highlighter">Compose-fremhæver</string>
@@ -518,12 +518,12 @@
     <string name="action_close">Luk</string>
 
     <string name="supporters_contributors_title">Støtter &amp; bidragydere</string>
-    <string name="supporters_contributors_subtitle">De mennesker der støtter Nuvio og bidrager til udviklingen på tværs af TV og mobil.</string>
+    <string name="supporters_contributors_subtitle">De mennesker der støtter Boomio og bidrager til udviklingen på tværs af TV og mobil.</string>
     <string name="supporters_contributors_supporters_copy">Støtter og donatorer hjælper med at holde projektet i gang, finansiere infrastrukturen og skabe plads til ambitiøse funktioner.</string>
-    <string name="supporters_contributors_donate_copy">Nuvio vil forblive gratis og open source. Hvis du vil støtte projektet, kan du hjælpe med at dække tid og infrastrukturen bag det.</string>
-    <string name="supporters_contributors_donate_button">Donér til Nuvio</string>
+    <string name="supporters_contributors_donate_copy">Boomio vil forblive gratis og open source. Hvis du vil støtte projektet, kan du hjælpe med at dække tid og infrastrukturen bag det.</string>
+    <string name="supporters_contributors_donate_button">Donér til Boomio</string>
     <string name="supporters_contributors_qr_title">Skan for at donere</string>
-    <string name="supporters_contributors_qr_subtitle">Åbn linket på din telefon for at støtte Nuvio.</string>
+    <string name="supporters_contributors_qr_subtitle">Åbn linket på din telefon for at støtte Boomio.</string>
     <string name="supporters_contributors_qr_hint">Peg dit kamera mod QR-koden eller brug knappen nedenfor.</string>
     <string name="supporters_contributors_back_button">Tilbage til detaljer</string>
     <string name="supporters_tab">Støtter</string>
@@ -537,7 +537,7 @@
     <string name="sponsors_loading">Indlæser sponsorer…</string>
     <string name="sponsors_empty">Ingen sponsorer fundet endnu.</string>
     <string name="sponsors_error_title">Kunne ikke indlæse sponsorer</string>
-    <string name="sponsors_detail_copy">Sponsorer hjælper med at drive Nuvio fremad gennem støtte på tværs af de forskellige dele af udviklingen.</string>
+    <string name="sponsors_detail_copy">Sponsorer hjælper med at drive Boomio fremad gennem støtte på tværs af de forskellige dele af udviklingen.</string>
     <string name="sponsors_channel_unavailable">Sponsorkanal utilgængelig.</string>
     <string name="sponsors_open_channel">Åbn sponsorkanal</string>
     <string name="contributors_loading">Indlæser GitHub-bidragydere…</string>
@@ -609,8 +609,8 @@
     <string name="playback_player_ask_desc">Vælg afspiller hver gang</string>
     <string name="playback_player_auto">Auto (bedst til indhold)</string>
     <string name="playback_player_auto_desc">ExoPlayer til film &amp; TV-serier · MPV til anime</string>
-    <string name="playback_engine_exoplayer_desc">Bedst kompatibilitet med nuværende Nuvio-funktioner.</string>
-    <string name="playback_engine_mvplayer_desc">Bruger libmpv med Nuvio OSD-kontrol. Eksperimentel.</string>
+    <string name="playback_engine_exoplayer_desc">Bedst kompatibilitet med nuværende Boomio-funktioner.</string>
+    <string name="playback_engine_mvplayer_desc">Bruger libmpv med Boomio OSD-kontrol. Eksperimentel.</string>
 
     <string name="video_section">Video</string>
     <string name="audio_trailer_section">Trailer</string>
@@ -961,7 +961,7 @@
     <string name="debrid_disconnect">Afbryd</string>
     <string name="debrid_device_auth_connected">%1$s er tilknyttet på denne enhed.</string>
     <string name="debrid_device_auth_starting">Starter sikker login...</string>
-    <string name="debrid_device_auth_instructions">Scan QR-koden og indtast denne kode for at godkende Nuvio.</string>
+    <string name="debrid_device_auth_instructions">Scan QR-koden og indtast denne kode for at godkende Boomio.</string>
     <string name="debrid_device_auth_code_copied">Kode kopieret.</string>
     <string name="debrid_device_auth_waiting">Venter på godkendelse...</string>
     <string name="debrid_device_auth_failed">Kunne ikke starte login.</string>
@@ -1153,21 +1153,21 @@
     <string name="trakt_watch_progress_title">Se-fremdrift</string>
     <string name="trakt_watch_progress_subtitle">Vælg hvilken fremskridtskilde der styrer genoptag og fortsæt med at se</string>
     <string name="trakt_watch_progress_dialog_title">Se-fremdrift</string>
-    <string name="trakt_watch_progress_dialog_subtitle">Vælg om genoptagelse og fortsæt med at se skal bruge Trakt eller Nuvio Sync, mens Trakt-scrobbling forbliver aktiv.</string>
+    <string name="trakt_watch_progress_dialog_subtitle">Vælg om genoptagelse og fortsæt med at se skal bruge Trakt eller Boomio Sync, mens Trakt-scrobbling forbliver aktiv.</string>
     <string name="trakt_watch_progress_source_trakt">Trakt</string>
-    <string name="trakt_watch_progress_source_nuvio">Nuvio Sync</string>
+    <string name="trakt_watch_progress_source_nuvio">Boomio Sync</string>
     <string name="trakt_library_source_title">Bibliotekskilde</string>
     <string name="trakt_library_source_subtitle">Vælg hvilket bibliotek der bruges til at gemme og se din samling</string>
     <string name="trakt_library_source_dialog_title">Bibliotekskilde</string>
     <string name="trakt_library_source_dialog_subtitle">Vælg, hvor du vil gemme og administrere dine bibliotekets indhold</string>
     <string name="trakt_library_source_trakt">Trakt</string>
-    <string name="trakt_library_source_nuvio">Nuvio-bibliotek</string>
+    <string name="trakt_library_source_nuvio">Boomio-bibliotek</string>
     <string name="trakt_library_source_trakt_selected">Trakt-bibliotek valgt</string>
-    <string name="trakt_library_source_nuvio_selected">Nuvio-bibliotek valgt</string>
+    <string name="trakt_library_source_nuvio_selected">Boomio-bibliotek valgt</string>
     <string name="trakt_setting_on">Til</string>
     <string name="trakt_setting_off">Fra</string>
     <string name="trakt_watch_progress_trakt_selected">Fremskridtskilde indstillet til Trakt</string>
-    <string name="trakt_watch_progress_nuvio_selected">Fremskridtskilde indstillet til Nuvio Sync</string>
+    <string name="trakt_watch_progress_nuvio_selected">Fremskridtskilde indstillet til Boomio Sync</string>
     <string name="trakt_continue_watching_window">Fortsæt med at se-vindue</string>
     <string name="trakt_continue_watching_subtitle">Trakt-historik inkluderet i fortsæt med at se</string>
     <string name="trakt_unaired_next_up">Kommende næste afsnit</string>
@@ -1195,7 +1195,7 @@
     <string name="trakt_stat_watched_hours">Seede timer</string>
     <string name="trakt_disconnect">Afbryd</string>
     <string name="trakt_disconnect_title">Afbryd Trakt?</string>
-    <string name="trakt_disconnect_subtitle">Dette vil afbryde din Trakt-konto fra Nuvio.</string>
+    <string name="trakt_disconnect_subtitle">Dette vil afbryde din Trakt-konto fra Boomio.</string>
     <string name="trakt_login">Login</string>
     <string name="trakt_retry">Prøv igen</string>
     <string name="trakt_back">Tilbage</string>
@@ -1261,7 +1261,7 @@
     <string name="profile_addons">addons</string>
     <string name="profile_plugins">plugins</string>
     <string name="profile_choose_avatar">Vælg avatar</string>
-    <string name="profile_custom_avatar_web_panel_note">Brugerdefinerede avatar-URL\'er kan konfigureres fra Nuvio-webpanelet.</string>
+    <string name="profile_custom_avatar_web_panel_note">Brugerdefinerede avatar-URL\'er kan konfigureres fra Boomio-webpanelet.</string>
     <string name="profile_avatar_none_selected">Ingen avatar valgt</string>
     <string name="profile_avatar_focus_hint">Fokusér på en avatar for at se dens navn</string>
     <string name="profile_avatar_category_all">Alle</string>
@@ -1304,7 +1304,7 @@
     <string name="profile_pin_overlay_set_support">Denne PIN vil blive krævet, inden denne profil åbnes.</string>
     <string name="profile_pin_overlay_confirm_support">Gentag de samme 4 cifre for at afslutte opsætningen.</string>
     <string name="profile_pin_overlay_mismatch">PIN-koderne stemte ikke overens. Indtast en ny PIN igen.</string>
-    <string name="profile_pin_overlay_forgot_hint">Glemt PIN? Nulstil den fra din Nuvio-konto på Nuvio-webstedet.</string>
+    <string name="profile_pin_overlay_forgot_hint">Glemt PIN? Nulstil den fra din Boomio-konto på Boomio-webstedet.</string>
     <string name="profile_pin_overlay_back_hint">Tryk tilbage for at annullere</string>
 
 
@@ -1381,7 +1381,7 @@
     <string name="stream_type_torrent">Torrent</string>
     <string name="stream_type_youtube">YouTube</string>
     <string name="p2p_consent_title">P2P-streaming</string>
-    <string name="p2p_consent_body">Denne stream bruger peer-to-peer (P2P)-teknologi. Ved at aktivere P2P anerkender og accepterer du, at:\n\n\u2022 Din IP-adresse vil være synlig for andre peers i netværket\n\u2022 Du er eneansvarlig for det indhold, du tilgår\n\u2022 Du bekræfter, at du har den lovlige ret til at streame dette indhold i din jurisdiktion\n\u2022 Nuvio hoster, distribuerer eller kontrollerer ikke noget P2P-indhold\n\u2022 Nuvio er ikke ansvarlig for eventuelle juridiske konsekvenser som følge af din brug af P2P-streaming\n\nDu bruger denne funktion udelukkende på eget ansvar. P2P kan deaktiveres når som helst i Indstillinger.</string>
+    <string name="p2p_consent_body">Denne stream bruger peer-to-peer (P2P)-teknologi. Ved at aktivere P2P anerkender og accepterer du, at:\n\n\u2022 Din IP-adresse vil være synlig for andre peers i netværket\n\u2022 Du er eneansvarlig for det indhold, du tilgår\n\u2022 Du bekræfter, at du har den lovlige ret til at streame dette indhold i din jurisdiktion\n\u2022 Boomio hoster, distribuerer eller kontrollerer ikke noget P2P-indhold\n\u2022 Boomio er ikke ansvarlig for eventuelle juridiske konsekvenser som følge af din brug af P2P-streaming\n\nDu bruger denne funktion udelukkende på eget ansvar. P2P kan deaktiveres når som helst i Indstillinger.</string>
     <string name="p2p_consent_enable">Aktivér P2P</string>
     <string name="p2p_consent_cancel">Annullér</string>
     <string name="settings_p2p_title">P2P-streaming</string>
@@ -1655,7 +1655,7 @@
     <string name="library_delete_subtitle">Dette fjerner listen og alle listeelementer fra Trakt.</string>
     <string name="library_delete_confirm">Slet</string>
     <string name="library_source_local">LOKAL</string>
-    <string name="library_source_nuvio">NUVIO</string>
+    <string name="library_source_nuvio">BOOMIO</string>
     <string name="library_source_trakt">TRAKT</string>
     <string name="library_source_saved">Gemt</string>
     <string name="library_source_cloud">Cloud</string>
@@ -1833,7 +1833,7 @@
     <string name="catalog_see_all_empty_title">Ingen indhold tilgængeligt</string>
     <string name="catalog_see_all_empty_subtitle">Prøv et andet katalog, eller kom tilbage senere</string>
 
-    <string name="layout_selection_welcome">Velkommen til Nuvio</string>
+    <string name="layout_selection_welcome">Velkommen til Boomio</string>
     <string name="layout_selection_subtitle">Vælg dit startskærm-layout</string>
     <string name="layout_selection_continue">Fortsæt</string>
 
@@ -1844,7 +1844,7 @@
     <string name="update_unknown_sources">Tillad installationer fra ukendte kilder for at fortsætte.</string>
     <!-- AccountScreen -->
     <string name="account_title">Konto</string>
-    <string name="account_sign_in_description">Log ind for at synkronisere dit bibliotek, se-fremskridt, addons og plugins på tværs af enheder. Bibliotekssynkronisering bruger Nuvio Sync, når Trakt ikke er tilsluttet, og se-fremskridt kan bruge enten Trakt eller Nuvio Sync.</string>
+    <string name="account_sign_in_description">Log ind for at synkronisere dit bibliotek, se-fremskridt, addons og plugins på tværs af enheder. Bibliotekssynkronisering bruger Boomio Sync, når Trakt ikke er tilsluttet, og se-fremskridt kan bruge enten Trakt eller Boomio Sync.</string>
     <string name="account_sync_code_title">Synkroniseringskode</string>
     <string name="account_sync_code_description">Synkroniser på tværs af enheder uden at oprette en konto.</string>
     <string name="account_linked_devices">Tilknyttede enheder (%1$d)</string>
@@ -2011,7 +2011,7 @@
     <string name="cd_preview">Forhåndsvisning</string>
     <string name="cd_test">Test</string>
     <string name="cd_unlink">Fjern tilknytning</string>
-    <string name="cd_nuvio_logo">NuvioTV</string>
+    <string name="cd_nuvio_logo">Boomio</string>
     <string name="cd_trakt_logo">Trakt-logo</string>
     <string name="cd_trakt_qr">Trakt-aktiverings-QR</string>
     <string name="cd_imdb">IMDb</string>
@@ -2022,7 +2022,7 @@
     <string name="cd_expand">Udvid %1$s</string>
     <string name="cd_collapse">Skjul %1$s</string>
     <string name="cd_qr_login">QR-loginkode</string>
-    <string name="cd_nuvio">Nuvio</string>
+    <string name="cd_nuvio">Boomio</string>
 
     <string name="debug_signin_success">Logget ind</string>
     <string name="debug_generate_description">Debug-genereret %1$s element nr. %2$d</string>
@@ -2164,7 +2164,7 @@
     <string name="collections_editor_tmdb_list_helper">Eksempel: https://www.themoviedb.org/list/8504994 eller 8504994.</string>
     <string name="collections_editor_tmdb_person_id">Person-ID</string>
     <string name="collections_editor_tmdb_person_helper">Eksempel: https://www.themoviedb.org/person/31-tom-hanks eller 31.</string>
-    <string name="collections_editor_tmdb_title_helper">Vises som række-/fanenavn. Hvis tomt, opretter Nuvio et navn fra kilden.</string>
+    <string name="collections_editor_tmdb_title_helper">Vises som række-/fanenavn. Hvis tomt, opretter Boomio et navn fra kilden.</string>
     <string name="collections_editor_tmdb_quick_genres">Hurtige valg til genrer</string>
     <string name="collections_editor_tmdb_quick_languages">Hurtige valg til sprog</string>
     <string name="collections_editor_tmdb_quick_countries">Hurtige valg til lande</string>
@@ -2337,7 +2337,7 @@
     <string name="autoplay_regex_preset_no_remux_hdr">No REMUX/HDR</string>
 
     <!-- Playback settings sections -->
-    <string name="playback_player_internal_desc">Brug NuvioTV\'s indbyggede afspiller</string>
+    <string name="playback_player_internal_desc">Brug Boomio\'s indbyggede afspiller</string>
 
     <!-- Player runtime: torrent overlay + tracks -->
     <string name="player_torrent_peer_info">%1$d seeders · %2$d peers</string>
