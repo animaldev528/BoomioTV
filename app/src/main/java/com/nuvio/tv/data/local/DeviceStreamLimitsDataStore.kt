@@ -36,6 +36,14 @@ class DeviceStreamLimitsDataStore @Inject constructor(
 
     private val masterEnabledKey = booleanPreferencesKey(MASTER_ENABLED_KEY)
 
+    // The reserved `other` catch-all (not a CodecFamily member) uses the same
+    // `codec_<canonical>_*` key shape, keyed off the shared OTHER_CANONICAL constant.
+    private val otherEnabledKey =
+        booleanPreferencesKey("codec_${DeviceStreamLimits.OTHER_CANONICAL}_enabled")
+
+    private val otherMbpsKey =
+        intPreferencesKey("codec_${DeviceStreamLimits.OTHER_CANONICAL}_mbps")
+
     private fun codecEnabledKey(family: CodecFamily) =
         booleanPreferencesKey("codec_${family.canonical}_enabled")
 
@@ -60,6 +68,8 @@ class DeviceStreamLimitsDataStore @Inject constructor(
                     ceilingMbps = prefs[codecMbpsKey(family)] ?: family.defaultCeilingMbps,
                 )
             },
+            otherEnabled = prefs[otherEnabledKey] ?: true,
+            otherMbps = prefs[otherMbpsKey] ?: DeviceStreamLimits.DEFAULT_OTHER_MBPS,
         )
     }
 
@@ -73,5 +83,13 @@ class DeviceStreamLimitsDataStore @Inject constructor(
 
     suspend fun setCodecCeilingMbps(family: CodecFamily, mbps: Int) {
         store().edit { it[codecMbpsKey(family)] = mbps.coerceIn(MIN_CEILING_MBPS, MAX_CEILING_MBPS) }
+    }
+
+    suspend fun setOtherEnabled(enabled: Boolean) {
+        store().edit { it[otherEnabledKey] = enabled }
+    }
+
+    suspend fun setOtherCeilingMbps(mbps: Int) {
+        store().edit { it[otherMbpsKey] = mbps.coerceIn(MIN_CEILING_MBPS, MAX_CEILING_MBPS) }
     }
 }

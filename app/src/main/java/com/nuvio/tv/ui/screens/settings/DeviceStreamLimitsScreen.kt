@@ -121,6 +121,37 @@ fun DeviceStreamLimitsContent(
                             )
                         }
                     }
+
+                    // Reserved catch-all for content whose codec family bsf can't
+                    // classify into a declared row (unknown codecs, e.g. high-bitrate
+                    // UHD BD remuxes whose filenames never spell a codec). Not a
+                    // CodecFamily member — it appends the reserved `other` key to
+                    // codecCapsMbps only, never to the codecs allow-list.
+                    item(key = "codec_toggle_${DeviceStreamLimits.OTHER_CANONICAL}") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.settings_stream_quality_other_title),
+                            subtitle = stringResource(R.string.settings_stream_quality_other_subtitle),
+                            checked = limits.otherEnabled,
+                            onToggle = { viewModel.setOtherEnabled(!limits.otherEnabled) },
+                            enabled = limits.enabled
+                        )
+                    }
+                    item(key = "codec_ceiling_${DeviceStreamLimits.OTHER_CANONICAL}") {
+                        SliderSettingsItem(
+                            icon = null,
+                            title = stringResource(R.string.settings_stream_quality_other_ceiling_title),
+                            value = limits.otherMbps,
+                            valueText = stringResource(
+                                R.string.settings_stream_quality_mbps_format,
+                                limits.otherMbps
+                            ),
+                            minValue = DeviceStreamLimitsDataStore.MIN_CEILING_MBPS,
+                            maxValue = DeviceStreamLimitsDataStore.MAX_CEILING_MBPS,
+                            step = 1,
+                            onValueChange = { mbps -> viewModel.setOtherCeilingMbps(mbps) },
+                            enabled = limits.otherEnabled && limits.enabled
+                        )
+                    }
                 }
                 SettingsVerticalScrollIndicators(state = listState)
             }

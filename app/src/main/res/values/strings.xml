@@ -442,6 +442,9 @@
     <string name="settings_stream_quality_codec_off_subtitle">Hidden entirely</string>
     <string name="settings_stream_quality_ceiling_title">%1$s bitrate ceiling</string>
     <string name="settings_stream_quality_mbps_format">%1$d Mbps</string>
+    <string name="settings_stream_quality_other_title">Other / unknown codecs</string>
+    <string name="settings_stream_quality_other_subtitle">Catch-all ceiling for streams whose codec can\'t be identified (e.g. high-bitrate UHD remuxes)</string>
+    <string name="settings_stream_quality_other_ceiling_title">Catch-all bitrate ceiling</string>
     <string name="settings_trakt_subtitle">Open Trakt connection screen</string>
     <string name="settings_tracking_title">Tracking</string>
     <string name="settings_tracking_subtitle">Manage Trakt and Simkl connections</string>

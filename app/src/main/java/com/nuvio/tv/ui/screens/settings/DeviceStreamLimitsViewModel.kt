@@ -28,4 +28,12 @@ class DeviceStreamLimitsViewModel @Inject constructor(
     fun setCodecCeilingMbps(family: CodecFamily, mbps: Int) {
         viewModelScope.launch { dataStore.setCodecCeilingMbps(family, mbps) }
     }
+
+    fun setOtherEnabled(enabled: Boolean) {
+        viewModelScope.launch { dataStore.setOtherEnabled(enabled) }
+    }
+
+    fun setOtherCeilingMbps(mbps: Int) {
+        viewModelScope.launch { dataStore.setOtherCeilingMbps(mbps) }
+    }
 }
