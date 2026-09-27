@@ -227,6 +227,11 @@ class SearchViewModelPaginationTest {
             watchProgressRepository = watchProgress,
             watchedSeriesStateHolder = watchedSeries,
             posterOptions = mockk<PosterOptionsController>(relaxed = true),
+            // C7 adds these two as required ctor params for the People strip. The fork's own
+            // commits repaired the other two SearchViewModel test files but not this one —
+            // upstream 1.0.0 has a third construction site the fork's C7-era tree did not.
+            tmdbMetadataService = mockk<com.nuvio.tv.core.tmdb.TmdbMetadataService>(relaxed = true),
+            tmdbSettingsDataStore = mockk<com.nuvio.tv.data.local.TmdbSettingsDataStore>(relaxed = true),
             activityEventReporter = mockk(relaxed = true),
             // C8 adds a required `companionPlaybackBridge` to the ctor. A real
             // instance, not a mock: it is a no-arg, pure-Kotlin class of StateFlows
