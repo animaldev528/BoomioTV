@@ -572,7 +572,39 @@ Per cluster, before merging into `boomio`:
    `full`'s flavor-scoped dependencies via `boomioImplementation extendsFrom
    fullImplementation` (`04d567bea`). If a new `fullImplementation`-style dependency is added
    for another flavour, this inheritance is what keeps `boomio` building.
-2. **Unit tests** for what the cluster touches (`:app:testBoomioDebugUnitTest`).
+2. **Unit tests** for what the cluster touches (`:app:testBoomioDebugUnitTest`). The base
+   ships **12 pre-existing failures**, so a red suite is not a regression signal on its own —
+   compare the failed **names**, not the count, against an untouched base extract:
+
+   ```bash
+   grep -h -B1 '<failure' app/build/test-results/testBoomioDebugUnitTest/*.xml \
+     | grep '<testcase' \
+     | sed -E 's/.*<testcase name="([^"]*)" classname="([^"]*)".*/\2 > \1/' | sort -u \
+     > /tmp/fails-<cluster>.txt
+   comm -13 /tmp/fails-base.txt /tmp/fails-<cluster>.txt   # NEW — regressions, explain each
+   comm -23 /tmp/fails-base.txt /tmp/fails-<cluster>.txt   # GONE — also a regression
+   ```
+
+   Both directions must be empty. A changed **count** with an empty name diff is fine — that
+   is just a cluster adding tests. The names are the signal.
+
+   **That comparison is blind in one direction, and batch 2 proved it matters.** It can only
+   flag a failure the *base* does not have, so a failure the **fork already had** reads as NEW
+   even when the port is faithful. C7's `f797c7d94` (issue #12) made `fetchPersonDetail` return
+   null on a null combined-credits body; a pre-existing `TmdbMetadataServiceTest` test stubs
+   that call with `Response.success(null)` as incidental setup and dies at its first
+   `assertNotNull`, before reaching the name fallback it is named for. That commit changes 3
+   files and **no tests**, and `fork/dev` carries both the guard *and* the stale stub — **the
+   fork's own suite is red on this test**, unnoticed because the fork's baseline is not clean
+   either. Tell-tale: `git diff --stat boomio fork/dev -- <test>` reports **0 changes**, yet
+   `fork/dev` fails it. (Contrast batch 1's C2/C13, where the same command reports **N
+   deletions** because the test exists only on `boomio` — those were genuine fork bugs.)
+
+   **So on a NEW failure, check whether `fork/dev` fails it too, before rewriting port code.**
+   If it does, the port is faithful and the fix is a **port-side test repair** (C7's
+   `288462e21`: re-stub with a valid empty body, plus a test for the new contract, which had
+   no coverage at all) — say so explicitly in the PR so a reviewer does not read it as a port
+   defect. If the fork passes it, the port broke it.
 3. **On-device** for UI clusters: `.59` FireStick (armeabi-v7a) and/or `.53` RPi5. `.53`'s
    adb-over-network re-disables after each toggle — re-enable per session.
 4. **Check the protocol tokens** from §4 survived after any cluster touching networking,
