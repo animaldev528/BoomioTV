@@ -410,6 +410,140 @@ will tell.
 14. **C6 depends on a server route, not just on symbols.** `MoreLikeThisRepositoryImpl`
     fetches `{base}/more-like-this/{type}/{metaId}.json?skip=N` from bsf. If bsf does not serve
     that route, the walls render empty and it will look like a client bug.
+15. **C5 → C6, in the *reverse* direction from §5's table** (found while porting C5,
+    2026-09-27). §5 scores `08b8106c3` as `H,HB` and gives C5 no C6 prerequisite, but that
+    commit adds the **consumer** side of `LocalMoreLikeThisNavigator` (import, `.current`
+    lookup, `onMoreLikeThis` param + button in `HomePosterOptionsDialog`), while the
+    **definition** and both `provides` sites come from C6's `2c4af99ec` — which touches
+    `MainActivity.kt` only, and whose `provides` lambdas navigate to C6's `Screen.MoreLikeThis`.
+    On the fork this hides because `2c4af99ec` is simply the older commit. **C5 landed the
+    declaration as a provider-less seam** (`ec60af075`): `.current` is null, so Home's action
+    stays hidden — the fork's own null case. **C6 must port `2c4af99ec`'s two `provides` blocks
+    and the `MoreLikeThis` route to light it up**; nothing further is needed in
+    `MainActivity.kt`. Read §5's "evidence-based dependencies" as *evidence-based, not
+    exhaustive* — it also missed C1 → C5.
+16. **Landmine 7 is too strong: `9f51afb64` is *partially* superseded, not "fully".** (Found
+    while porting C11, 2026-09-27.) `b884beb52` does delete all four picker symbols
+    (`ui/screens/taste/`), so skipping the commit is right about the **UI**. But it *keeps*
+    and *reuses* two other things `9f51afb64` introduced, which the skip therefore dropped:
+    `TastePickSyncService` + `TastePick` (byte-identical between `9f51afb64` and the C11
+    window end, referenced by 10 files) and `ProfileManager.markProfileTasteCompleted`
+    (9 lines, called by `TastePickSyncService:66`). Both had to be restored by hand
+    (`af454cb7b`, `1e2d9dd00`), at the cost of two extra compile rounds. **When a commit is
+    skipped because "X replaces it outright", grep the *callers* of what X keeps, not just
+    the symbols X deletes.**
+17. **`fork/dev`'s `testBoomioDebugUnitTest` does not compile for C11's classes — there is no
+    upstream reference for the fix.** C11 adds required constructor params to
+    `PosterOptionsController` (`likePreferences`, `likeSyncService`, `profileManager`) and
+    `HomeViewModel` (`likePreferences`, `likeSyncService`, `tastePickSyncService`); five
+    upstream test call sites build those objects by name and stopped compiling. The fork
+    never updated them (last touch is `7c3baa16e`, an unrelated upstream merge; no fork commit
+    adds the arguments), so the fork's unit-test task has been compile-broken since
+    `b884beb52` and its CI evidently only builds APKs. **Repaired on the port branch**
+    (`4af6681f4`) with relaxed `mockk`s. Corollary for every remaining cluster: on a class
+    C11 touches, "the same N failures as base" is only evidence *because* the tests were
+    repaired — an unrepaired compile break reports zero new failures while running nothing.
+18. **§7 over-predicts C8's conflicts by a wide margin — and under-predicts one.** (Found while
+    porting C8, 2026-09-27.) §7 calls C8 the "widest conflict set of any cluster" and names
+    six semantic conflicts; **four files actually conflicted** (`Screen.kt`,
+    `PlayerNavigationArgs.kt`, `NuvioNavHost.kt` on `e5a99c944`; `SearchScreen.kt` on
+    `0de0781f1`). `StreamRepositoryImpl.kt`, `PlayerViewModel.kt`,
+    `PlayerRuntimeControllerObservers.kt`, `NuvioApplication.kt` and `SearchViewModel.kt` all
+    applied clean. The predicted `defaultConfig` duplicate-add did not happen either — the
+    three `BOOMIO_*` fields merged onto adjacent lines (`build.gradle.kts:149/150/154`).
+    **The three nav-file conflicts were NOT a C1 → C8 dependency** — see landmine 20, which
+    corrects the first draft of this entry. Their cause is base-vs-source divergence, not a
+    fork-internal dependency §5 could have listed.
+    **Carry-forward for C10 (also corrected):** C8 *adds to* the `streamUrl` builder rather
+    than re-signaturing it, which is why it merged clean where §7 expected a semantic
+    conflict. This entry predicted C10's rewrite of that same builder would be "where the
+    real collision sits". **It was not** — C10's four picks applied with zero conflicts
+    (landmine 20).
+19. **C8's max-resolution cap is inert unless the build sets the property — and it fails
+    silently.** `buildConfigString(resolveProperty(…))` on a missing property yields `""`,
+    not a build error, so a green build proves only that the code compiles. The build box's
+    `local.properties` has **neither `BOOMIO_MAX_RESOLUTION` nor `BOOMIO_BASE_URL`** (landmine
+    13), which means C1's seam *and* C8's cap both do nothing in the artifacts these branches
+    produce. Set both before any on-device acceptance run of a stacked branch, or setup will
+    be misread as breakage. Same trap in CI: an undefined property ships a release with an
+    inert cap and no warning.
+20. **The port's conflicts come from `boomio` and `fork/dev` having diverged — not from
+    cluster-to-cluster dependencies.** (Found while porting C10, 2026-09-27; corrects
+    landmine 18's first draft.) The first draft blamed C8's three nav-file conflicts on "C1
+    puts `profileId` on the player route". **`profileId` on the player route is not in
+    `fork/dev` at all** — `git log fork/dev -S profileId` over `PlayerNavigationArgs.kt`,
+    `Screen.kt` and `NuvioNavHost.kt` returns nothing, and `git show e5a99c944^:…PlayerNavigationArgs.kt`
+    has neither `profileId` nor `resumeFromMs`. It is `8e0c8c6fb` ("fix(sync): prevent
+    cross-profile watch state leaks"), which is reachable from **`boomio`** but from
+    **neither `main` nor `fork/dev`**.
+
+    So the port base is a **third lineage**: `boomio` = 1.0.0 + the fork's own fixes, tracking
+    a much newer upstream `dev` than `fork/dev`'s fork point. Every pick whose touched lines
+    were changed on the `boomio` side since that fork point conflicts, and the resolution is
+    usually "keep upstream's newer code, re-apply the fork's feature hunk" — which is what
+    every resolution in this port has in fact been (C5's `ModernHomeContent.kt` focus
+    relocation, C6's `SIDEBAR_AUTO_COLLAPSE_DELAY_MS`, C11's `getLocalizedContext`).
+
+    **This means §5 is structurally blind to the majority of this port's conflicts.** It is a
+    fork-internal dependency analysis; the conflicting content is not in the fork. Calling
+    those conflicts "dependencies §5 missed" (landmines 15, 16, 18) misattributes the cause
+    and would lead a future porter to keep patching §5 rather than screening the base.
+
+    Scale of the divergence, as commits on `boomio` not on `fork/dev` touching one file:
+
+    | file | boomio-only commits |
+    |---|---|
+    | `ui/navigation/NuvioNavHost.kt` | 127 |
+    | `ui/navigation/Screen.kt` | 61 |
+    | `ui/screens/player/PlayerNavigationArgs.kt` | 17 |
+    | `ui/screens/search/SearchScreen.kt` | 16 |
+
+    **Pre-flight screen before picking a cluster (use for C9/C7):**
+    `git log --oneline boomio --not fork/dev -- <path>` for each file the cluster touches. A
+    non-zero count does not predict a conflict — C10 touched `StreamRepositoryImpl.kt` (a hot
+    file) and applied clean — but a *high* count in the specific region the hunk edits is the
+    best available predictor. The per-commit replay remains the only exact answer.
+
+### Port-fidelity check (use after every cluster)
+
+A cluster's picks applying clean proves `git` matched *context*, not that the feature
+survived. **Compare the added-line sets directly:** if the port carries the fork's commits
+faithfully, the set of lines the fork's cluster added must be a subset of the set the port
+added. With `F` = the cluster's real file list, `P` = the fork commit the port branched from,
+and `T` = the cluster's tip in the fork:
+
+```sh
+# Per-commit, NOT a range: a cluster's commits are often non-contiguous in the fork.
+: > /tmp/fork-added.txt
+for c in <the cluster's fork commits>; do
+  git show $c --format='' -- $F | grep '^+' | grep -v '^+++' \
+    | sed 's/^+//' | sed 's/[[:space:]]*$//' >> /tmp/fork-added.txt
+done
+sort -u -o /tmp/fork-added.txt /tmp/fork-added.txt
+git diff <port-parent>..HEAD -- $F | grep '^+' | grep -v '^+++' \
+  | sed 's/^+//' | sed 's/[[:space:]]*$//' | sort -u > /tmp/ours-added.txt
+comm -23 /tmp/fork-added.txt /tmp/ours-added.txt   # every line here needs an explanation
+```
+
+**Use the per-commit form.** A range (`<first>^..<last>`) is wrong whenever the cluster's
+commits are not contiguous — C7's four are separated by the taste-picker work
+(`9f51afb64`), and a range swept in that commit's whole TMDB API surface, producing 11
+phantom "missing" lines (`@GET("person/popular")`, `popularPeople(`, …) that belong to a
+different cluster entirely. C9's six *are* contiguous, so a range happened to be correct
+there; do not generalize from that.
+
+Run against C9 the corrected form returns **491 fork-added, 491 port-added, 0 missing**.
+C7 returns 426 vs 429 with two lines to explain, and **both are artifacts, not gaps**:
+`focusResults && index == 0 && !peopleVisible -> 0` is the conflict resolution's deliberate
+rewrite, and `preferCrew = false` was *added by `18f60ba72` and removed by `99278865d`
+within the same cluster* — our tree has the fork tip's final positional form
+(`onNavigateToCastDetail(person.tmdbId, person.name, false)`), verified identical.
+
+So three caveats, and this check is a **screen, not a proof**: it cannot see intra-cluster
+churn (a line added then removed reads as missing), it cannot see a rewrite, and the +N
+direction (we added more lines than the fork) is usually resolution comments. Treat every
+`comm` line as "explain this", not as "the port is broken". The proof, when it applies, is
+`git diff fork/dev..HEAD -- <path>` being empty — C9 has five such files out of nine.
 
 ## 9. Verification
 
