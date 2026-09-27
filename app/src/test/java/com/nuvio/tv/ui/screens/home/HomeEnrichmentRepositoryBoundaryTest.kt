@@ -204,7 +204,12 @@ class HomeEnrichmentRepositoryBoundaryTest {
             cwEnrichmentCache = cwEnrichmentCache,
             profileManager = profileManager,
             bsmRatingGate = bsmRatingGate,
-            tvRecommendationManager = mockk(relaxed = true)
+            tvRecommendationManager = mockk(relaxed = true),
+            // C11 additions; see the note in PosterOptionsControllerShowTest. This test
+            // never drives the like-action path, so relaxed mocks suffice.
+            likePreferences = mockk(relaxed = true),
+            likeSyncService = mockk(relaxed = true),
+            tastePickSyncService = mockk(relaxed = true)
         )
         viewModel.startupGracePeriodActive = false
         viewModel.externalMetaPrefetchEnabled = true

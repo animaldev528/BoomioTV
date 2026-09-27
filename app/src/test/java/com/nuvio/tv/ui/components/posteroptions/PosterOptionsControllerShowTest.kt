@@ -26,6 +26,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
+// C11 gave `PosterOptionsController` three constructor params (`likePreferences`,
+// `likeSyncService`, `profileManager`) that this upstream test predates. The fork never
+// updated it — `fork/dev`'s own `testBoomioDebugUnitTest` does not compile either — so
+// there is no upstream reference for the fix. Relaxed mocks are enough: `show()` reads
+// only `profileManager.activeProfile`, and the one `likePreferences.isLikedNow` call sits
+// inside a `runCatching`; the rest of the like surface is reached only from the
+// like-action path these tests do not drive.
 class PosterOptionsControllerShowTest {
 
     @Before
@@ -120,7 +127,10 @@ class PosterOptionsControllerShowTest {
             watchProgressRepository = watchProgressRepository,
             metaRepository = metaRepository,
             watchedSeriesStateHolder = watchedSeriesStateHolder,
-            tmdbService = tmdbService
+            tmdbService = tmdbService,
+            likePreferences = mockk(relaxed = true),
+            likeSyncService = mockk(relaxed = true),
+            profileManager = mockk(relaxed = true)
         )
         controller.bind(backgroundScope)
 
@@ -162,7 +172,10 @@ class PosterOptionsControllerShowTest {
             watchProgressRepository = watchProgressRepository,
             metaRepository = metaRepository,
             watchedSeriesStateHolder = watchedSeriesStateHolder,
-            tmdbService = tmdbService
+            tmdbService = tmdbService,
+            likePreferences = mockk(relaxed = true),
+            likeSyncService = mockk(relaxed = true),
+            profileManager = mockk(relaxed = true)
         )
         controller.bind(backgroundScope)
 
@@ -196,7 +209,10 @@ class PosterOptionsControllerShowTest {
             watchProgressRepository = watchProgressRepository,
             metaRepository = metaRepository,
             watchedSeriesStateHolder = watchedSeriesStateHolder,
-            tmdbService = tmdbService
+            tmdbService = tmdbService,
+            likePreferences = mockk(relaxed = true),
+            likeSyncService = mockk(relaxed = true),
+            profileManager = mockk(relaxed = true)
         )
     }
 

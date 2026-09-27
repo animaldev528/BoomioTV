@@ -469,7 +469,12 @@ class HomeEnrichmentRetryTest {
             cwEnrichmentCache = cwEnrichmentCache,
             profileManager = profileManager,
             bsmRatingGate = bsmRatingGate,
-            tvRecommendationManager = mockk(relaxed = true)
+            tvRecommendationManager = mockk(relaxed = true),
+            // C11 additions; see the note in PosterOptionsControllerShowTest. This test
+            // never drives the like-action path, so relaxed mocks suffice.
+            likePreferences = mockk(relaxed = true),
+            likeSyncService = mockk(relaxed = true),
+            tastePickSyncService = mockk(relaxed = true)
         )
         // The pipeline defers everything while the startup grace period is active, and TMDB is
         // switched off so the external addon is the only enrichment source under test.
