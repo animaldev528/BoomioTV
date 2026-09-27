@@ -221,7 +221,140 @@ c0cd1f8da | rows in place + curated hubs #19 | 12f +362/-98  n0/m12      | H,N,a
 c864081f1 | identity-only rebrand            |100f+1243/-1227 n0/m100     | res,docs,srv | M 14  **SUPERSEDED-BY-FLAVOR**
 ```
 
-## 7. Landmines
+## 7. Per-cluster execution recipes
+
+Derived from the cluster diffs. **No cluster adds a Gradle dependency at all** (checked every
+cluster diff for `*.gradle.kts` / `libs.versions.toml`) — so no dependency risk, and the
+`boomioImplementation extendsFrom fullImplementation` fix stays sufficient. Two prerequisites
+recur and both fail *silently*: see landmines 13–14.
+
+**Forced order** (from the dependencies, not preference):
+`C2 → C3 → C4 → C13` (independent) → `C1` (supplies `BOOMIO_BASE_URL`/`BSM_BASE_URL`) →
+`C5` → `C6` (reuses C5's `MainActivity`/`NuvioNavHost`/`Screen`) → `C11` (edits C5's
+`Screen.CategoryRows` call sites) → `C8` → `C10` (edits C8's `streamUrl` builder) → `C9` →
+`C7` **last** (its `SearchViewModel`/`SearchScreen` hunks must resolve against C1's and C8's
+versions).
+
+---
+
+**C1 — seam, rating gate, telemetry.** Pick `dbaa67af7 7088246d1 c18a7ec53 c269cd8ec
+287168643` (+ `f86b60a2c` only if unit tests are in the gate). No skips.
+Conflicts (14): `app/build.gradle.kts` (trivial — upstream only bumps version);
+`core/di/NetworkModule.kt` (**semantic** — upstream rewrote the first-party cache dir and TLS
+validation; C1 adds a `@Named("bsm")` Retrofit to the same Hilt module);
+`core/player/ExternalPlaybackTracker.kt` (36 upstream, **semantic**);
+`MetaDetailsViewModel.kt` (136 upstream, **semantic**);
+`PlayerRuntimeController*.kt` + `PlayerViewModel.kt` (heavy, **semantic**);
+`SearchViewModel.kt` (ctor param, **semantic**); `StreamScreenViewModel.kt` (121 upstream,
+**semantic** — C1 adds a ctor param *and* rewrites the `mergedAddonStreams` block upstream
+also rewrote). **Prereq:** introduces `BSM_BASE_URL` + `BOOMIO_BASE_URL`.
+**Accept:** a profile with a BSM ceiling loses gated titles from the modern home carousel and
+CatalogSeeAll; `adb logcat | grep -i bsm` shows `GET /api/nuvio/profile-ratings`.
+
+**C2 — addon-manifest cache hardening.** Pick `a1fd256f8 d4b234c0e 5e7b7a699`; **skip
+`3ae3acdc9`** (superseded by `5e7b7a699`, which rewrites the same line).
+**Port only `AddonRepositoryImpl` — drop C2's two hunks on `StreamRepository.kt` /
+`StreamRepositoryImpl.kt`: upstream's `78bc4635c` already fixed that same problem, with a
+better shape** (`getStreamsFromAddon(addon: Addon, …)` reading `addon.displayName`/`logo`,
+versus C2's `addonName: String, addonLogo: String?`). Keep upstream's form.
+Conflicts: `AddonRepositoryImpl.kt` (5 upstream, **semantic** — same cache/revision machinery).
+**Accept:** cold start shows **one** `GET …/manifest.json` per addon, no `429`, and the
+stream log still prints the right addon display name.
+
+**C3 — player HUD URL + TTFB.** Pick `e0ac3c9ae`. No skips.
+Conflicts: `PlayerRuntimeControllerPlaybackEvents.kt` (131 upstream, **semantic**);
+`PlayerUiState.kt`, `StreamInfoOverlay.kt`, `strings.xml` (textual).
+**Accept:** play anything, open the stream-info overlay — URL and a TTFB row render.
+
+**C4 — daily-show ordering.** Pick `7e3a99aee 6c0269353`. No skips.
+Conflicts: `MetaDetailsViewModel.kt` (136 upstream, **semantic**);
+`MetaDetailsUiState.kt` (default-settings line); `EpisodesSection.kt`/`MetaDetailsScreen.kt`
+(textual). **Verify functional redundancy with 1.0.0 before porting** (open question 2).
+**Accept:** a daily show's detail lists seasons descending with season 0 last and auto-selects
+the newest episode, not S01E01.
+
+**C5 — hubs + Anime rail + long-press.** Pick **all ten, in order**: `7c6e2d1d6 cddfcc8bb
+b51e0611b 5246aecc8 04ee7e933 4265c6f57 7221b6598 a8f58a463 7bd1e9e76 08b8106c3`.
+**This is not a net take.** `cddfcc8bb` deletes the `hub/HubModels.kt`,
+`hub/HubScreen.kt` and `hub/HubViewModel.kt` files that `7c6e2d1d6` creates *and* rewrites the
+same `NuvioNavHost` block, so it will not apply without its predecessor.
+Conflicts: `MainActivity.kt` (**188 upstream commits**), `NuvioNavHost.kt` (108), `Screen.kt`
+(51) — **semantic, and not settleable by reading**; home files moderate (12–84 changed lines).
+**Accept:** left rail shows Movies/TV/Anime; hub opens with the genre ribbon; D-pad CENTER on
+a drill tile opens `CategoryRows`; long-press on a poster opens the shared options dialog.
+
+**C6 — kids walls.** Pick all five. **After C5**; resolve `MainActivity`/`NuvioNavHost`/
+`Screen` in C5's favour. Conflicts: those same three files + `strings.xml`.
+**Prereq:** `KIDS_PROFILE_IDS = setOf(3)` is hard-coded — Leo must sit at Nuvio
+`profile_index == 3`.
+**Content dependency:** `MoreLikeThisRepositoryImpl` calls
+`{base}/more-like-this/{type}/{metaId}.json?skip=N` — a **bsf endpoint**. Confirm it is served
+before expecting the walls to populate.
+**Accept:** sign in as Leo — lands on the Library wall, not Home; long-press → More-like-this
+opens a wall.
+
+**C7 — People strip + cast fixes.** Pick `18f60ba72 99278865d 0bf971b78 f797c7d94`.
+**Port last** (see the order above). Conflicts: `NuvioNavHost.kt` (108, **semantic**);
+`SearchScreen.kt` (15); `SearchViewModel.kt` — also touched by C1, so a cross-cluster
+conflict if C1 lands first; `TmdbMetadataService.kt`/`CastDetailScreen.kt` (textual).
+**Accept:** blank search query renders a People strip; selecting a person opens CastDetail; a
+failed filmography fetch shows an error state, not an empty list (issue #12).
+
+**C8 — companion + watch party + max-resolution cap.** Pick all six in order.
+**Depends on C1** for `BuildConfig.BOOMIO_BASE_URL` — and **both clusters insert
+`BOOMIO_BASE_URL` into the same `defaultConfig` region**, so expect a duplicate-add conflict.
+**Widest conflict set of any cluster:** the three nav files, `PlayerNavigationArgs.kt` (16
+upstream, **semantic**), `PlayerRuntimeControllerObservers.kt` (101, **semantic**),
+`PlayerViewModel.kt` (115), `SearchScreen.kt`/`SearchViewModel.kt`,
+`StreamRepositoryImpl.kt` (33, **semantic** — C8 rewrites the `streamUrl` builder upstream
+re-signatured), `NuvioApplication.kt` (textual).
+**Prereq:** introduces `BOOMIO_COMPANION_URL` + `BOOMIO_MAX_RESOLUTION`.
+**Accept:** phone pairs over `/ws`; starting a party from the phone shows the party indicator
+on the TV; the bsf access log shows `max_resolution=…`.
+
+**C9 — private-listening tee.** Pick `3beb24870 781f96e6f 47ac77de4 7e872a84e 6d86a2509
+244f60956`; **skip `76c6caec0`**. Needs C8 (Slice B *is* the companion protocol).
+Conflicts: `PlayerRuntimeControllerInitialization.kt` (15, **semantic**),
+`PlayerRuntimeController.kt` (128, heavy context), `PlayerRuntimeControllerLifecycle.kt` (2),
+`PlayerViewModel.kt` (115). `PlaybackSpeedAwareAudioSink.kt` is clean and already exists at
+1.0.0. **Accept:** TV plays 5.1/7.1, phone gets **6-channel** output (not 2.0), TV speakers
+stay muted.
+
+**C10 — device-caps probe/reporter + link meter.** Pick `7015ec651 ba00e8a64 0596d1f3a
+fb7550ede`. No skips (`ba00e8a64` is required — `mapNotNull` on `IntArray` doesn't compile).
+**Depends on C8**: its diff rewrites C8's `maxResolution=` to `max_resolution=` and adds
+`mobileCapMbps=`, so the hunk has nothing to patch without C8.
+Reads `BOOMIO_MAX_RESOLUTION`/`BOOMIO_COMPANION_URL` (C8) and
+`BOOMIO_BASE_URL`/`BSM_BASE_URL` (C1). Adds a `NetworkMeter` ctor param to
+`StreamRepositoryImpl`, so the Hilt wiring needs updating by hand.
+Conflicts: `StreamRepositoryImpl.kt` (33, **semantic**, same builder as C8),
+`NuvioApplication.kt` (textual), `StreamRepositoryPluginIsolationTest.kt`.
+**Accept:** bsm's Devices panel gains a row with network Mbps and max_resolution; the bsf log
+shows `max_resolution=…&mobileMbps=…` on the stream path.
+
+**C11 — like-bootstrap, net end state.** Pick `b884beb52 0d2e62b09 93ab868ad c0cd1f8da`;
+**skip `9f51afb64`**. **After C5** — `c0cd1f8da` edits the `Screen.CategoryRows` route call
+sites C5 introduced.
+Conflicts (13): the three nav files (**semantic**); `core/sync/StartupSyncService.kt` (58,
+**semantic**); `data/local/ProfileDataStore.kt` and `SupabaseModels.kt` (same lines as
+upstream); home files + `strings.xml`.
+**Accept:** on Jack's profile, long-press a poster → Like → Done refreshes rows in place; a
+non-curated title's More-like-this answers from TMDB instead of an empty wall (#18).
+
+**C13 — misc.** Pick `bf514eadd e529f96cd 4fc496e82`. Conflicts: `MetaRepositoryImpl.kt` —
+overlapping lines but purely textual (unrelated concerns; no renamed symbol).
+Note `CLAUDE.md` is new to this repo, so it conflicts on any future upstream merge that adds
+one. **Accept:** a title no addon has, requested with and without `sourceAddonBaseUrl`, must
+not return `SourceSufficient` from the source-aware in-flight `Deferred`.
+
+**Two things this analysis could not settle** — they need a trial cherry-pick, not more
+reading: (1) whether upstream's churn in `MainActivity.kt` / `NuvioNavHost.kt` / `Screen.kt`
+(188/108/51 commits) is *semantically* incompatible with C5/C6/C8/C11 or merely textual;
+(2) whether C5's `HubBrowseViewModel`/`CategoryRowsScreen` reference `HomeViewModel` members
+that upstream renamed — the hub screens take a `homeViewModel` parameter, so only applying it
+will tell.
+
+## 8. Landmines
 
 1. **`NuvioApplication` rename — skip it.** `c864081f1` renames it to `BoomioApplication`;
    `boomio` keeps `NuvioApplication`. Skipping is safe: the only fork-commit reference is a
@@ -235,9 +368,17 @@ c864081f1 | identity-only rebrand            |100f+1243/-1227 n0/m100     | res,
 4. **`applicationId` shape conflict.** `c864081f1` hardcodes `com.boomio.tv` in
    `defaultConfig`; boomio keeps `com.nuvio.tv` default + flavor override. Do not take its
    `app/build.gradle.kts`.
-5. **Compile-fix-only commits — meaningless standalone:** `c269cd8ec` (C1), `3ae3acdc9` +
-   `5e7b7a699` (C2), `b51e0611b` + `04ee7e933` (C5), `99278865d` (C7), `ba00e8a64` (C10),
-   `f86b60a2c` (test-only, C1). Port their parents, or the fix is a no-op / won't apply.
+5. **"Compile-fix-only" is two categories, and only one is skippable.** This is easy to get
+   wrong in both directions:
+   - **Must KEEP whenever you port their parent** — each patches a compile error its
+     in-cluster predecessor introduces, so skipping one leaves the branch uncompilable:
+     `c269cd8ec` (fixes `7088246d1`), `5e7b7a699` (fixes `d4b234c0e`), `ba00e8a64` (fixes
+     `7015ec651`), `b51e0611b` (fixes `cddfcc8bb`), `04ee7e933` (fixes `5246aecc8`),
+     `99278865d` (fixes `18f60ba72`). `f86b60a2c` is test-compile only, so it is skippable
+     *iff* unit tests are outside the gate.
+   - **Genuinely skippable, because an in-cluster successor supersedes them outright:**
+     `3ae3acdc9` (rewritten by `5e7b7a699`), `9f51afb64` (replaced by `b884beb52`),
+     `76c6caec0` (replaced by `244f60956`).
 6. **`76c6caec0` vs `244f60956` contradict.** The former adds a per-frame peak limiter to
    the TV-side stereo downmix; the latter (−134 lines) removes the downmix entirely for pure
    5.1/7.1 passthrough, making the limiter dead code. **Take the net** (`244f60956`).
@@ -258,8 +399,19 @@ c864081f1 | identity-only rebrand            |100f+1243/-1227 n0/m100     | res,
     don't exist in the net state. Port per-commit, or take the net diff of the cluster end
     state.
 12. **The risk numbers are a lower bound** (shallow clone — see §6).
+13. **Build-time properties fail silently.** `resolveProperty(...)` falls back to `""`, so a
+    missing `local.properties` key does **not** fail the build — it inerts the feature. The
+    build box's `/opt/nuvio-tv/local.properties` has `BSM_BASE_URL` and `BOOMIO_COMPANION_URL`
+    but is **missing `BOOMIO_BASE_URL` and `BOOMIO_MAX_RESOLUTION`**, so C1's seam and C8's
+    resolution cap would build green and do nothing — exactly the kind of failure that reads
+    as "the ceilings aren't working". Add both before verifying C1 or C8. Same trap in CI: the
+    `LOCAL_PROPERTIES_BASE64` secret carries keys only, so a *new* non-install-time value has
+    to be added there too.
+14. **C6 depends on a server route, not just on symbols.** `MoreLikeThisRepositoryImpl`
+    fetches `{base}/more-like-this/{type}/{metaId}.json?skip=N` from bsf. If bsf does not serve
+    that route, the walls render empty and it will look like a client bug.
 
-## 8. Verification
+## 9. Verification
 
 Per cluster, before merging into `boomio`:
 
@@ -282,7 +434,7 @@ C1 deserves extra care: its correctness isn't visible in the UI, so verify the r
 makes to bsf actually carries its query params (log them on the bsf side, or watch bsf's
 container logs).
 
-## 9. Working agreement
+## 10. Working agreement
 
 - One cluster per topic branch (`port/<cluster>`), merged or PR'd into `boomio`.
 - Never merge `boomio` back into `dev`, and never port from `dev` wholesale — the point of
@@ -291,19 +443,27 @@ container logs).
   survives.
 - If a cluster turns out functionally redundant with 1.0.0, drop it and record why here.
 
-## 10. Open questions for the owner
+## 11. Open questions for the owner
 
 1. `BoomioApplication` rename — port it (accepting that it rebrands the Nuvio flavor's
-   internals), skip it (recommended), or restructure `main` so the class can be
-   flavor-split?
+   internals), skip it (recommended), or restructure `main` so the class can be flavor-split?
 2. **C4 (daily-show ordering):** is it functionally redundant with 1.0.0? Needs a manual
-   behavioural check before porting — `git cherry` can't see it.
-3. ~~**C11:** port the whole history (churn) or only the net end state (long-press Like)?~~
-   **Resolved 2026-09-27:** net end state — skip `9f51afb64`, port `b884beb52`'s long-press
-   Like and its follow-ups.
-5. **C5:** `cddfcc8bb` deletes `HB/{HubModels,HubScreen,HubViewModel}.kt` that `7c6e2d1d6`
-   created, so the cluster must be taken as a net too — does anything *between* those two
-   commits in `fork/dev` depend on the deleted files (i.e. must an intermediate commit be
-   ported for the tree to compile)?
-4. Which `BOOMIO_*` build-time values belong in `local.properties` versus being entered at
-   install time? Documented only in code today.
+   behavioural check before porting — `git cherry` cannot see a differently-implemented fix.
+3. **Which `BOOMIO_*` / `BSM_*` values belong in `local.properties` versus being entered at
+   install time?** §7 lists exactly which each cluster reads, but the policy is written down
+   nowhere. Today `BSM_BASE_URL` and `BOOMIO_COMPANION_URL` are set on the build box and
+   `BOOMIO_BASE_URL` / `BOOMIO_MAX_RESOLUTION` are not — and landmine 13 makes that a silent
+   failure rather than a build error.
+
+Settled since the first draft:
+
+- **C11** → net end state; skip `9f51afb64` (owner decision 2026-09-27).
+- **C9** → take the net; `244f60956` supersedes `76c6caec0`.
+- **C5** → **not** a net take. `cddfcc8bb` cannot apply without `7c6e2d1d6`, so the whole
+  ordered ten-commit list is required (see §7).
+- **C2** → partially redundant. Upstream's `78bc4635c` already fixed the stream-path manifest
+  cache with a better shape, so port only `AddonRepositoryImpl` and keep upstream's
+  `getStreamsFromAddon(addon, …)`.
+- **The Nuvio-proper items** → nothing is incompatible with Boomio; see §4.
+- **"Compile-fix-only" commits** → only the three superseded ones are skippable; the rest must
+  be kept alongside their parent (landmine 5).
