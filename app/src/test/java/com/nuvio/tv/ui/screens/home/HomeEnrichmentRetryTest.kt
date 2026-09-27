@@ -440,6 +440,12 @@ class HomeEnrichmentRetryTest {
             mockk<com.nuvio.tv.domain.repository.WatchProgressRepository>(relaxed = true) {
                 every { getAllEpisodeProgress(any()) } returns flowOf(emptyMap())
             }
+        // The rating gate feeds the modern-home combine, so a relaxed mock is not
+        // enough: activeCeiling must actually emit or the pipeline never produces.
+        // A null ceiling means "no ceiling", so the gate fails open as in production.
+        val bsmRatingGate = mockk<com.nuvio.tv.core.profile.BsmRatingGate>(relaxed = true) {
+            every { activeCeiling } returns MutableStateFlow<String?>(null)
+        }
         val viewModel = HomeViewModel(
             appContext = mockk(relaxed = true),
             addonRepository = mockk(relaxed = true),
@@ -462,6 +468,7 @@ class HomeEnrichmentRetryTest {
             watchedSeriesStateHolder = mockk(relaxed = true),
             cwEnrichmentCache = cwEnrichmentCache,
             profileManager = profileManager,
+            bsmRatingGate = bsmRatingGate,
             tvRecommendationManager = mockk(relaxed = true)
         )
         // The pipeline defers everything while the startup grace period is active, and TMDB is
