@@ -61,6 +61,8 @@ jobs:
       BOOMIO_RELEASE_STORE_PASSWORD: ${{ secrets.BOOMIO_RELEASE_STORE_PASSWORD }}
       LOCAL_PROPERTIES_BASE64: ${{ secrets.LOCAL_PROPERTIES_BASE64 }}
       LOCAL_DEV_PROPERTIES_BASE64: ${{ secrets.LOCAL_DEV_PROPERTIES_BASE64 }}
+      # Dispatch inputs are interpolated into shell only through the environment.
+      UPSTREAM_REF_INPUT: ${{ github.event.inputs.upstream_ref }}
       # A scheduled run is the "ship it" path, so it publishes. A manual run defaults
       # to dry-run and has to opt in.
       MODE: ${{ github.event.inputs.mode || 'publish' }}
@@ -77,7 +79,7 @@ jobs:
       - name: Resolve the upstream ref
         id: upstream
         run: |
-          ref="${{ github.event.inputs.upstream_ref }}"
+          ref="${UPSTREAM_REF_INPUT}"
           if [[ -z "${ref}" ]]; then
             # /releases/latest excludes pre-releases, which is exactly "latest stable".
             ref="$(gh api "repos/${UPSTREAM_REPO}/releases/latest" --jq .tag_name)"
@@ -91,13 +93,18 @@ jobs:
 
       - name: Skip if this version is already released
         id: guard
+        env:
+          # Never interpolate the upstream ref into a `run:` block: it is a tag name
+          # owned by a third party, and this job holds contents:write plus the release
+          # keystore. Pass it through the environment and quote it.
+          REF: ${{ steps.upstream.outputs.ref }}
         run: |
           if [[ "${FORCE}" == "true" || "${MODE}" != "publish" ]]; then
             echo "proceed=true" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
-          if gh release view "${{ steps.upstream.outputs.ref }}" >/dev/null 2>&1; then
-            echo "Release ${{ steps.upstream.outputs.ref }} already exists; nothing to do."
+          if gh release view "${REF}" >/dev/null 2>&1; then
+            echo "Release ${REF} already exists; nothing to do."
             echo "proceed=false" >> "${GITHUB_OUTPUT}"
           else
             echo "proceed=true" >> "${GITHUB_OUTPUT}"
@@ -106,15 +113,17 @@ jobs:
       - name: Merge upstream into the Boomio branch
         id: merge
         if: steps.guard.outputs.proceed == 'true'
+        env:
+          REF: ${{ steps.upstream.outputs.ref }}
         run: |
           set -euo pipefail
           git config user.name  "boomio-bot"
           git config user.email "boomio-bot@users.noreply.github.com"
           git remote add upstream "https://github.com/${UPSTREAM_REPO}.git" 2>/dev/null || true
-          git fetch --no-tags upstream "${{ steps.upstream.outputs.ref }}"
+          git fetch --no-tags upstream "${REF}"
 
           if git merge-base --is-ancestor FETCH_HEAD HEAD; then
-            echo "Upstream ${{ steps.upstream.outputs.ref }} is already merged; building as-is."
+            echo "Upstream ${REF} is already merged; building as-is."
             echo "conflict=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
@@ -134,10 +143,13 @@ jobs:
 
       - name: Report a merge conflict
         if: steps.guard.outputs.proceed == 'true' && steps.merge.outputs.conflict == 'true'
+        env:
+          REF: ${{ steps.upstream.outputs.ref }}
+          CONFLICT_FILES: ${{ steps.merge.outputs.files }}
         run: |
           set -euo pipefail
-          title="Upstream ${{ steps.upstream.outputs.ref }} needs a manual merge"
-          body="$(printf 'Merging upstream `%s` into `%s` conflicted, so no build was attempted.\n\nConflicting files:\n\n```\n%s\n```\n\nResolve on the branch, then re-run this workflow.\n' "${{ steps.upstream.outputs.ref }}" "${BOOMIO_BRANCH}" "${{ steps.merge.outputs.files }}")"
+          title="Upstream ${REF} needs a manual merge"
+          body="$(printf 'Merging upstream `%s` into `%s` conflicted, so no build was attempted.\n\nConflicting files:\n\n```\n%s\n```\n\nResolve on the branch, then re-run this workflow.\n' "${REF}" "${BOOMIO_BRANCH}" "${CONFLICT_FILES}")"
           gh label create upstream-sync --color BFD4F2 --description "Upstream sync needs a human" --force
           existing="$(gh issue list --label upstream-sync --state open --json number --jq '.[0].number // empty')"
           if [[ -n "${existing}" ]]; then
@@ -178,6 +190,11 @@ jobs:
           for name in BOOMIO_RELEASE_KEY_ALIAS BOOMIO_RELEASE_KEY_PASSWORD BOOMIO_RELEASE_STORE_PASSWORD; do
             [[ -n "${!name}" ]] || missing+=("${name}")
           done
+          # A publish run must not ship an APK built without its build-time config
+          # (the Trakt/TMDB ids come from here). Dry runs may proceed without it.
+          if [[ -z "${LOCAL_PROPERTIES_BASE64}" && "${MODE}" == "publish" ]]; then
+            missing+=("LOCAL_PROPERTIES_BASE64")
+          fi
           if (( ${#missing[@]} > 0 )); then
             printf 'Missing required release secrets: %s\n' "${missing[*]}" >&2
             exit 1
@@ -222,6 +239,8 @@ jobs:
 
       - name: Publish the fork release
         if: steps.guard.outputs.proceed == 'true' && steps.merge.outputs.conflict == 'false' && env.MODE == 'publish'
+        env:
+          REF: ${{ steps.upstream.outputs.ref }}
         run: |
           set -euo pipefail
           mapfile -t apks < <(find app/build/outputs/apk/boomio/release -maxdepth 1 -type f -name '*.apk' -print | sort)
@@ -230,16 +249,24 @@ jobs:
             exit 1
           fi
 
+          # A forced run reaches here with the release already created, so re-upload
+          # instead of letting `gh release create` fail with a 422 after a full build.
+          if gh release view "${REF}" >/dev/null 2>&1; then
+            gh release upload "${REF}" --clobber "${apks[@]}"
+            echo "Re-uploaded the APKs to the existing release ${REF}."
+            exit 0
+          fi
+
           {
-            echo "Boomio build of upstream [\`${{ steps.upstream.outputs.ref }}\`](https://github.com/${UPSTREAM_REPO}/releases/tag/${{ steps.upstream.outputs.ref }})."
+            echo "Boomio build of upstream [\`${REF}\`](https://github.com/${UPSTREAM_REPO}/releases/tag/${REF})."
             echo
             echo "Application id \`com.boomio.tv\`, signed with the Boomio release key, so it installs alongside the official Nuvio app."
             echo
             echo "Built from \`${BOOMIO_BRANCH}\` at \`$(git rev-parse --short HEAD)\`."
           } > boomio-notes.md
 
-          gh release create "${{ steps.upstream.outputs.ref }}" \
+          gh release create "${REF}" \
             --target "$(git rev-parse HEAD)" \
-            --title "Boomio ${{ steps.upstream.outputs.ref }}" \
+            --title "Boomio ${REF}" \
             --notes-file boomio-notes.md \
             "${apks[@]}"
