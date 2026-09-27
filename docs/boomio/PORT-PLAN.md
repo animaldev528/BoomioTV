@@ -484,10 +484,24 @@ will tell.
     every resolution in this port has in fact been (C5's `ModernHomeContent.kt` focus
     relocation, C6's `SIDEBAR_AUTO_COLLAPSE_DELAY_MS`, C11's `getLocalizedContext`).
 
-    **This means §5 is structurally blind to the majority of this port's conflicts.** It is a
-    fork-internal dependency analysis; the conflicting content is not in the fork. Calling
-    those conflicts "dependencies §5 missed" (landmines 15, 16, 18) misattributes the cause
-    and would lead a future porter to keep patching §5 rather than screening the base.
+    **This means §5 is structurally blind to a whole class of this port's conflicts.** It is a
+    fork-internal dependency analysis; in these cases the conflicting content is not in the
+    fork, so no amount of patching §5 would surface it. Screen the base instead.
+
+    **Scope this to 18 — do not over-apply it.** Landmines **15 and 16 are genuine §5 gaps**,
+    not instances of this: C5's `08b8106c3` consuming C6's `2c4af99ec`, and landmine 7 being
+    too strong, are both dependencies *between fork clusters*, and §5 — being exactly that
+    kind of analysis — could have caught them. It missed them; it is not blind to them. The
+    distinction is whether the conflicting content exists in the fork at all:
+
+    | | who owns the conflicting content | is §5 the right tool? |
+    |---|---|---|
+    | 15, 16 | fork vs fork | **yes** — §5 was incomplete |
+    | 18 (nav files) | `boomio` vs `fork/dev` | **no** — §5 cannot see it |
+
+    Getting this backwards in either direction costs something: patching §5 for base
+    divergence wastes effort, while dismissing a real fork-internal gap as "just divergence"
+    loses the dependency the next porter needs.
 
     Scale of the divergence, as commits on `boomio` not on `fork/dev` touching one file:
 
