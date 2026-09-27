@@ -342,7 +342,13 @@ class AddonRepositoryImpl(
         val existing = inFlightManifestFetches[key]
         if (existing != null) return existing.await()
 
-        val deferred = syncScope.async(Dispatchers.IO, CoroutineStart.LAZY) {
+        // Inherit syncScope's dispatcher instead of hardcoding Dispatchers.IO. Production is
+        // unchanged - the constructor's dispatcher already defaults to IO and syncScope is built
+        // from it - but hardcoding it here escaped the injected dispatcher, so a caller driving
+        // the repository on a test dispatcher still raced a real IO thread. That made the fetch
+        // land after the caller's next statement, which AddonManifestPlaceholderTest observes
+        // when it samples the manifest call count straight after a mutation.
+        val deferred = syncScope.async(start = CoroutineStart.LAZY) {
             doFetchAddon(cleanBaseUrl)
         }
         val previous = inFlightManifestFetches.putIfAbsent(key, deferred)
