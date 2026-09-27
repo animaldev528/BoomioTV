@@ -27,7 +27,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
@@ -93,7 +92,6 @@ class AddonRepositoryImpl(
         // conditional GETs to the same manifest URL (cache-miss round + combine
         // re-runs on every cache-revision bump), which trips per-IP rate limiters
         // (aiot 429s after 5 req/5s) and drops the addon from the installed list.
-        private const val MANIFEST_COMBINE_DEBOUNCE_MS = 300L
         private const val MANIFEST_FETCH_MAX_ATTEMPTS = 3
         private const val MANIFEST_FETCH_BACKOFF_BASE_MS = 300L
         private const val DELAYED_RETRY_DELAY_MS = 20_000L
@@ -250,11 +248,13 @@ class AddonRepositoryImpl(
             preferences.addonEnabledStates,
             manifestCacheRevision
         ) { urls, names, enabledStates, _ -> Triple(urls, names, enabledStates) }
-        // Every successful manifest cache write bumps manifestCacheRevision, which
-        // re-fires this combine; a burst of parallel fetches therefore cascades into
-        // a storm of flatMapLatest re-runs that cancel each other's in-flight fetch
-        // round and fire it again. Debounce collapses the burst into one re-run.
-        .debounce(MANIFEST_COMBINE_DEBOUNCE_MS)
+        // Every successful manifest cache write bumps manifestCacheRevision, which re-fires
+        // this combine into a fresh flatMapLatest round. That is not a duplicate-request
+        // storm: each round's fetchAddon joins the single-flight Deferred above, so a URL is
+        // still hit once per in-flight window. A debounce here would coalesce the rounds too,
+        // but it makes recomputation time-dependent, and upstream's
+        // AddonManifestPlaceholderTest pins it as deterministic under an injected dispatcher
+        // and clock ("an all-failed sweep does not re-arm on the next recomputation").
         .flatMapLatest { (urls, userNames, enabledStates) ->
             flow {
                 if (urls.isEmpty()) {
