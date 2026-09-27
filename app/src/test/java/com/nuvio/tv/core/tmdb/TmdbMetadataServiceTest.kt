@@ -784,7 +784,13 @@ class TmdbMetadataServiceTest {
                 biography = "Atsuko Tanaka was a Japanese voice actress."
             )
         )
-        coEvery { api.getPersonCombinedCredits(500, any(), "tr-TR") } returns Response.success(null)
+        // An empty *body*, not a null one. This test is about the name/biography locale
+        // fallback; the credits stub is incidental setup. A null body now means the
+        // request failed and makes fetchPersonDetail return null (see the test below),
+        // which would abort this one before it reached its subject.
+        coEvery { api.getPersonCombinedCredits(500, any(), "tr-TR") } returns Response.success(
+            TmdbPersonCreditsResponse(cast = emptyList(), crew = emptyList())
+        )
 
         val service = TmdbMetadataService(api)
         val detail = service.fetchPersonDetail(personId = 500, language = "tr-TR")
@@ -792,6 +798,22 @@ class TmdbMetadataServiceTest {
         assertNotNull(detail)
         assertEquals("Atsuko Tanaka", detail?.name)
         assertEquals("Atsuko Tanaka was a Japanese voice actress.", detail?.biography)
+    }
+
+    @Test
+    fun `fetchPersonDetail fails when the combined credits request returns no body`() = runTest {
+        val api = mockk<TmdbApi>()
+        coEvery { api.getPersonDetails(500, any(), "en") } returns Response.success(
+            TmdbPersonResponse(id = 500, name = "Atsuko Tanaka", originalName = "田中敦子")
+        )
+        // A 200 always carries cast/crew arrays, so a null body is a failed request, not an
+        // empty filmography. Coercing it to empty is what made "things they're in" silently
+        // show nothing (#12); returning null lets the screen show its error+retry state.
+        coEvery { api.getPersonCombinedCredits(500, any(), "en") } returns Response.success(null)
+
+        val service = TmdbMetadataService(api)
+
+        assertNull(service.fetchPersonDetail(personId = 500, language = "en"))
     }
 
     @Test
