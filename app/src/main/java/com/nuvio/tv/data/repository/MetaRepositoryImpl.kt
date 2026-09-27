@@ -447,7 +447,11 @@ class MetaRepositoryImpl @Inject constructor(
                             allMissing
                     )
                 } finally {
-                    inFlightAddonMeta.remove(cacheKey)
+                    // Must be the same key getOrPut used. Removing by cacheKey left the
+                    // entry behind, so the next lookup awaited this already-completed
+                    // Deferred: a failed lookup could never be retried, and a retry that
+                    // should have cached its result never wrote it.
+                    inFlightAddonMeta.remove(inFlightKey)
                 }
             }
         }
