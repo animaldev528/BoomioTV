@@ -538,14 +538,12 @@ private fun buildHomeDrillTarget(row: CatalogRow, tiles: List<MetaPreview>): Dri
     )
 }
 
-private fun getLocalizedContext(context: Context): Context {
-    val tag = LocaleCache.localeTag.takeIf { it != LocaleCache.UNSET && it.isNotEmpty() }
-        ?: return context
-    val locale = Locale.forLanguageTag(tag)
-    val config = Configuration(context.resources.configuration)
-    config.setLocale(locale)
-    return context.createConfigurationContext(config)
-}
+// A private `getLocalizedContext` helper sits here on fork/dev, but it is dead code on
+// this branch: upstream 1.0.0 replaced that mechanism with `Context.withAppLocale()`,
+// which `buildModernHomePresentation` calls at the top. The fork's copy only survives on
+// fork/dev because its lineage predates that change — its one call site there is where
+// this branch now calls `withAppLocale`. Re-adding it would mean importing
+// `java.util.Locale`/`android.content.res.Configuration` for an uncalled function.
 
 private fun Collection.hasVisibleFolders(): Boolean {
     return folders.isNotEmpty()
