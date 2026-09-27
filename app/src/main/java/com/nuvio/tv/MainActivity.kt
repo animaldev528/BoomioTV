@@ -221,6 +221,30 @@ data class SplashBackground(
 )
 val LocalSplashBackground = compositionLocalOf { SplashBackground() }
 
+/**
+ * Long-press "More like this": navigate to the More-like-this wall for a pressed
+ * title, on any profile that has a curated row addon (kids walls + adult
+ * AI-search rows). Null outside the sidebar scaffolds (e.g. onboarding), where the
+ * action must stay hidden.
+ *
+ * [exclude] carries the tt ids of the wall the user is drilling FROM (empty on the
+ * first entry from a wall/library). A MoreLikeThisScreen overrides this local for
+ * its subtree, injecting its own current tile ids, so each deeper "More like this"
+ * hides the wall it was launched from and the results keep changing (3+ deep).
+ *
+ * Port note (C5): the declaration is a seam. `08b8106c3` — a C5 commit — adds the
+ * consumer side (`HomeScreen` reads this local and only offers the action when it
+ * is non-null), but on the fork the *definition* and its two `provides` sites came
+ * from `2c4af99ec`, a C6 kids commit, because the target route is C6's
+ * `Screen.MoreLikeThis`. C5 therefore declares the local and registers no
+ * provider: `.current` is null, `HomeScreen`'s action stays hidden, and behaviour
+ * matches the fork's own null case. C6 ports `2c4af99ec` — the `provides` blocks
+ * around each `NuvioNavHost` and the `MoreLikeThis` route — at which point the
+ * action lights up with no further change here.
+ */
+val LocalMoreLikeThisNavigator =
+    compositionLocalOf<((type: String, id: String, title: String, exclude: List<String>) -> Unit)?> { null }
+
 private const val SIDEBAR_AUTO_COLLAPSE_DELAY_MS = 3_000L
 
 private const val MAX_SUPPORTED_FONT_SCALE = 1.15f
