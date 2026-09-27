@@ -16,7 +16,10 @@ object DeepLinkParser {
                 null
             }
         }
-        if (scheme != "nuvio") return null
+        // `nuvio` is the upstream app's scheme, `boomio` this fork's. Each flavor's
+        // manifest registers only its own (see `deeplinkScheme` in build.gradle.kts),
+        // so accepting both here is inert for the other flavor.
+        if (scheme != "nuvio" && scheme != "boomio") return null
 
         val host = parsedUrl.host?.lowercase().orEmpty()
         val pathSegments = parsedUrl.rawPath

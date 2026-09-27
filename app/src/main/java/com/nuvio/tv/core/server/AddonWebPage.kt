@@ -1080,7 +1080,7 @@ ${tabButtons}
 <body>
 <div class="page">
   <div class="header">
-    <img src="/logo.png" alt="NuvioTV" class="header-logo">
+    <img src="/logo.png" alt="${context.getString(R.string.app_name)}" class="header-logo">
     <p>$pageSubtitle</p>
   </div>
 

@@ -107,6 +107,10 @@ android {
         versionCode = 1062
         versionName = "1.0.0"
 
+        // Brand scheme this distribution answers to in `AndroidManifest.xml`.
+        // Flavors that must not claim another app's scheme override it (see `boomio`).
+        manifestPlaceholders["deeplinkScheme"] = "nuvio"
+
         buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${localProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
         buildConfigField("String", "INTRODB_API_URL", "\"${localProperties.getProperty("INTRODB_API_URL", "")}\"")
         buildConfigField("String", "TRAILER_API_URL", "\"${localProperties.getProperty("TRAILER_API_URL", "")}\"")
@@ -169,6 +173,37 @@ android {
             buildConfigField("boolean", "FEATURE_EXTERNAL_TRAILERS_ENABLED", "true")
             buildConfigField("boolean", "FEATURE_EXTERNAL_PLAYBACK_KEEP_ALIVE_ENABLED", "false")
             buildConfigField("boolean", "FEATURE_CUSTOM_SERVER_CONNECTIONS_ENABLED", "false")
+        }
+        // Branded fork distribution. Kept as a flavor (rather than a fork-wide
+        // rename) so this branch still builds an unmodified upstream app, and so
+        // the branding lives in `src/boomio/` where upstream merges cannot touch it.
+        create("boomio") {
+            dimension = "distribution"
+            // Distinct id + our own keystore, so this installs alongside the
+            // official Nuvio app on the same device.
+            applicationId = "com.boomio.tv"
+            manifestPlaceholders["deeplinkScheme"] = "boomio"
+
+            // Same feature set as `full` — this build replaces the sideload build.
+            buildConfigField("boolean", "FEATURE_PLUGINS_ENABLED", "true")
+            buildConfigField("boolean", "FEATURE_IN_APP_UPDATES_ENABLED", "true")
+            buildConfigField("boolean", "FEATURE_IN_APP_TRAILERS_ENABLED", "true")
+            buildConfigField("boolean", "FEATURE_EXTERNAL_TRAILERS_ENABLED", "true")
+            buildConfigField("boolean", "FEATURE_EXTERNAL_PLAYBACK_KEEP_ALIVE_ENABLED", "true")
+            buildConfigField("boolean", "FEATURE_CUSTOM_SERVER_CONNECTIONS_ENABLED", "true")
+
+            // The in-app updater must read the Boomio fork's releases. Left at
+            // upstream's values it would offer an upstream APK, which cannot be
+            // installed over this one (different package id and signing key).
+            buildConfigField("String", "GITHUB_OWNER", "\"animaldev528\"")
+            buildConfigField("String", "GITHUB_REPO", "\"BoomioTV\"")
+            // Simkl is told which app is talking to it; keep the local.properties
+            // escape hatch working.
+            buildConfigField(
+                "String",
+                "SIMKL_APP_NAME",
+                buildConfigString(resolveProperty(devProperties, localProperties, "SIMKL_APP_NAME", "boomio"))
+            )
         }
     }
 
@@ -306,6 +341,16 @@ android {
         getByName("main") {
             jniLibs.srcDirs("src/main/jniLibs")
         }
+        // `main` compiles against a set of flavor-scoped seams that every
+        // distribution must supply its own implementation of: AppFeaturePolicy,
+        // PluginManager, PluginRuntimeHooks, PluginModule, and the in-app updater
+        // (UpdateViewModel / UpdateBannerHost / UpdateRepository / ...).
+        // `playstore` has stubs of its own. `boomio` matches `full`'s feature set,
+        // so it points at `full`'s implementations rather than duplicating them —
+        // that way upstream fixes to those files reach this flavor for free.
+        getByName("boomio") {
+            java.srcDir("src/full/java")
+        }
     }
 
     packaging {
@@ -333,8 +378,16 @@ android {
 
 androidComponents {
     onVariants(selector().withBuildType("debug")) { variant ->
-        val isPlaystore = variant.productFlavors.any { it.second == "playstore" }
-        variant.applicationId.set(if (isPlaystore) "com.nuvio.appdebug" else "com.nuviodebug.com")
+        val flavor = variant.productFlavors.firstOrNull()?.second
+        variant.applicationId.set(
+            when (flavor) {
+                "playstore" -> "com.nuvio.appdebug"
+                // Without its own debug id the boomio debug build would reuse
+                // `full`'s, and the two could not be installed side by side.
+                "boomio" -> "com.boomiodebug.com"
+                else -> "com.nuviodebug.com"
+            }
+        )
     }
 }
 

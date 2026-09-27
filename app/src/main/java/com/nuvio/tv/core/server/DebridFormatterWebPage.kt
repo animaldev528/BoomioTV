@@ -277,7 +277,7 @@ object DebridFormatterWebPage {
 <body>
 <div class="page">
   <div class="header">
-    <img src="/logo.png" alt="NuvioTV" class="header-logo">
+    <img src="/logo.png" alt="${appName.html()}" class="header-logo">
     <p>${s(R.string.web_debrid_title, "Direct Debrid Settings").html()}</p>
   </div>
 
