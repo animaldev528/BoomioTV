@@ -568,6 +568,16 @@ dependencies {
         exclude(group = "info.debatty", module = "java-string-similarity")
     }
 
+    // `boomio` compiles `src/full/java` (see the sourceSets block), which is where the
+    // CloudStream plugin runtime and the other flavour-scoped seams live — so it needs
+    // every `fullImplementation` dependency above. Extend the configuration instead of
+    // duplicating the list: a new full-only dependency then reaches `boomio` on its own,
+    // and upstream's dependency lines stay untouched for merges.
+    afterEvaluate {
+        configurations.getByName("boomioImplementation")
+            .extendsFrom(configurations.getByName("fullImplementation"))
+    }
+
     // Markdown rendering
     implementation(libs.markdown.renderer.m3)
 
