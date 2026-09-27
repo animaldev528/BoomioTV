@@ -84,6 +84,32 @@ TorBox device client name "Nuvio"; `/.well-known/nuvio`; the `nuvio-tv-` sync pr
 `nuvio-addon-sub:` track ids; `api/nuvio/profile-ratings`; `nuvio-collections.json`; the
 `nuvio.tv` http deep-link hosts; the official id `com.nuvio.app` in the README.
 
+### Are these Nuvio-proper things incompatible with Boomio? No — verified 2026-09-27.
+
+Three different things get conflated here, and only one needed checking:
+
+1. **Protocol tokens** — User-Agents, `CLIENT_NAME` "Nuvio TV", `/.well-known/nuvio`, the
+   `nuvio-tv-` sync prefix, `nuvio-addon-sub:`, `api/nuvio/profile-ratings`,
+   `nuvio-collections.json`. These are *outbound* strings that our own servers match on. They
+   don't touch the manifest, the build, or the application id, so nothing about the `boomio`
+   flavor disturbs them and nothing about them disturbs the flavor. This is why the rebrand
+   calls them "kept truthful".
+2. **Outbound `nuvio.tv` http URLs** (login/link pages) — also outbound. The manifest declares
+   **no `android:host` intent filters at all**, only `${deeplinkScheme}` and the shared
+   `stremio` scheme, so Boomio claims no web links and cannot collide with the official app
+   over them.
+3. **The `nuvio://` scheme** — the only one that needed checking, and it resolves cleanly:
+   - no source in the repo *produces* a `nuvio://` or `boomio://` URI, and `DeepLinkParser`
+     has exactly two call sites, both parsing an incoming intent (`MainActivity.kt:806` and
+     `:961`). The parser therefore only ever sees a scheme the manifest already routed to us;
+   - with `${deeplinkScheme}`, the `boomio` flavor registers `boomio://` only, so a `nuvio://`
+     link is delivered to the official Nuvio app and never reaches Boomio — the parser's
+     extra `nuvio` acceptance is dead code there;
+   - so the fork's stricter `if (scheme != "boomio") return null` is *not* a runtime problem
+     for `boomio`, but it **is** wrong for the shared `main` source set, which compiles into
+     all three flavors: `full`/`playstore` register `nuvio://`, so the fork's version would
+     make them reject their own links. **Keep Boomio's flavor-agnostic parser.**
+
 ## 5. Clusters and port order
 
 Ordered so each cluster's prerequisites are already on the branch.
@@ -99,8 +125,8 @@ Ordered so each cluster's prerequisites are already on the branch.
 | C6 | kids walls | `f4ea47a42 2c4af99ec 63ab18280 9cbf5d835 ed34c8608` | 5c, 15f, +1625/−156, 8 new | Extends C5's hub rows |
 | C7 | search People + cast filmography | `18f60ba72 99278865d 0bf971b78 f797c7d94` | 4c, 12f, +525/−26 | Independent |
 | C8 | companion + watch party | `e90d009ab e5a99c944 324250d6c 32127ad60 d96ab1f00 0de0781f1` | 6c, 17f, +805/−23 | Needs C1 |
-| C9 | private-listening tee | `3beb24870 781f96e6f 47ac77de4 7e872a84e 6d86a2509 76c6caec0 244f60956` | 7c, 9f, +808/−160 | Needs C8 (Slice B *is* a companion-protocol extension) |
-| C11 | taste / like-bootstrap | `9f51afb64 b884beb52 0d2e62b09 93ab868ad c0cd1f8da` | 5c, 37f, +2694/−1465 | Needs C5 and C6 |
+| C9 | private-listening tee | `3beb24870 781f96e6f 47ac77de4 7e872a84e 6d86a2509 ~~76c6caec0~~ 244f60956` | 7c, 9f, +808/−160 | Needs C8 (Slice B *is* a companion-protocol extension). **Take the net** — `244f60956` supersedes `76c6caec0` (landmine 6) |
+| C11 | taste / like-bootstrap | ~~`9f51afb64`~~ `b884beb52 0d2e62b09 93ab868ad c0cd1f8da` | 5c, 37f, +2694/−1465 | Needs C5 and C6. **Owner decision 2026-09-27: port the net end state — skip `9f51afb64`**, which `b884beb52` replaces outright |
 | C13 | docs / misc | `bf514eadd e529f96cd 4fc496e82` | 3c, 3f, +47/−2 | Anything left |
 | C12 | identity rebrand | `c864081f1` | 1c, 100f | **Mostly skip** — §3; port only the docs/assets |
 
@@ -272,6 +298,12 @@ container logs).
    flavor-split?
 2. **C4 (daily-show ordering):** is it functionally redundant with 1.0.0? Needs a manual
    behavioural check before porting — `git cherry` can't see it.
-3. **C11:** port the whole history (churn) or only the net end state (long-press Like)?
+3. ~~**C11:** port the whole history (churn) or only the net end state (long-press Like)?~~
+   **Resolved 2026-09-27:** net end state — skip `9f51afb64`, port `b884beb52`'s long-press
+   Like and its follow-ups.
+5. **C5:** `cddfcc8bb` deletes `HB/{HubModels,HubScreen,HubViewModel}.kt` that `7c6e2d1d6`
+   created, so the cluster must be taken as a net too — does anything *between* those two
+   commits in `fork/dev` depend on the deleted files (i.e. must an intermediate commit be
+   ported for the tree to compile)?
 4. Which `BOOMIO_*` build-time values belong in `local.properties` versus being entered at
    install time? Documented only in code today.
