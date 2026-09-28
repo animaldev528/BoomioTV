@@ -653,15 +653,28 @@ class TmdbMetadataService(
         }
     }
 
+    /**
+     * Similar-title recommendations for [tmdbId], as [MetaPreview]s shaped for the
+     * caller's layout.
+     *
+     * [shape] defaults to [PosterShape.LANDSCAPE] because the two strip callers (the
+     * detail screen's More-like-this tab and post-play recommendations) lay items out
+     * in a 16:9 row. A caller with a portrait grid — the more-like-this WALL — must
+     * pass [PosterShape.POSTER]: card height is derived from `item.posterShape`
+     * (see GridContentCard), so a landscape item collapses to a short 16:9 tile in a
+     * portrait grid. [shape] is part of the cache key so the two shapes never share an
+     * entry, and it also selects the image that goes in `poster`.
+     */
     suspend fun fetchMoreLikeThis(
         tmdbId: String,
         contentType: ContentType,
         language: String = "en",
-        maxItems: Int = 12
+        maxItems: Int = 12,
+        shape: PosterShape = PosterShape.LANDSCAPE
     ): List<MetaPreview> = withContext(ioDispatcher) {
         val normalizedLanguage = normalizeTmdbLanguage(language)
         val itemLimit = maxItems.coerceAtLeast(1)
-        val cacheKey = "$tmdbId:${contentType.name}:$normalizedLanguage:more_like:$itemLimit"
+        val cacheKey = "$tmdbId:${contentType.name}:$normalizedLanguage:more_like:$itemLimit:${shape.name}"
         moreLikeThisCache[cacheKey]?.let { return@withContext it }
 
         val numericId = tmdbId.toIntOrNull() ?: return@withContext emptyList()
@@ -751,12 +764,22 @@ class TmdbMetadataService(
                             rec.releaseDate.yearPart()
                         }
 
+                        // GridContentCard always draws `poster`; only the box it is
+                        // cropped into follows `posterShape`. A portrait card therefore
+                        // needs the portrait (2:3) image, not the 16:9 backdrop the
+                        // landscape strip callers use.
+                        val cardPoster = if (shape == PosterShape.POSTER) {
+                            fallbackPoster ?: backdrop
+                        } else {
+                            backdrop ?: fallbackPoster
+                        }
+
                         MetaPreview(
                             id = "tmdb:${rec.id}",
                             type = recContentType,
                             name = title,
-                            poster = backdrop ?: fallbackPoster,
-                            posterShape = PosterShape.LANDSCAPE,
+                            poster = cardPoster,
+                            posterShape = shape,
                             background = backdrop,
                             logo = null,
                             description = rec.overview?.takeIf { it.isNotBlank() },
@@ -1252,6 +1275,13 @@ class TmdbMetadataService(
         )
         private const val ENTITY_RAIL_MAX_ITEMS = 20
         private const val TOP_RATED_VOTE_COUNT_FLOOR = 200
+
+        /**
+         * One full page of TMDB `/recommendations` (the endpoint is 20-per-page and the
+         * client does not page it), so callers that want a full wall can ask for the
+         * whole page instead of the conservative 12-title default.
+         */
+        const val RECOMMENDATIONS_PAGE_SIZE = 20
     }
 
     private fun mapAggregateCreditsToStandard(aggregate: TmdbAggregateCreditsResponse): TmdbCreditsResponse {
