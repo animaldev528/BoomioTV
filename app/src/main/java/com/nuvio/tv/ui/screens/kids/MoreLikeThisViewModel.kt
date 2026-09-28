@@ -10,6 +10,7 @@ import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.MoreLikeThisList
+import com.nuvio.tv.domain.model.PosterShape
 import com.nuvio.tv.domain.model.enabledAddons
 import com.nuvio.tv.domain.repository.AddonRepository
 import com.nuvio.tv.domain.repository.MoreLikeThisRepository
@@ -170,11 +171,19 @@ class MoreLikeThisViewModel @Inject constructor(
      * TMDB fallback for the curated resolver's empty/error answers (see
      * [loadFirstPage]). Resolves the pressed tt id to a tmdb id via
      * [TmdbService.ensureTmdbId], then asks [TmdbMetadataService.fetchMoreLikeThis]
-     * for landscape similar-title cards. The tiles belong to no curated row, so
+     * for similar titles. The tiles belong to no curated row, so
      * the addon base is cleared (null): Detail and poster-options resolve the
      * `tmdb:` ids through TMDB, and paging is off ([MoreLikeThisUiState.hasMore]
      * false). Returns an empty list when the title has no tmdb mapping or no
      * recommendations — the screen's ordinary empty wall then stands.
+     *
+     * The wall is a PORTRAIT LazyVerticalGrid (126x189dp cards, 126x189 "loading more"
+     * placeholder), so it asks for [PosterShape.POSTER] tiles and a full TMDB page.
+     * The default LANDSCAPE shape and
+     * 12-title cap are what the landscape strip callers want; a landscape tile here
+     * would render at 126x70.8dp — a 16:9 backdrop cropped into 37% of the row.
+     * Paging is deliberately NOT wired up: the recommendations call is single-page
+     * by design (no `page` param), so a full page is the honest maximum.
      */
     private fun loadTmdbFallback(metaId: String, requestType: String) {
         viewModelScope.launch {
@@ -185,7 +194,12 @@ class MoreLikeThisViewModel @Inject constructor(
                     Log.w(TAG, "no tmdb id for $requestType:$metaId — nothing to recommend from")
                     emptyList()
                 } else {
-                    tmdbMetadataService.fetchMoreLikeThis(tmdbId, contentType)
+                    tmdbMetadataService.fetchMoreLikeThis(
+                        tmdbId = tmdbId,
+                        contentType = contentType,
+                        maxItems = TmdbMetadataService.RECOMMENDATIONS_PAGE_SIZE,
+                        shape = PosterShape.POSTER
+                    )
                 }
             } catch (e: CancellationException) {
                 throw e
