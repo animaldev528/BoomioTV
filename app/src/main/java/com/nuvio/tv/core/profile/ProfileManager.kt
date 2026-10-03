@@ -126,6 +126,15 @@ class ProfileManager @Inject constructor(
         return true
     }
 
+    /** Mark a profile's taste onboarding complete locally. The server flips
+     *  taste_completed inside sync_push_taste_picks; this mirrors it so the picker
+     *  exits immediately without waiting on a profile pull. */
+    suspend fun markProfileTasteCompleted(profileId: Int) {
+        val profile = profiles.value.find { it.id == profileId } ?: return
+        if (profile.tasteCompleted) return
+        profileDataStore.upsertProfile(profile.copy(tasteCompleted = true))
+    }
+
     private suspend fun deleteProfileDataAsync(profileId: Int) = withContext(Dispatchers.IO) {
         if (profileId == 1) return@withContext
 

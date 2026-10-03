@@ -25,12 +25,17 @@ import androidx.navigation.navArgument
 import com.nuvio.tv.core.build.AppFeaturePolicy
 import com.nuvio.tv.domain.model.ExperienceMode
 import com.nuvio.tv.ui.screens.CatalogSeeAllScreen
+import com.nuvio.tv.ui.screens.home.CategoryRowsScreen
 import com.nuvio.tv.ui.screens.ExperienceModeSelectionScreen
 import com.nuvio.tv.ui.screens.LayoutSelectionScreen
 import com.nuvio.tv.ui.screens.detail.MetaDetailsScreen
 import com.nuvio.tv.ui.screens.home.HomeScreen
 import com.nuvio.tv.ui.screens.addon.AddonManagerScreen
+import com.nuvio.tv.ui.screens.iptv.IptvScreen
 import com.nuvio.tv.ui.screens.addon.CatalogOrderScreen
+import com.nuvio.tv.ui.screens.kids.KidWallKind
+import com.nuvio.tv.ui.screens.kids.KidWallScreen
+import com.nuvio.tv.ui.screens.kids.MoreLikeThisScreen
 import com.nuvio.tv.ui.screens.library.LibraryScreen
 import com.nuvio.tv.ui.screens.player.PlayerExitReason
 import com.nuvio.tv.ui.screens.player.PlayerScreen
@@ -55,6 +60,8 @@ import com.nuvio.tv.ui.screens.profile.ProfileSelectionMode
 import com.nuvio.tv.ui.screens.profile.ProfileSelectionScreen
 import com.nuvio.tv.ui.screens.tmdb.TmdbEntityBrowseScreen
 import com.nuvio.tv.ui.screens.home.HeroBackdropState
+import com.nuvio.tv.ui.screens.hub.HubKind
+import com.nuvio.tv.ui.screens.hub.HubBrowseScreen
 
 @Composable
 fun NuvioNavHost(
@@ -254,6 +261,9 @@ private fun PlaybackNavHost(
                 },
                 onNavigateToFolderDetail = { collectionId, folderId ->
                     navController.navigate(Screen.FolderDetail.createRoute(collectionId, folderId))
+                },
+                onNavigateToDrillDown = { target ->
+                    navController.navigate(Screen.CategoryRows.createRoute(target))
                 }
             )
         }
@@ -802,6 +812,16 @@ private fun PlaybackNavHost(
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
+                },
+                navArgument("resumeFromMs") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("startPaused") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = "false"
                 }
             )
         ) { backStackEntry ->
@@ -1140,6 +1160,9 @@ private fun PlaybackNavHost(
                         Screen.CatalogSeeAll.createRoute(catalogId, addonId, type, fromSearch = true)
                     )
                 },
+                onNavigateToCastDetail = { personId, personName, preferCrew ->
+                    navController.navigate(Screen.CastDetail.createRoute(personId, personName, preferCrew))
+                },
                 onOpenDiscover = { navController.navigate(Screen.Discover.route) }
             )
         }
@@ -1275,6 +1298,59 @@ private fun PlaybackNavHost(
             )
         }
 
+        composable(Screen.Iptv.route) {
+            IptvScreen(
+                onPlayChannel = { playlistUrl, channel ->
+                    // contentType="channel" is the whole live-playback contract:
+                    // it selects the live UI (no seek bar, no progress resume) and
+                    // tells the player this URL has no duration.
+                    navController.navigate(
+                        Screen.Player.createRoute(
+                            streamUrl = playlistUrl,
+                            title = channel.name,
+                            contentId = channel.streamId,
+                            contentType = "channel",
+                            contentName = channel.name,
+                            logo = channel.icon
+                        )
+                    )
+                },
+                // A guide programme the pipeline identified carries a real
+                // episode, so this plays it directly — the same route Continue
+                // Watching uses, with manualSelection set because the guide has
+                // already decided which episode and letting auto-selection run
+                // again would be free to pick a different one. Back returns to
+                // the guide, which is where the press came from.
+                onPlayEpisode = { imdbId, mediaType, title, season, episode, episodeName ->
+                    navController.navigate(
+                        Screen.Stream.createRoute(
+                            videoId = imdbId,
+                            contentType = mediaType,
+                            title = title,
+                            season = season,
+                            episode = episode,
+                            episodeName = episodeName,
+                            contentId = imdbId,
+                            contentName = title,
+                            manualSelection = true
+                        )
+                    )
+                },
+                // The fallback when no episode resolved: open the show.
+                // playOnLoad is what separates a play-now press from a
+                // long-press "go to" — same destination, different intent.
+                onOpenShow = { imdbId, mediaType, title, playOnLoad ->
+                    navController.navigate(
+                        Screen.Detail.createRoute(
+                            itemId = imdbId,
+                            itemType = mediaType,
+                            playOnLoad = playOnLoad
+                        )
+                    )
+                }
+            )
+        }
+
         composable(Screen.CatalogOrder.route) {
             CatalogOrderScreen(
                 onBackPress = { navController.popBackStack() }
@@ -1399,6 +1475,161 @@ private fun PlaybackNavHost(
                 viewModel = homeViewModel,
                 onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
                     navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                },
+                onBackPress = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Screen.CategoryRows.route,
+            arguments = listOf(
+                navArgument("drillCatalogId") { type = NavType.StringType },
+                navArgument("addonId") { type = NavType.StringType },
+                navArgument("type") { type = NavType.StringType },
+                navArgument("addonBaseUrl") { type = NavType.StringType; defaultValue = "" },
+                navArgument("title") { type = NavType.StringType; defaultValue = "" },
+                navArgument("secondaryCatalogId") { type = NavType.StringType; defaultValue = "" },
+                navArgument("secondaryAddonId") { type = NavType.StringType; defaultValue = "" },
+                navArgument("secondaryAddonBaseUrl") { type = NavType.StringType; defaultValue = "" },
+                navArgument("secondaryType") { type = NavType.StringType; defaultValue = "" }
+            )
+        ) { backStackEntry ->
+            val drillCatalogId = backStackEntry.arguments?.getString("drillCatalogId") ?: ""
+            val addonId = backStackEntry.arguments?.getString("addonId") ?: ""
+            val type = backStackEntry.arguments?.getString("type") ?: ""
+            val addonBaseUrl = backStackEntry.arguments?.getString("addonBaseUrl") ?: ""
+            val title = backStackEntry.arguments?.getString("title") ?: ""
+            val secondaryCatalogId = backStackEntry.arguments?.getString("secondaryCatalogId")?.takeIf { it.isNotBlank() }
+            val secondaryAddonId = backStackEntry.arguments?.getString("secondaryAddonId")?.takeIf { it.isNotBlank() }
+            val secondaryAddonBaseUrl = backStackEntry.arguments?.getString("secondaryAddonBaseUrl")?.takeIf { it.isNotBlank() }
+            val secondaryType = backStackEntry.arguments?.getString("secondaryType")?.takeIf { it.isNotBlank() }
+            CategoryRowsScreen(
+                drillCatalogId = drillCatalogId,
+                addonId = addonId,
+                addonBaseUrl = addonBaseUrl,
+                type = type,
+                title = title,
+                secondaryCatalogId = secondaryCatalogId,
+                secondaryAddonId = secondaryAddonId,
+                secondaryAddonBaseUrl = secondaryAddonBaseUrl,
+                secondaryType = secondaryType,
+                onNavigateToDetail = { itemId, itemType, addonBaseUrl2 ->
+                    navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl2))
+                },
+                onNavigateToDrillDown = { target ->
+                    navController.navigate(Screen.CategoryRows.createRoute(target))
+                },
+                onBackPress = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.Movies.route) {
+            HubBrowseScreen(
+                kind = HubKind.MOVIES,
+                onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
+                    navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                },
+                onNavigateToDrillDown = { target ->
+                    navController.navigate(
+                        Screen.CategoryRows.createRoute(target)
+                    )
+                },
+                onBackPress = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.Tv.route) {
+            HubBrowseScreen(
+                kind = HubKind.TV,
+                onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
+                    navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                },
+                onNavigateToDrillDown = { target ->
+                    navController.navigate(
+                        Screen.CategoryRows.createRoute(target)
+                    )
+                },
+                onBackPress = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.Anime.route) {
+            HubBrowseScreen(
+                kind = HubKind.ANIME,
+                onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
+                    navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                },
+                onNavigateToDrillDown = { target ->
+                    navController.navigate(
+                        Screen.CategoryRows.createRoute(target)
+                    )
+                },
+                onBackPress = { navController.popBackStack() }
+            )
+        }
+
+        // Kids wall destinations (Leo profile). Registered unconditionally so a
+        // process-death back-stack restore can never hit an unregistered route;
+        // they're only navigable from the kids drawer (see MainActivity
+        // KIDS_PROFILE_IDS / Screen.KidsMovies).
+        composable(Screen.KidsMovies.route) {
+            KidWallScreen(
+                kind = KidWallKind.MOVIES,
+                onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
+                    navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                },
+                onBackPress = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.KidsTv.route) {
+            KidWallScreen(
+                kind = KidWallKind.TV,
+                onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
+                    navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                },
+
+                onBackPress = { navController.popBackStack() }
+            )
+        }
+
+        // More-like-this result wall (long-press action on all profiles — kids
+        // walls + adult AI-search rows). Registered unconditionally (like the kids
+        // walls) so a process-death back-stack restore can never hit an
+        // unregistered route.
+        composable(
+            route = Screen.MoreLikeThis.route,
+            arguments = listOf(
+                navArgument("itemType") { type = NavType.StringType },
+                navArgument("itemId") { type = NavType.StringType },
+                navArgument("title") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("exclude") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
+            val itemType = backStackEntry.arguments?.getString("itemType").orEmpty()
+            val itemId = backStackEntry.arguments?.getString("itemId").orEmpty()
+            val title = backStackEntry.arguments?.getString("title")
+            // Comma-joined tt ids of the wall the user drilled FROM (null/blank = none).
+            val exclude = backStackEntry.arguments?.getString("exclude")
+                ?.split(",")
+                ?.map { it.trim() }
+                ?.filter { it.isNotEmpty() }
+                .orEmpty()
+            MoreLikeThisScreen(
+                itemType = itemType,
+                itemId = itemId,
+                title = title,
+                exclude = exclude,
+                onNavigateToDetail = { detailId, detailType, addonBaseUrl ->
+                    navController.navigate(Screen.Detail.createRoute(detailId, detailType, addonBaseUrl))
                 },
                 onBackPress = { navController.popBackStack() }
             )

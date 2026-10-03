@@ -10,9 +10,12 @@ import com.nuvio.tv.core.player.StreamAutoPlayPolicy
 import com.nuvio.tv.core.recommendations.TvRecommendationManager
 import com.nuvio.tv.core.tmdb.TmdbMetadataService
 import com.nuvio.tv.core.tmdb.TmdbService
+import com.nuvio.tv.core.sync.LikeSyncService
+import com.nuvio.tv.core.sync.TastePickSyncService
 import com.nuvio.tv.data.local.AuthSessionNoticeDataStore
 import com.nuvio.tv.data.local.CollectionsDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
+import com.nuvio.tv.data.local.LikePreferences
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.StartupAuthNotice
 import com.nuvio.tv.data.local.MDBListSettingsDataStore
@@ -81,7 +84,11 @@ class HomeViewModel @Inject constructor(
     internal val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
     internal val cwEnrichmentCache: ContinueWatchingEnrichmentCache,
     internal val profileManager: com.nuvio.tv.core.profile.ProfileManager,
-    internal val tvRecommendationManager: TvRecommendationManager
+    internal val bsmRatingGate: com.nuvio.tv.core.profile.BsmRatingGate,
+    internal val tvRecommendationManager: TvRecommendationManager,
+    internal val likePreferences: LikePreferences,
+    internal val likeSyncService: LikeSyncService,
+    internal val tastePickSyncService: TastePickSyncService
 ) : ViewModel() {
     companion object {
         internal const val TAG = "HomeViewModel"
@@ -352,6 +359,7 @@ class HomeViewModel @Inject constructor(
             loadDisabledHomeCatalogPreference()
             loadCustomCatalogTitles()
             observeLibraryState()
+            observeTasteState()
             observeTmdbSettings()
             observeMdbListSettings()
             observeBlurUnwatchedEpisodes()

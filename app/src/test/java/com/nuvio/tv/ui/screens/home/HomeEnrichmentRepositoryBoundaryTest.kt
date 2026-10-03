@@ -175,6 +175,12 @@ class HomeEnrichmentRepositoryBoundaryTest {
             mockk<com.nuvio.tv.domain.repository.WatchProgressRepository>(relaxed = true) {
                 every { getAllEpisodeProgress(any()) } returns flowOf(emptyMap())
             }
+        // The rating gate feeds the modern-home combine, so a relaxed mock is not
+        // enough: activeCeiling must actually emit or the pipeline never produces.
+        // A null ceiling means "no ceiling", so the gate fails open as in production.
+        val bsmRatingGate = mockk<com.nuvio.tv.core.profile.BsmRatingGate>(relaxed = true) {
+            every { activeCeiling } returns MutableStateFlow<String?>(null)
+        }
         val viewModel = HomeViewModel(
             appContext = mockk(relaxed = true),
             addonRepository = mockk(relaxed = true),
@@ -197,7 +203,13 @@ class HomeEnrichmentRepositoryBoundaryTest {
             watchedSeriesStateHolder = mockk(relaxed = true),
             cwEnrichmentCache = cwEnrichmentCache,
             profileManager = profileManager,
-            tvRecommendationManager = mockk(relaxed = true)
+            bsmRatingGate = bsmRatingGate,
+            tvRecommendationManager = mockk(relaxed = true),
+            // C11 additions; see the note in PosterOptionsControllerShowTest. This test
+            // never drives the like-action path, so relaxed mocks suffice.
+            likePreferences = mockk(relaxed = true),
+            likeSyncService = mockk(relaxed = true),
+            tastePickSyncService = mockk(relaxed = true)
         )
         viewModel.startupGracePeriodActive = false
         viewModel.externalMetaPrefetchEnabled = true

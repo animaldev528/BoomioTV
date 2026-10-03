@@ -9,11 +9,14 @@ import androidx.media3.exoplayer.audio.ForwardingAudioSink
 
 /**
  * Audio sink wrapper that forces a decode-to-PCM path when:
- * - Playback speed != 1x for bitstream formats that cannot be tempo-adjusted in passthrough, or
- * - Bluetooth media output is active (Media3 policy: Bluetooth only supports PCM).
+ * - Playback speed != 1x for bitstream formats that cannot be tempo-adjusted in passthrough,
+ * - Bluetooth media output is active (Media3 policy: Bluetooth only supports PCM), or
+ * - A phone is attached for private listening (the phone cannot play a TrueHD/AC-4/DTS bitstream).
  *
  * Bluetooth cannot carry TrueHD / Atmos / DTS-HD passthrough. Forcing PCM lets MediaCodec/FFmpeg
  * decode to the format the BT stack actually accepts; the system then encodes to SBC/AAC/aptX/LDAC.
+ * The phone tee needs the same guarantee: it taps PCM inside the sink, so while a phone fork is
+ * armed the decode-to-PCM path is pinned here (see [setPhoneForcePcm]).
  */
 internal class PlaybackSpeedAwareAudioSink(
     sink: AudioSink,
@@ -32,6 +35,10 @@ internal class PlaybackSpeedAwareAudioSink(
 
     @Volatile
     private var bluetoothForcePcm: Boolean = forcePcmForBluetooth
+
+    /** Phone private-listening fork is armed → decode-to-PCM stays pinned while attached. */
+    @Volatile
+    private var phoneForcePcm: Boolean = false
 
     @Volatile
     private var currentInputFormat: Format? = null
@@ -65,6 +72,33 @@ internal class PlaybackSpeedAwareAudioSink(
     }
 
     fun isBluetoothForcePcm(): Boolean = bluetoothForcePcm
+
+    /**
+     * Update phone private-listening PCM policy without rebuilding the player. While a
+     * phone fork is armed the sink must decode-to-PCM (the phone receives PCM, never a
+     * bitstream). Call [notifyAudioProcessingRequirementChanged] after a change so Media3
+     * reselects decode-to-PCM vs passthrough on the live renderer.
+     *
+     * Safe when Bluetooth is also active: each forcing source holds the decode-to-PCM
+     * latch independently (via [shouldRejectDirectPlayback]), so releasing one source
+     * never clears the latch while the other still forces.
+     *
+     * @return true when the effective PCM/passthrough policy changed.
+     */
+    fun setPhoneForcePcm(enabled: Boolean): Boolean {
+        val wasPhoneForce = phoneForcePcm
+        val wasSessionForce = forcePcmForCurrentSession
+        phoneForcePcm = enabled
+        if (enabled) {
+            forcePcmForCurrentSession = true
+        } else if (!startedWithForcedPcm && playbackSpeed == 1f && !bluetoothForcePcm) {
+            // No remaining forcing source (phone gone, BT off, 1x speed); restore passthrough.
+            forcePcmForCurrentSession = false
+        }
+        return wasPhoneForce != phoneForcePcm || wasSessionForce != forcePcmForCurrentSession
+    }
+
+    fun isPhoneForcePcm(): Boolean = phoneForcePcm
 
     override fun setListener(listener: AudioSink.Listener) {
         this.listener = listener
@@ -118,8 +152,8 @@ internal class PlaybackSpeedAwareAudioSink(
         if (!isEncodedPassthroughCandidate(format)) {
             return false
         }
-        // Bluetooth: always decode to PCM (Media3 DEFAULT_AUDIO_CAPABILITIES policy).
-        if (bluetoothForcePcm || forcePcmForCurrentSession) {
+        // Bluetooth / phone: always decode to PCM (the phone cannot play a bitstream).
+        if (bluetoothForcePcm || phoneForcePcm || forcePcmForCurrentSession) {
             return true
         }
         // Non-1x speed cannot be applied to bitstream passthrough tracks.
@@ -130,7 +164,7 @@ internal class PlaybackSpeedAwareAudioSink(
         if (format == null || !isEncodedPassthroughCandidate(format)) {
             return false
         }
-        if (bluetoothForcePcm) {
+        if (bluetoothForcePcm || phoneForcePcm) {
             val wasForcingPcm = forcePcmForCurrentSession
             forcePcmForCurrentSession = true
             return !wasForcingPcm

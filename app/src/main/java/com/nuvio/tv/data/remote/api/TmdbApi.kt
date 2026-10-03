@@ -257,6 +257,15 @@ interface TmdbApi {
         @Query("page") page: Int = 1
     ): Response<TmdbKeywordSearchResponse>
 
+    @GET("search/person")
+    suspend fun searchPerson(
+        @Query("api_key") apiKey: String,
+        @Query("query") query: String,
+        @Query("language") language: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("include_adult") includeAdult: Boolean = false
+    ): Response<TmdbPersonSearchResponse>
+
     @GET("movie/{movie_id}/alternative_titles")
     suspend fun getMovieAlternativeTitles(
         @Path("movie_id") movieId: Int,
@@ -648,6 +657,29 @@ data class TmdbPersonResponse(
     @Json(name = "known_for_department") val knownForDepartment: String? = null,
     @Json(name = "also_known_as") val alsoKnownAs: List<String>? = null,
     @Json(name = "imdb_id") val imdbId: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TmdbPersonSearchResponse(
+    @Json(name = "page") val page: Int? = null,
+    @Json(name = "results") val results: List<TmdbPersonSearchResult>? = null,
+    @Json(name = "total_pages") val totalPages: Int? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TmdbPersonSearchResult(
+    @Json(name = "id") val id: Int,
+    @Json(name = "name") val name: String? = null,
+    @Json(name = "profile_path") val profilePath: String? = null,
+    @Json(name = "known_for_department") val knownForDepartment: String? = null,
+    @Json(name = "known_for") val knownFor: List<TmdbPersonSearchKnownFor>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TmdbPersonSearchKnownFor(
+    @Json(name = "media_type") val mediaType: String? = null,
+    @Json(name = "title") val title: String? = null,
+    @Json(name = "name") val name: String? = null
 )
 
 @JsonClass(generateAdapter = true)

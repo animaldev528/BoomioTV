@@ -1,5 +1,7 @@
 package com.nuvio.tv.ui.screens.player
 
+import com.nuvio.tv.core.activity.ActivityEventReporter
+
 import android.app.Activity
 import android.content.Context
 import android.media.AudioDeviceCallback
@@ -99,6 +101,7 @@ class PlayerRuntimeController(
     internal val playbackIssueReportRepository: PlaybackIssueReportRepository,
     internal val tvRecommendationManager: com.nuvio.tv.core.recommendations.TvRecommendationManager,
     internal val profileId: Int,
+    internal val activityEventReporter: ActivityEventReporter,
     savedStateHandle: SavedStateHandle,
     internal val scope: CoroutineScope
 ) {
@@ -331,6 +334,55 @@ class PlayerRuntimeController(
         _playbackTimeline.value = PlaybackTimelineState()
     }
 
+    /**
+     * Arm Roku-style private listening: tee the audio the TV is already decoding for its own
+     * speakers to [phoneIp]:[phonePort] over UDP (see docs/plan-private-listening-exo-tee.md).
+     *
+     * Pins decode-to-PCM first (a phone cannot play a TrueHD/AC-4/DTS bitstream), then starts the
+     * unicast fork. Fails fast — and leaves no state behind — when no Exo sink is live, the active
+     * engine is not ExoPlayer (mpv has no decoded-audio seam), or a fork is already running.
+     *
+     * @return true when a fork is now active; false with no state change otherwise.
+     */
+    internal fun startPhoneAudioFork(phoneIp: String, port: Int): Boolean {
+        val teeSink = privateListeningAudioSink ?: return false
+        val speedSink = playbackSpeedAwareAudioSink ?: return false
+        if (currentInternalPlayerEngine != InternalPlayerEngine.EXOPLAYER) return false
+        if (teeSink.isForkActive) return false
+        val policyChanged = speedSink.setPhoneForcePcm(true)
+        if (!teeSink.startFork(phoneIp, port)) {
+            if (policyChanged) {
+                speedSink.setPhoneForcePcm(false)
+            }
+            return false
+        }
+        if (policyChanged) {
+            // Live re-evaluation: Media3 reselects decode-to-PCM on the running audio renderer.
+            speedSink.notifyAudioProcessingRequirementChanged()
+        }
+        return true
+    }
+
+    /**
+     * Unarm private listening. The force-PCM policy is only released when no other forcing source
+     * (Bluetooth, speed) remains, so passthrough returns without a player rebuild.
+     */
+    internal fun stopPhoneAudioFork() {
+        val teeSink = privateListeningAudioSink
+        if (teeSink == null || !teeSink.isForkActive) return
+        teeSink.stopFork()
+        val speedSink = playbackSpeedAwareAudioSink
+        if (speedSink != null) {
+            val policyChanged = speedSink.setPhoneForcePcm(false)
+            if (policyChanged) {
+                speedSink.notifyAudioProcessingRequirementChanged()
+            }
+        }
+    }
+
+    /** True while a private-listening fork is streaming to a phone — the "phone attached" diagnostic. */
+    fun isPhoneAudioForkActive(): Boolean = privateListeningAudioSink?.isForkActive == true
+
     internal var _exoPlayer: ExoPlayer? = null
     val exoPlayer: ExoPlayer?
         get() = _exoPlayer
@@ -338,6 +390,8 @@ class PlayerRuntimeController(
     @Volatile var exoPlayerView: androidx.media3.ui.PlayerView? = null
     internal var _loadControl: DefaultLoadControl? = null
     internal var playbackSpeedAwareAudioSink: PlaybackSpeedAwareAudioSink? = null
+    /** Private-listening tee (phone fork), set from the renderers-factory hook during init. */
+    internal var privateListeningAudioSink: PrivateListeningAudioSink? = null
 
     internal var progressJob: Job? = null
     internal var vodTelemetryJob: Job? = null

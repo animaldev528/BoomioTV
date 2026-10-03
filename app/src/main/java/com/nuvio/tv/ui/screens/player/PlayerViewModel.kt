@@ -1,5 +1,11 @@
 package com.nuvio.tv.ui.screens.player
 
+import com.nuvio.tv.core.activity.ActivityEventReporter
+import com.nuvio.tv.core.boomio.ActiveCompanionPlayer
+import com.nuvio.tv.core.boomio.BoomioCompanionManager
+import com.nuvio.tv.core.boomio.CompanionPlaybackBridge
+import com.nuvio.tv.core.boomio.CompanionPlaybackSnapshot
+
 import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -94,6 +100,9 @@ class PlayerViewModel @Inject constructor(
     private val subtitleFileCache: com.nuvio.tv.core.player.SubtitleFileCache,
     private val tvRecommendationManager: com.nuvio.tv.core.recommendations.TvRecommendationManager,
     profileManager: com.nuvio.tv.core.profile.ProfileManager,
+    private val activityEventReporter: ActivityEventReporter,
+    private val companionPlaybackBridge: CompanionPlaybackBridge,
+    private val companionManager: BoomioCompanionManager,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -139,6 +148,7 @@ class PlayerViewModel @Inject constructor(
         tvRecommendationManager = tvRecommendationManager,
         profileId = savedStateHandle.get<String>("profileId")?.toIntOrNull()
             ?: profileManager.activeProfileId.value,
+        activityEventReporter = activityEventReporter,
         savedStateHandle = savedStateHandle,
         scope = viewModelScope
     )
@@ -163,6 +173,64 @@ class PlayerViewModel @Inject constructor(
         trailerPlayerPool = trailerPlayerPool,
         scope = viewModelScope
     )
+
+    /** True while applying an inbound hub command, so its effect isn't re-reported. */
+    private var suppressPartyReport = false
+
+    /**
+     * Companion (bsc) surface for this screen's playback. Registered while the
+     * player is alive so [companionManager] can report telemetry and forward
+     * inbound play/pause/seek/stop commands from the hub.
+     */
+    private val companionActivePlayer = object : ActiveCompanionPlayer {
+        override val playbackSnapshot: CompanionPlaybackSnapshot
+            get() = CompanionPlaybackSnapshot(
+                positionMs = controller.currentPlaybackPositionMs() ?: 0L,
+                durationMs = controller.currentPlaybackDurationMs(),
+                isPlaying = controller.isPlaybackCurrentlyPlaying(),
+                streamUrl = controller.getCurrentStreamUrl(),
+                imdbId = controller.contentId,
+                title = controller.title,
+                season = controller.currentSeason,
+                episode = controller.currentEpisode,
+                posterUrl = controller.poster,
+                logoUrl = controller.logo,
+                // "channel" for live IPTV. Lets the phone tell a channel from a
+                // VOD title even though both put an id in the imdbId slot.
+                contentType = controller.contentType
+            )
+
+        override fun togglePlayPause(reportParty: Boolean) {
+            if (reportParty) {
+                onEvent(PlayerEvent.OnPlayPause)
+            } else {
+                suppressPartyReport = true
+                try {
+                    onEvent(PlayerEvent.OnPlayPause)
+                } finally {
+                    suppressPartyReport = false
+                }
+            }
+        }
+        override fun pause() = controller.setPlaybackPaused(true)
+        override fun resume() = controller.setPlaybackPaused(false)
+        override fun seekTo(positionMs: Long) = controller.seekPlaybackTo(positionMs)
+        override fun stop() = controller.stopAndRelease()
+        override fun setVolume(fraction: Float) {
+            // Main-thread-only: companion commands arrive via the manager's main
+            // handler. Scales this player's own audio; device volume is untouched.
+            controller.exoPlayer?.volume = fraction.coerceIn(0f, 1f)
+        }
+        override fun startPhoneAudioFork(phoneIp: String, port: Int): Boolean =
+            controller.startPhoneAudioFork(phoneIp, port)
+        override fun stopPhoneAudioFork() = controller.stopPhoneAudioFork()
+        override val isPhoneAudioForkActive: Boolean
+            get() = controller.isPhoneAudioForkActive()
+    }
+
+    init {
+        companionPlaybackBridge.registerActivePlayer(companionActivePlayer)
+    }
 
     val uiState: StateFlow<PlayerUiState>
         get() = controller.uiState
@@ -251,6 +319,31 @@ class PlayerViewModel @Inject constructor(
 
     fun onEvent(event: PlayerEvent) {
         controller.onEvent(event)
+        if (!suppressPartyReport) reportPartyEvent(event)
+    }
+
+    /**
+     * Re-broadcast local play/pause/seek to the companion hub when this playback
+     * belongs to a watch party, so the hub can mirror it to all other members.
+     * No-op when not in a party — the manager checks internally.
+     */
+    private fun reportPartyEvent(event: PlayerEvent) {
+        when (event) {
+            PlayerEvent.OnPlayPause -> companionManager.reportPartyPlayPause()
+            is PlayerEvent.OnSeekTo -> companionManager.reportPartySeek(event.position)
+            is PlayerEvent.OnSeekBy -> {
+                val current = controller.currentPlaybackPositionMs() ?: 0L
+                val maxDuration = controller.currentPlaybackDurationMs().takeIf { it >= 0 } ?: Long.MAX_VALUE
+                companionManager.reportPartySeek(
+                    (current + event.deltaMs).coerceAtLeast(0L).coerceAtMost(maxDuration)
+                )
+            }
+            // FF/RW translate to short seeks internally; mirror the same step so
+            // party members land on the same position the local controller applied.
+            PlayerEvent.OnSeekForward -> reportPartyEvent(PlayerEvent.OnSeekBy(PlayerScrubRates.STEP_SHORT_MS))
+            PlayerEvent.OnSeekBackward -> reportPartyEvent(PlayerEvent.OnSeekBy(-PlayerScrubRates.STEP_SHORT_MS))
+            else -> Unit
+        }
     }
 
     fun bindExoSubtitleView(subtitleView: androidx.media3.ui.SubtitleView?) {
@@ -262,6 +355,11 @@ class PlayerViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        companionPlaybackBridge.unregisterActivePlayer(companionActivePlayer)
+        // Release the fork before the bridge loses the active player, so the phone gets a clean
+        // end even if no audio_fork_stop frame ever arrives. (The controller also stops it on
+        // release — this covers the gap between VM teardown and the controller's own lifecycle.)
+        companionActivePlayer.stopPhoneAudioFork()
         postPlayRecommendationController.stop()
         controller.onCleared()
         // Allow the trailer player to be re-created when returning to home screen.

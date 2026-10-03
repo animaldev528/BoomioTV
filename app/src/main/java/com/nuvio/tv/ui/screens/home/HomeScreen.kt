@@ -12,10 +12,12 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Divider
@@ -59,6 +61,7 @@ import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.components.PosterCardDefaults
 import com.nuvio.tv.ui.components.PosterCardStyle
 import androidx.compose.ui.res.stringResource
+import com.nuvio.tv.LocalMoreLikeThisNavigator
 import com.nuvio.tv.R
 import com.nuvio.tv.core.tracking.LOCAL_LIBRARY_LIST_KEY
 import com.nuvio.tv.core.tracking.supportsMembershipFor
@@ -95,7 +98,8 @@ fun HomeScreen(
     onContinueWatchingStartFromBeginning: (ContinueWatchingItem) -> Unit = onContinueWatchingClick,
     onContinueWatchingPlayManually: (ContinueWatchingItem) -> Unit = onContinueWatchingClick,
     onNavigateToCatalogSeeAll: (String, String, String) -> Unit = { _, _, _ -> },
-    onNavigateToFolderDetail: (String, String) -> Unit = { _, _ -> }
+    onNavigateToFolderDetail: (String, String) -> Unit = { _, _ -> },
+    onNavigateToDrillDown: (DrillTarget) -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
@@ -131,6 +135,9 @@ fun HomeScreen(
     // Track that catalog loading has started at least once (isLoading went true→false).
     var catalogLoadingStarted by rememberSaveable { mutableStateOf(false) }
     var posterOptionsTarget by remember { mutableStateOf<HomePosterOptionsTarget?>(null) }
+    // "Not now" on the taste hint hides it for the rest of this process run; it
+    // comes back next launch until the profile hits "Done for now".
+    var tasteHintDismissed by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(uiState.homeLayout) {
         if (uiState.homeLayout != HomeLayout.MODERN) {
@@ -155,6 +162,7 @@ fun HomeScreen(
         { item, addonBaseUrl ->
             posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl)
             viewModel.refreshPosterLibraryStatus(item)
+            viewModel.refreshPosterLikeStatus(item)
         }
     }
 
@@ -404,7 +412,8 @@ fun HomeScreen(
                                 showContinueWatchingManualPlayOption = effectiveAutoplayEnabled,
                                 onNavigateToFolderDetail = onNavigateToFolderDetailStable,
                                 isCatalogItemWatched = isCatalogItemWatched,
-                                onCatalogItemLongPress = onCatalogItemLongPress
+                                onCatalogItemLongPress = onCatalogItemLongPress,
+                                onNavigateToDrillDown = onNavigateToDrillDown
                             )
                         }
                     }
@@ -443,6 +452,20 @@ fun HomeScreen(
                 )
             }
         }
+
+        // Like-bootstrap first-run hint: "long-press a title you like" + Done. Shown
+        // once home content is actually on screen, hidden for this run on "Not now",
+        // gone for good once the profile hits Done (taste_completed flips server-side).
+        if (uiState.showTasteHint && !tasteHintDismissed && hasShownInitialHomeContent) {
+            HomeTasteHintBanner(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = NuvioTheme.spacing.xl),
+                busy = uiState.tasteHintBusy,
+                onDone = { viewModel.completeTasteOnboarding() },
+                onLater = { tasteHintDismissed = true }
+            )
+        }
     }
 
     val selectedPoster = posterOptionsTarget
@@ -453,6 +476,18 @@ fun HomeScreen(
         val isSeries = item.apiType.equals("series", ignoreCase = true) ||
             item.apiType.equals("tv", ignoreCase = true) ||
             item.apiType.equals("anime", ignoreCase = true)
+        // Same "More like this" action the shared poster-options dialog (search/catalog)
+        // offers: navigate to Screen.MoreLikeThis, whose screen re-resolves the active
+        // profile's curated row addon. Movie/Series tiles only.
+        val navigateMoreLikeThis = LocalMoreLikeThisNavigator.current
+        val onMoreLikeThis = if (navigateMoreLikeThis != null && (isMovie || isSeries)) {
+            {
+                navigateMoreLikeThis(if (isMovie) "movie" else "series", item.id, item.name, emptyList())
+                posterOptionsTarget = null
+            }
+        } else {
+            null
+        }
         HomePosterOptionsDialog(
             title = item.name,
             isInLibrary = uiState.posterLibraryMembership[statusKey] == true,
@@ -467,6 +502,7 @@ fun HomeScreen(
                 onNavigateToDetail(item.id, item.apiType, selectedPoster.addonBaseUrl)
                 posterOptionsTarget = null
             },
+            onMoreLikeThis = onMoreLikeThis,
             onToggleLibrary = {
                 if (uiState.librarySourceMode != LibrarySourceMode.LOCAL) {
                     viewModel.openPosterListPicker(item, selectedPoster.addonBaseUrl)
@@ -474,6 +510,14 @@ fun HomeScreen(
                     viewModel.togglePosterLibrary(item, selectedPoster.addonBaseUrl)
                 }
                 posterOptionsTarget = null
+            },
+            showLike = uiState.posterLikeVisible && statusKey in uiState.posterLikeTargets,
+            isLiked = uiState.posterLikeMembership[statusKey] == true,
+            isLikePending = statusKey in uiState.posterLikePending,
+            onToggleLike = if (uiState.posterLikeVisible && statusKey in uiState.posterLikeTargets) {
+                { viewModel.togglePosterLike(item) }
+            } else {
+                null
             },
             onToggleWatched = {
                 if (isMovie) {
@@ -638,7 +682,8 @@ private fun ModernHomeRoute(
     showContinueWatchingManualPlayOption: Boolean,
     onNavigateToFolderDetail: (String, String) -> Unit = { _, _ -> },
     isCatalogItemWatched: (MetaPreview) -> Boolean,
-    onCatalogItemLongPress: (MetaPreview, String) -> Unit
+    onCatalogItemLongPress: (MetaPreview, String) -> Unit,
+    onNavigateToDrillDown: (DrillTarget) -> Unit = {}
 ) {
     val focusState by viewModel.focusState.collectAsStateWithLifecycle()
     val scrollToTopTrigger by viewModel.scrollToTopTrigger.collectAsStateWithLifecycle()
@@ -696,6 +741,7 @@ private fun ModernHomeRoute(
         isCatalogItemWatched = isCatalogItemWatched,
         onCatalogItemLongPress = onCatalogItemLongPress,
         onNavigateToFolderDetail = onNavigateToFolderDetail,
+        onNavigateToDrillDown = onNavigateToDrillDown,
         onItemFocus = remember(viewModel) {
             { item -> viewModel.onItemFocus(item) }
         },
@@ -723,8 +769,16 @@ private fun HomePosterOptionsDialog(
     isWatchedPending: Boolean,
     onDismiss: () -> Unit,
     onDetails: () -> Unit,
+    onMoreLikeThis: (() -> Unit)? = null,
     onToggleLibrary: () -> Unit,
-    onToggleWatched: () -> Unit
+    onToggleWatched: () -> Unit,
+    // Like-bootstrap row (mirrors the shared PosterOptionsDialog): present only for
+    // movie/series on an opted-in, non-kids profile, and only when the tile resolves
+    // to a tmdb id.
+    showLike: Boolean = false,
+    isLiked: Boolean = false,
+    isLikePending: Boolean = false,
+    onToggleLike: (() -> Unit)? = null
 ) {
     val primaryFocusRequester = remember { FocusRequester() }
 
@@ -748,6 +802,37 @@ private fun HomePosterOptionsDialog(
             )
         ) {
             Text(stringResource(R.string.cw_action_go_to_details))
+        }
+
+        if (onMoreLikeThis != null) {
+            Button(
+                onClick = onMoreLikeThis,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.colors(
+                    containerColor = NuvioTheme.colors.BackgroundCard,
+                    contentColor = NuvioTheme.colors.TextPrimary
+                )
+            ) {
+                Text(stringResource(R.string.detail_tab_more_like_this))
+            }
+        }
+
+        if (showLike && onToggleLike != null) {
+            Button(
+                onClick = onToggleLike,
+                enabled = !isLikePending,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.colors(
+                    containerColor = if (isLiked) NuvioTheme.colors.FocusBackground else NuvioTheme.colors.BackgroundCard,
+                    contentColor = NuvioTheme.colors.TextPrimary
+                )
+            ) {
+                Text(
+                    stringResource(
+                        if (isLiked) R.string.like_action_unlike else R.string.like_action_like
+                    )
+                )
+            }
         }
 
         Button(
@@ -789,6 +874,64 @@ private fun HomePosterOptionsDialog(
                         stringResource(R.string.hero_mark_watched)
                     }
                 )
+            }
+        }
+    }
+}
+
+/** Dismissible first-run banner teaching the long-press Like gesture. Green accent
+ *  to read as an invitation, not an error (the auth-notice box uses red). */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun HomeTasteHintBanner(
+    modifier: Modifier = Modifier,
+    busy: Boolean,
+    onDone: () -> Unit,
+    onLater: () -> Unit
+) {
+    Box(
+        modifier = modifier
+            .background(color = Color(0xFF1C4A2E), shape = RoundedCornerShape(10.dp))
+            .padding(horizontal = 20.dp, vertical = 12.dp)
+    ) {
+        Row(
+            modifier = Modifier.widthIn(max = 1480.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(R.string.taste_hint_message),
+                style = MaterialTheme.typography.bodyMedium,
+                color = NuvioTheme.colors.TextPrimary,
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .padding(end = 18.dp)
+            )
+            Button(
+                onClick = onDone,
+                enabled = !busy,
+                colors = ButtonDefaults.colors(
+                    containerColor = NuvioTheme.colors.FocusBackground,
+                    contentColor = NuvioTheme.colors.TextPrimary
+                )
+            ) {
+                Text(
+                    if (busy) {
+                        stringResource(R.string.taste_hint_done_busy)
+                    } else {
+                        stringResource(R.string.taste_hint_done)
+                    }
+                )
+            }
+            Button(
+                onClick = onLater,
+                enabled = !busy,
+                modifier = Modifier.padding(start = 10.dp),
+                colors = ButtonDefaults.colors(
+                    containerColor = NuvioTheme.colors.BackgroundCard,
+                    contentColor = NuvioTheme.colors.TextPrimary
+                )
+            ) {
+                Text(stringResource(R.string.taste_hint_later))
             }
         }
     }

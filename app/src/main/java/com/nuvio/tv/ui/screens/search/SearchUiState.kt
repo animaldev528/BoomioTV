@@ -5,6 +5,7 @@ import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.DiscoverLocation
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.domain.model.PersonSearchPreview
 
 internal const val MIN_SEARCH_QUERY_LENGTH = 2
 
@@ -47,7 +48,10 @@ data class SearchUiState(
     val posterCardHeightDp: Int = 189,
     val posterCardCornerRadiusDp: Int = 12,
     val recentSearches: List<String> = emptyList(),
-    val suggestions: List<String> = emptyList()
+    val suggestions: List<String> = emptyList(),
+    /** Person hits for the query (TMDB /search/person); empty renders no People row. */
+    val people: List<PersonSearchPreview> = emptyList(),
+    val peopleLoading: Boolean = false
 )
 
 @Immutable

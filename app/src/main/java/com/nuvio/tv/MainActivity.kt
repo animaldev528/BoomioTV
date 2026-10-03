@@ -49,9 +49,13 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -218,9 +222,50 @@ data class SplashBackground(
 )
 val LocalSplashBackground = compositionLocalOf { SplashBackground() }
 
+/**
+ * Long-press "More like this": navigate to the More-like-this wall for a pressed
+ * title, on any profile that has a curated row addon (kids walls + adult
+ * AI-search rows). Null outside the sidebar scaffolds (e.g. onboarding), where the
+ * action must stay hidden.
+ *
+ * [exclude] carries the tt ids of the wall the user is drilling FROM (empty on the
+ * first entry from a wall/library). A MoreLikeThisScreen overrides this local for
+ * its subtree, injecting its own current tile ids, so each deeper "More like this"
+ * hides the wall it was launched from and the results keep changing (3+ deep).
+ *
+ * Port note: C5 had to declare this ahead of its own definition. `08b8106c3` (C5)
+ * adds the consumer side — `HomeScreen` reads the local and only offers the action
+ * when it is non-null — but on the fork the declaration and both `provides` sites
+ * arrive in `2c4af99ec`, which `08b8106c3` merely postdates. C5 therefore landed it
+ * provider-less so the branch compiled (`.current` null, action hidden); C6 ports
+ * `2c4af99ec`'s `provides` blocks and the `Screen.MoreLikeThis` route, which is what
+ * makes the action appear.
+ *
+ * The 4-arg shape is deliberate. `2c4af99ec` declares it 3-arg, but `08b8106c3` — a
+ * C5 commit, already on this branch — calls it with a trailing `emptyList()`, and
+ * `63ab18280` (C6) widens the fork's form to this same 4-arg signature to carry the
+ * drilled-from ids. Matching the widened signature here is what lets both land.
+ */
+val LocalMoreLikeThisNavigator =
+    compositionLocalOf<((type: String, id: String, title: String, exclude: List<String>) -> Unit)?> { null }
+
 private const val SIDEBAR_AUTO_COLLAPSE_DELAY_MS = 3_000L
 
 private const val MAX_SUPPORTED_FONT_SCALE = 1.15f
+
+/**
+ * Profiles that get the kids wall presentation (Leo's Nuvio profile_index == 3).
+ *
+ * For these profiles the app presents walls instead of rows: it lands on the
+ * Library wall, the Movies/TV drawer entries open the full approved-content walls
+ * (Screen.KidsMovies / Screen.KidsTv -> hub-leomovies / hub-leoshows catalogs),
+ * and the generic Home row feed is not surfaced. Content is NOT gated — the
+ * general catalog stays reachable via Search (parent decision).
+ *
+ * This mirrors the profile_index contract already used by the server-side
+ * publish_addons.py persona map (Leo = profile_id 3).
+ */
+private val KIDS_PROFILE_IDS = setOf(3)
 
 data class DrawerItem(
     val route: String,
@@ -310,6 +355,9 @@ open class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var deepLinkHandler: DeepLinkHandler
+
+    @Inject
+    lateinit var companionPlaybackBridge: com.nuvio.tv.core.boomio.CompanionPlaybackBridge
 
     private val pendingDeepLinkUrl = MutableStateFlow<String?>(null)
     private val pendingLaunchIntent = MutableStateFlow<Intent?>(null)
@@ -425,6 +473,8 @@ open class MainActivity : ComponentActivity() {
             val activeProfile = remember(activeProfileId, profiles) {
                 profiles.firstOrNull { it.id == activeProfileId }
             }
+            // Kids wall presentation (walls instead of rows) for the Leo profile.
+            val kidsMode = activeProfileId in KIDS_PROFILE_IDS
             var profilePinStates by remember { mutableStateOf<Map<Int, Boolean>>(emptyMap()) }
 
             LaunchedEffect(authState, profiles) {
@@ -832,6 +882,8 @@ open class MainActivity : ComponentActivity() {
 
                     val startDestination = when {
                         needsExperienceSelection -> Screen.ExperienceModeSelection.route
+                        // Kids land on their Library wall (long-press -> Add to library).
+                        layoutChosen && kidsMode -> Screen.Library.route
                         layoutChosen -> Screen.Home.route
                         else -> Screen.LayoutSelection.route
                     }
@@ -886,6 +938,44 @@ open class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    // Companion (bsc) play commands: a `play` frame from the hub
+                    // (phone remote or watch party) is routed into the player screen.
+                    LaunchedEffect(navController) {
+                        companionPlaybackBridge.pendingPlayRequest.collect { request ->
+                            if (request == null) return@collect
+                            Log.d("MainActivity", "companion play: ${request.title} ${request.imdbId ?: ""}")
+                            navController.navigate(
+                                Screen.Player.createRoute(
+                                    streamUrl = request.streamUrl,
+                                    title = request.title?.takeIf { it.isNotBlank() } ?: "Remote Playback",
+                                    contentId = request.imdbId,
+                                    // A companion command may name its own catalog
+                                    // type — live IPTV sends "channel", the only
+                                    // value that selects the live player UI.
+                                    // Everything else keeps the original inference.
+                                    contentType = request.contentType
+                                        ?: if (request.season != null) "series" else "movie",
+                                    season = request.season,
+                                    episode = request.episode,
+                                    resumeFromMs = request.resumeFromMs,
+                                    startPaused = request.startPaused
+                                )
+                            )
+                            companionPlaybackBridge.consumePlayRequest()
+                        }
+                    }
+
+                    // Companion (bsc) search commands: a `stealth_search` frame from the
+                    // phone remote opens the TV's Search screen so its keyboard/speech
+                    // input can drive the search field there.
+                    LaunchedEffect(navController, currentRoute) {
+                        companionPlaybackBridge.searchRequestTick.collect { tick ->
+                            if (tick <= 0) return@collect
+                            Log.d("MainActivity", "companion search requested")
+                            navigateToDrawerRoute(navController, currentRoute, Screen.Search.route)
+                        }
+                    }
+
                     // Navigate to content when launched from the Continue Watching channel row.
                     LaunchedEffect(navController) {
                         if (launchContentId != null && launchContentType != null && layoutChosen) {
@@ -904,7 +994,8 @@ open class MainActivity : ComponentActivity() {
                                         contentId = launchContentId,
                                         contentName = launchName,
                                         returnToDetailOnBack = launchContentType.equals("series", ignoreCase = true),
-                                        returnToHomeOnBack = true
+                                        // Kids' "home" is the Library wall, not the generic Home feed.
+                                        returnToHomeOnBack = !kidsMode
                                     )
                                 )
                             } else {
@@ -942,7 +1033,8 @@ open class MainActivity : ComponentActivity() {
                                     contentId = contentId,
                                     contentName = name,
                                     returnToDetailOnBack = contentType.equals("series", ignoreCase = true),
-                                    returnToHomeOnBack = true
+                                    // Kids' "home" is the Library wall, not the generic Home feed.
+                                    returnToHomeOnBack = !kidsMode
                                 )
                             )
                         } else {
@@ -995,12 +1087,28 @@ open class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    // Kids landing race: startDestination reads kidsMode, which can lag one
+                    // frame (activeProfileId defaults to profile 1 before it restores), so the
+                    // NavHost may first mount on the generic Home. Once kidsMode is known,
+                    // steer a stray Home to the Library wall. No inverse effect — a non-kids
+                    // user on Library is never yanked anywhere.
+                    LaunchedEffect(kidsMode, currentRoute) {
+                        if (kidsMode && currentRoute == Screen.Home.route) {
+                            navController.navigate(Screen.Library.route) {
+                                popUpTo(navController.graph.startDestinationId) { saveState = false }
+                                launchSingleTop = true
+                            }
+                        }
+                    }
+
                     LaunchedEffect(discoverLocation, currentRoute) {
                         if (discoverLocation == null) return@LaunchedEffect
                         val onDiscoverRoute = currentRoute == Screen.Discover.route ||
                             currentRoute?.startsWith("${Screen.Discover.route}/") == true
                         if (discoverLocation == DiscoverLocation.OFF && onDiscoverRoute) {
-                            navController.navigate(Screen.Home.route) {
+                            navController.navigate(
+                                if (kidsMode) Screen.Library.route else Screen.Home.route
+                            ) {
                                 popUpTo(navController.graph.startDestinationId) { saveState = false }
                                 launchSingleTop = true
                             }
@@ -1009,8 +1117,18 @@ open class MainActivity : ComponentActivity() {
 
                     val rootRoutes = remember(discoverLocation) {
                         buildSet {
-                            add(Screen.Home.route)
                             add(Screen.Search.route)
+                            add(Screen.Home.route)
+                            add(Screen.Movies.route)
+                            add(Screen.Tv.route)
+                            add(Screen.Anime.route)
+                            add(Screen.Iptv.route)
+                            // Kids walls are root routes for every profile (not kids-gated) so the
+                            // sidebar shows on them and a process-death back-stack restore never
+                            // hits an unregistered destination; they're only navigable via the
+                            // kids drawer / start destination.
+                            add(Screen.KidsMovies.route)
+                            add(Screen.KidsTv.route)
                             add(Screen.Library.route)
                             add(Screen.Settings.route)
                             if (discoverLocation == DiscoverLocation.IN_SIDEBAR) {
@@ -1022,54 +1140,137 @@ open class MainActivity : ComponentActivity() {
                     val strNavHome = stringResource(R.string.nav_home)
                     val strNavDiscover = stringResource(R.string.nav_discover)
                     val strNavSearch = stringResource(R.string.nav_search)
+                    val strNavMovies = stringResource(R.string.nav_movies)
+                    val strNavTv = stringResource(R.string.nav_tv)
+                    val strNavAnime = stringResource(R.string.nav_anime)
+                    val strNavIptv = stringResource(R.string.nav_iptv)
                     val strNavLibrary = stringResource(R.string.nav_library)
                     val strNavSettings = stringResource(R.string.nav_settings)
                     val drawerItems = remember(
+                        kidsMode,
                         strNavHome,
                         strNavDiscover,
                         strNavSearch,
+                        strNavMovies,
+                        strNavTv,
+                        strNavAnime,
+                        strNavIptv,
                         strNavLibrary,
                         strNavSettings,
                         discoverLocation
                     ) {
-                        buildList {
-                            add(
-                                DrawerItem(
-                                    route = Screen.Home.route,
-                                    label = strNavHome,
-                                    icon = Icons.Default.Home
-                                )
-                            )
-                            if (discoverLocation == DiscoverLocation.IN_SIDEBAR) {
+                        if (kidsMode) {
+                            // Kids drawer: Library IS home (long-press -> Add to library), and
+                            // Movies/Tv open the full approved-content walls. No Discover, no
+                            // separate Library entry. The general catalog stays reachable via
+                            // Search (content is not gated).
+                            buildList {
                                 add(
                                     DrawerItem(
-                                        route = Screen.Discover.route,
-                                        label = strNavDiscover,
-                                        icon = Icons.Default.Explore
+                                        route = Screen.Search.route,
+                                        label = strNavSearch,
+                                        iconRes = R.raw.sidebar_search
+                                    )
+                                )
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Library.route,
+                                        label = strNavHome,
+                                        icon = Icons.Default.Home
+                                    )
+                                )
+                                add(
+                                    DrawerItem(
+                                        route = Screen.KidsMovies.route,
+                                        label = strNavMovies,
+                                        icon = Icons.Default.Movie
+                                    )
+                                )
+                                add(
+                                    DrawerItem(
+                                        route = Screen.KidsTv.route,
+                                        label = strNavTv,
+                                        icon = Icons.Default.Tv
+                                    )
+                                )
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Settings.route,
+                                        label = strNavSettings,
+                                        iconRes = R.raw.sidebar_settings
                                     )
                                 )
                             }
-                            add(
-                                DrawerItem(
-                                    route = Screen.Search.route,
-                                    label = strNavSearch,
-                                    iconRes = R.raw.sidebar_search
+                        } else {
+                            buildList {
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Search.route,
+                                        label = strNavSearch,
+                                        iconRes = R.raw.sidebar_search
+                                    )
                                 )
-                            )
-                            add(
-                                DrawerItem(
-                                    route = Screen.Library.route,
-                                    label = strNavLibrary,
-                                    iconRes = R.raw.sidebar_library
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Home.route,
+                                        label = strNavHome,
+                                        icon = Icons.Default.Home
+                                    )
                                 )
-                            )
-                            add(
-                                DrawerItem(
-                                    route = Screen.Settings.route,
-                                    label = strNavSettings,
-                                    iconRes = R.raw.sidebar_settings
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Movies.route,
+                                        label = strNavMovies,
+                                        icon = Icons.Default.Movie
+                                    )
                                 )
-                            )
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Tv.route,
+                                        label = strNavTv,
+                                        icon = Icons.Default.Tv
+                                    )
+                                )
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Anime.route,
+                                        label = strNavAnime,
+                                        icon = Icons.Default.AutoAwesome
+                                    )
+                                )
+                                // Not in the kids drawer: live TV has no per-channel
+                                // rating gate, so it is not offered to kids profiles.
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Iptv.route,
+                                        label = strNavIptv,
+                                        icon = Icons.Default.LiveTv
+                                    )
+                                )
+                                if (discoverLocation == DiscoverLocation.IN_SIDEBAR) {
+                                    add(
+                                        DrawerItem(
+                                            route = Screen.Discover.route,
+                                            label = strNavDiscover,
+                                            icon = Icons.Default.Explore
+                                        )
+                                    )
+                                }
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Library.route,
+                                        label = strNavLibrary,
+                                        iconRes = R.raw.sidebar_library
+                                    )
+                                )
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Settings.route,
+                                        label = strNavSettings,
+                                        iconRes = R.raw.sidebar_settings
+                                    )
+                                )
+                            }
                         }
                     }
                     val selectedDrawerRoute = drawerItems.firstOrNull { item ->
@@ -1138,6 +1339,7 @@ open class MainActivity : ComponentActivity() {
                                     sidebarCollapsed = sidebarCollapsed,
                                     modernSidebarBlurEnabled = modernSidebarBlurEnabled,
                                     hideBuiltInHeaders = hideBuiltInHeadersForFloatingPill,
+                                    kidsMode = kidsMode,
                                     activeProfileName = activeProfile?.name ?: "",
                                     activeProfileColorHex = activeProfile?.avatarColorHex ?: "#1E88E5",
                                     activeProfileAvatarImageUrl = activeProfileAvatarImageUrl,
@@ -1157,6 +1359,7 @@ open class MainActivity : ComponentActivity() {
                                     selectedDrawerRoute = selectedDrawerRoute,
                                     sidebarCollapsed = sidebarCollapsed,
                                     hideBuiltInHeaders = false,
+                                    kidsMode = kidsMode,
                                     activeProfileName = activeProfile?.name ?: "",
                                     activeProfileColorHex = activeProfile?.avatarColorHex ?: "#1E88E5",
                                     activeProfileAvatarImageUrl = activeProfileAvatarImageUrl,
@@ -1366,6 +1569,7 @@ private fun LegacySidebarScaffold(
     selectedDrawerRoute: String?,
     sidebarCollapsed: Boolean,
     hideBuiltInHeaders: Boolean,
+    kidsMode: Boolean,
     activeProfileName: String,
     activeProfileColorHex: String,
     activeProfileAvatarImageUrl: String?,
@@ -1637,7 +1841,10 @@ private fun LegacySidebarScaffold(
         ) {
             CompositionLocalProvider(
                 LocalSidebarExpanded provides (drawerState.currentValue == DrawerValue.Open),
-                LocalContentFocusRequester provides contentFocusRequester
+                LocalContentFocusRequester provides contentFocusRequester,
+                LocalMoreLikeThisNavigator provides { type, id, title, exclude ->
+                    navController.navigate(Screen.MoreLikeThis.createRoute(type, id, title, exclude))
+                }
             ) {
                 NuvioNavHost(
                     navController = navController,
@@ -1761,6 +1968,7 @@ private fun ModernSidebarScaffold(
     sidebarCollapsed: Boolean,
     modernSidebarBlurEnabled: Boolean,
     hideBuiltInHeaders: Boolean,
+    kidsMode: Boolean,
     activeProfileName: String,
     activeProfileColorHex: String,
     activeProfileAvatarImageUrl: String?,
@@ -2031,7 +2239,10 @@ private fun ModernSidebarScaffold(
         ) {
             CompositionLocalProvider(
                 LocalSidebarExpanded provides isSidebarExpanded,
-                LocalContentFocusRequester provides contentFocusRequester
+                LocalContentFocusRequester provides contentFocusRequester,
+                LocalMoreLikeThisNavigator provides { type, id, title, exclude ->
+                    navController.navigate(Screen.MoreLikeThis.createRoute(type, id, title, exclude))
+                }
             ) {
                 NuvioNavHost(
                     navController = navController,

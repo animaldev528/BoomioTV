@@ -11,6 +11,10 @@ internal fun PlayerRuntimeController.releasePlayer() {
 internal fun PlayerRuntimeController.releasePlayer(flushPlaybackState: Boolean) {
     logScrobbleDiagnostic("release_player", "flushPlaybackState=$flushPlaybackState")
     isReleasingPlayer = true
+    // A private-listening fork is bound to the active Exo session, not the WS connection: kill it
+    // on any release (playback end, stop, engine handover) even if no audio_fork_stop ever arrives.
+    // Belt-and-braces alongside the hub heartbeat and the disposeExoPlayerBeforeRebuild hook.
+    stopPhoneAudioFork()
     com.nuvio.tv.core.recommendations.TvRecommendationManager.isPlaybackActive.value = false
     if (flushPlaybackState) {
         stopTorrentStream()

@@ -92,6 +92,7 @@ sealed class ModernPayload {
         val titleLogoUrl: String?,
         val coverEmoji: String? = null
     ) : ModernPayload()
+    data class Drill(val target: DrillTarget) : ModernPayload()
 }
 
 @Immutable
@@ -174,6 +175,7 @@ internal data class ModernCatalogRowBuildCacheEntry(
     val showCatalogTypeSuffix: Boolean,
     val showImdbRatings: Boolean,
     val localeTag: String,
+    val gatedItemKeys: Set<String>,
     val mappedRow: HeroCarouselRow
 )
 
@@ -234,6 +236,7 @@ internal fun ModernCarouselItem.catalogCardMetrics(
     val posterShape = when (payload) {
         is ModernPayload.Catalog -> metaPreview?.posterShape ?: PosterShape.POSTER
         is ModernPayload.CollectionFolder -> payload.posterShape
+        is ModernPayload.Drill -> PosterShape.POSTER
         is ModernPayload.ContinueWatching -> PosterShape.POSTER
     }
 
@@ -515,7 +518,12 @@ internal fun buildCatalogItem(
             focusKey = "${row.key()}::${item.id}",
             itemId = item.id,
             itemType = item.apiType,
-            addonBaseUrl = row.addonBaseUrl,
+            // Items carry their origin addon (sourceAddonBaseUrl, stamped by the
+            // catalog mapper); a Home hub-group row merges content from two sibling
+            // row addons (hub-genremovie + hub-genreseries), so each poster must
+            // open detail through ITS OWN addon — fall back to the row's for rows
+            // whose items all come from that one addon.
+            addonBaseUrl = item.sourceAddonBaseUrl ?: row.addonBaseUrl,
             trailerTitle = item.name,
             trailerReleaseInfo = item.releaseInfo,
             trailerApiType = item.apiType

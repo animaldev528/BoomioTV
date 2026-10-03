@@ -182,7 +182,11 @@ private fun CastDetailContent(
     val allCredits = remember(person.movieCredits, person.tvCredits) {
         (person.movieCredits + person.tvCredits)
             .distinctBy { it.id }
-            .sortedByDescending { releaseYearSortKey(it.releaseInfo) }
+            .sortedWith(
+                compareByDescending<MetaPreview> { it.voteCount ?: -1 }
+                    .thenByDescending { it.imdbRating ?: -1f }
+                    .thenByDescending { releaseYearSortKey(it.releaseInfo) }
+            )
     }
 
     val filmographyPosterStyle = remember(posterCardCornerRadiusDp) {
@@ -255,7 +259,7 @@ private fun CastDetailContent(
                 )
 
                 AnimatedVisibility(
-                    visible = allCredits.isNotEmpty() && !isBiographyExpanded,
+                    visible = !isBiographyExpanded,
                     enter = fadeIn() +
                         expandVertically(expandFrom = Alignment.Top) +
                         slideInVertically(initialOffsetY = { it / 2 }),
@@ -268,22 +272,39 @@ private fun CastDetailContent(
                             title = stringResource(R.string.cast_detail_filmography),
                             count = allCredits.size
                         )
-                        FilmographyRow(
-                            credits = allCredits,
-                            posterCardStyle = filmographyPosterStyle,
-                            firstItemFocusRequester = firstPosterFocusRequester,
-                            restoreItemId = pendingRestoreItemId,
-                            restoreFocusToken = restoreFocusToken,
-                            onRestoreFocusHandled = { pendingRestoreItemId = null },
-                            onItemClick = { item ->
-                                pendingRestoreItemId = item.id
-                                onNavigateToDetail(item.id, item.apiType, null)
-                            },
-                            onItemLongPress = { item ->
-                                posterOptions.show(item, null)
-                            },
-                            isItemWatched = isItemWatched
-                        )
+                        if (allCredits.isEmpty()) {
+                            // Reached only when a person genuinely has no known works —
+                            // a failed credits request now surfaces as Error/retry instead
+                            // of a silent empty filmography. State it explicitly rather
+                            // than hiding the region.
+                            Text(
+                                text = stringResource(R.string.cast_detail_filmography_empty, person.name),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = NuvioTheme.colors.TextSecondary,
+                                modifier = Modifier.padding(
+                                    start = NuvioTheme.spacing.xxxl,
+                                    end = NuvioTheme.spacing.xxxl,
+                                    top = NuvioTheme.spacing.md
+                                )
+                            )
+                        } else {
+                            FilmographyRow(
+                                credits = allCredits,
+                                posterCardStyle = filmographyPosterStyle,
+                                firstItemFocusRequester = firstPosterFocusRequester,
+                                restoreItemId = pendingRestoreItemId,
+                                restoreFocusToken = restoreFocusToken,
+                                onRestoreFocusHandled = { pendingRestoreItemId = null },
+                                onItemClick = { item ->
+                                    pendingRestoreItemId = item.id
+                                    onNavigateToDetail(item.id, item.apiType, null)
+                                },
+                                onItemLongPress = { item ->
+                                    posterOptions.show(item, null)
+                                },
+                                isItemWatched = isItemWatched
+                            )
+                        }
                     }
                 }
             }

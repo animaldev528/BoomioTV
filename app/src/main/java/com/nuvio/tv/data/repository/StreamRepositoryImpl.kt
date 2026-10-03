@@ -2,7 +2,9 @@ package com.nuvio.tv.data.repository
 
 import android.content.Context
 import android.util.Log
+import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.R
+import com.nuvio.tv.core.network.NetworkMeter
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.network.safeApiCall
 import com.nuvio.tv.core.debrid.DebridStreamPresentation
@@ -41,6 +43,7 @@ import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import java.net.URLEncoder
 import java.security.MessageDigest
+import java.util.Locale
 import javax.inject.Inject
 
 private const val TAG = "StreamRepositoryImpl"
@@ -54,7 +57,8 @@ class StreamRepositoryImpl @Inject constructor(
     private val debridSettingsDataStore: DebridSettingsDataStore,
     private val tmdbService: TmdbService,
     private val debridStreamPresentation: DebridStreamPresentation,
-    private val localDebridAvailabilityService: LocalDebridAvailabilityService
+    private val localDebridAvailabilityService: LocalDebridAvailabilityService,
+    private val networkMeter: NetworkMeter
 ) : StreamRepository {
     private val streamSearchSessions = StreamSearchSessionCache()
     private val localPluginSearchPaused = MutableStateFlow(false)
@@ -579,7 +583,37 @@ class StreamRepositoryImpl @Inject constructor(
         val baseQuery = if (queryStart >= 0) cleanBaseUrl.substring(queryStart) else ""
         val encodedType = encodePathSegment(type)
         val encodedVideoId = encodePathSegment(videoId)
-        val streamUrl = "$basePath/stream/$encodedType/$encodedVideoId.json$baseQuery"
+        val streamUrl = buildString {
+            append(basePath)
+            append("/stream/")
+            append(encodedType)
+            append('/')
+            append(encodedVideoId)
+            append(".json")
+            append(baseQuery)
+            // boomio-only cap params — bsf is the only endpoint that reads these, so attach them only
+            // when this request targets the boomio media plane. (Also guards the latent startsWith("")
+            // hazard when BOOMIO_BASE_URL is unset: without isNotEmpty() below, a configured
+            // BOOMIO_MAX_RESOLUTION would previously leak onto every addon request.)
+            val boomioBase = BuildConfig.BOOMIO_BASE_URL.trim().trimEnd('/')
+            val isBoomioEndpoint = boomioBase.isNotEmpty() && basePath.startsWith(boomioBase)
+            val maxResolution = BuildConfig.BOOMIO_MAX_RESOLUTION.trim()
+                .takeIf { it.isNotBlank() && isBoomioEndpoint }
+            if (maxResolution != null) {
+                append(if (baseQuery.isEmpty()) '?' else '&')
+                // snake_case: bsf's GET parser reads maxres|max_resolution, not camelCase maxResolution.
+                append("max_resolution=")
+                append(maxResolution)
+            }
+            // Measured link cap (Mbps) — bsf's gates hard-drop streams above mobileCapMbps, so the box
+            // is only offered qualities its measured link can hold. Absent until the meter has run.
+            val measuredMbps = networkMeter.lastMeasuredMbps()
+            if (isBoomioEndpoint && measuredMbps != null) {
+                append(if (baseQuery.isEmpty() && maxResolution == null) '?' else '&')
+                append("mobileCapMbps=")
+                append(String.format(Locale.US, "%.1f", measuredMbps))
+            }
+        }
         Log.d(TAG, "Fetching streams type=$type videoId=$videoId url=$streamUrl")
 
         // Display info comes from the installed addon the caller already holds. Calling

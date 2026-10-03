@@ -1,13 +1,18 @@
 package com.nuvio.tv.ui.screens.search
 
+import com.nuvio.tv.core.activity.ActivityEventReporter
+import com.nuvio.tv.core.boomio.CompanionPlaybackBridge
+
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.R
 import com.nuvio.tv.core.network.NetworkResult
+import com.nuvio.tv.core.tmdb.TmdbMetadataService
 import com.nuvio.tv.data.local.DiscoverSelectionDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.local.SearchHistoryDataStore
+import com.nuvio.tv.data.local.TmdbSettingsDataStore
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.CatalogRow
@@ -56,6 +61,10 @@ class SearchViewModel @Inject constructor(
     private val watchProgressRepository: com.nuvio.tv.domain.repository.WatchProgressRepository,
     private val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
     val posterOptions: com.nuvio.tv.ui.components.posteroptions.PosterOptionsController,
+    private val tmdbMetadataService: TmdbMetadataService,
+    private val tmdbSettingsDataStore: TmdbSettingsDataStore,
+    private val activityEventReporter: ActivityEventReporter,
+    val companionPlaybackBridge: CompanionPlaybackBridge,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -83,6 +92,9 @@ class SearchViewModel @Inject constructor(
      */
     private val activeLoadMoreJobs: MutableSet<Job> =
         java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    /** C7's People-strip fetch, cancelled with the rest of the run in [cancelSearchRun]. */
+    private var peopleJob: Job? = null
     private var searchRunJob: Job? = null
     private var activeSearchQuery: String? = null
     private var searchGeneration = 0L
@@ -416,6 +428,14 @@ class SearchViewModel @Inject constructor(
     private fun submitSearch() {
         // An explicit submit just skips the remaining debounce; the live run would land anyway.
         liveSearchJob?.cancel()
+        val query = _uiState.value.query.trim()
+        activityEventReporter.report(
+            eventType = "search",
+            status = "succeeded",
+            entityType = "search",
+            entityKey = query,
+            action = "submit",
+        )
         performSearch(_uiState.value.query, rememberToHistory = true)
     }
 
@@ -467,6 +487,8 @@ class SearchViewModel @Inject constructor(
         activeSearchJobs = emptyList()
         activeLoadMoreJobs.forEach { it.cancel() }
         activeLoadMoreJobs.clear()
+        peopleJob?.cancel()
+        peopleJob = null
         activeSearchQuery = null
     }
 
@@ -523,7 +545,9 @@ class SearchViewModel @Inject constructor(
                 it.copy(
                     isSearching = false,
                     error = null,
-                    catalogRows = emptyList()
+                    catalogRows = emptyList(),
+                    people = emptyList(),
+                    peopleLoading = false
                 )
             }
             ensureDiscoverLoaded()
@@ -536,6 +560,11 @@ class SearchViewModel @Inject constructor(
         cancelSearchRun()
         val generation = searchGeneration
         activeSearchQuery = query
+
+        // People hits run alongside the catalog fan-out. They arrive as one list (swap-in rather
+        // than merge), so the strip keeps the previous query's people until this query answers —
+        // the same no-flash behavior catalog rows use.
+        launchPeopleSearch(query, generation)
 
         val job = viewModelScope.launch {
             val addons = try {
@@ -692,6 +721,24 @@ class SearchViewModel @Inject constructor(
             }
         }
         searchRunJob = job
+    }
+
+    /**
+     * Fetches TMDB person hits for the query and swaps them into [SearchUiState.people]. Tracked
+     * separately from the catalog fan-out so [cancelSearchRun] retires it on every keystroke, and
+     * generation-guarded so a stale response can never clobber a newer query's results. The TMDB
+     * service never throws — a failure simply lands an empty list and hides the strip.
+     */
+    private fun launchPeopleSearch(query: String, generation: Long) {
+        peopleJob?.cancel()
+        peopleJob = viewModelScope.launch {
+            _uiState.update { it.copy(peopleLoading = true) }
+            val language = runCatching { tmdbSettingsDataStore.settings.first().language }
+                .getOrDefault("en")
+            val results = tmdbMetadataService.searchPeople(query, language = language, limit = 12)
+            if (generation != searchGeneration) return@launch
+            _uiState.update { it.copy(people = results, peopleLoading = false) }
+        }
     }
 
     private suspend fun loadCatalog(

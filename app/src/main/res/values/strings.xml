@@ -168,6 +168,12 @@
     <string name="cw_action_remove">Remove</string>
     <string name="cw_dialog_subtitle">Choose what you want to do with this item.</string>
     <string name="home_poster_dialog_subtitle">Title actions</string>
+    <string name="like_action_like">Like</string>
+    <string name="like_action_unlike">Unlike</string>
+    <string name="taste_hint_message">Go look around and long-press the titles you love — try Search &amp; More like this to find more. Come back here and press Done for now: your rows rebuild around your likes.</string>
+    <string name="taste_hint_done">Done for now</string>
+    <string name="taste_hint_done_busy">Syncing…</string>
+    <string name="taste_hint_later">Not now</string>
 
     <string name="catalog_from_addon">from %1$s</string>
     <string name="action_see_all">See All</string>
@@ -1900,6 +1906,7 @@
     <string name="search_voice_mic_permission">Microphone permission is required for voice search.</string>
     <string name="search_voice_failed">Voice recognition failed. Try again.</string>
     <string name="search_voice_unavailable">Voice search is unavailable on this device.</string>
+    <string name="search_people_section_title">People</string>
     <string name="search_no_results_title">No Results</string>
     <string name="search_no_results_subtitle">Try searching with different keywords</string>
     <string name="search_error_no_catalogs">No searchable catalogs found in installed addons</string>
@@ -2215,6 +2222,7 @@
     <string name="cast_detail_error">Something went wrong</string>
     <string name="cast_detail_retry">Retry</string>
     <string name="cast_detail_filmography">Filmography</string>
+    <string name="cast_detail_filmography_empty">No known Movies or Series on record for %1$s.</string>
     <string name="cast_detail_born">Born: %1$s</string>
     <string name="cast_detail_born_died">Born: %1$s — †%2$s</string>
     <string name="cast_detail_age">age %1$d</string>
@@ -2222,6 +2230,9 @@
     <string name="catalog_see_all_from">from %1$s</string>
     <string name="catalog_see_all_empty_title">No items available</string>
     <string name="catalog_see_all_empty_subtitle">Try a different catalog or check back later</string>
+    <string name="hub_source_all">All</string>
+    <string name="hub_empty_title">Nothing here yet</string>
+    <string name="hub_empty_subtitle">Enable a catalog addon to populate this hub</string>
 
     <string name="layout_selection_welcome">Welcome to Nuvio</string>
     <string name="layout_selection_subtitle">Choose your home screen layout</string>
@@ -2287,7 +2298,15 @@
     <string name="nav_addons">Addons</string>
     <string name="nav_movies">Movies</string>
     <string name="nav_series">Series</string>
+    <string name="nav_tv">TV</string>
+    <string name="nav_anime">Anime</string>
+    <string name="nav_iptv">Live TV</string>
     <string name="nav_settings">Settings</string>
+    <string name="kids_wall_unavailable_title">Not available yet</string>
+    <string name="kids_wall_unavailable_subtitle">This list is still updating — check back in a moment</string>
+    <string name="more_like_this_header_title">More like %1$s</string>
+    <string name="more_like_this_empty_title">Not on one of our lists</string>
+    <string name="more_like_this_empty_subtitle">This title isn\'t part of a curated group yet. Try another poster.</string>
     <string name="action_select">Select</string>
     <string name="settings_rounded_ui">Rounded UI</string>
     <string name="cd_expand_sidebar">Expand sidebar</string>
