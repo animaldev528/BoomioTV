@@ -9,6 +9,10 @@ sealed class Screen(val route: String) {
     data object Movies : Screen("movies")
     data object Tv : Screen("tv")
     data object Anime : Screen("anime")
+    // Live IPTV channels from the boomio edge. No route arguments: the section
+    // owns its own pairing state, and playback goes through Player with
+    // contentType="channel" (which is what tells the player it is live).
+    data object Iptv : Screen("iptv")
     // Kids wall presentation (Leo): full approved-content poster walls instead of
     // the genre-row Movies/TV browsers. Reached only from the kids drawer; registered
     // in the graph unconditionally so a back-stack restore can never hit an

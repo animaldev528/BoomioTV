@@ -31,6 +31,7 @@ import com.nuvio.tv.ui.screens.LayoutSelectionScreen
 import com.nuvio.tv.ui.screens.detail.MetaDetailsScreen
 import com.nuvio.tv.ui.screens.home.HomeScreen
 import com.nuvio.tv.ui.screens.addon.AddonManagerScreen
+import com.nuvio.tv.ui.screens.iptv.IptvScreen
 import com.nuvio.tv.ui.screens.addon.CatalogOrderScreen
 import com.nuvio.tv.ui.screens.kids.KidWallKind
 import com.nuvio.tv.ui.screens.kids.KidWallScreen
@@ -1294,6 +1295,26 @@ private fun PlaybackNavHost(
                 onBackPress = { navController.popBackStack() },
                 onNavigateToCatalogOrder = { navController.navigate(Screen.CatalogOrder.route) },
                 onNavigateToCollections = { navController.navigate(Screen.Collections.route) }
+            )
+        }
+
+        composable(Screen.Iptv.route) {
+            IptvScreen(
+                onPlayChannel = { playlistUrl, channel ->
+                    // contentType="channel" is the whole live-playback contract:
+                    // it selects the live UI (no seek bar, no progress resume) and
+                    // tells the player this URL has no duration.
+                    navController.navigate(
+                        Screen.Player.createRoute(
+                            streamUrl = playlistUrl,
+                            title = channel.name,
+                            contentId = channel.streamId,
+                            contentType = "channel",
+                            contentName = channel.name,
+                            logo = channel.icon
+                        )
+                    )
+                }
             )
         }
 

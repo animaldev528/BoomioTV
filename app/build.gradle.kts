@@ -148,6 +148,10 @@ android {
         buildConfigField("String", "PREMIUMIZE_CLIENT_ID", "\"${localProperties.getProperty("PREMIUMIZE_CLIENT_ID", "")}\"")
         buildConfigField("String", "BOOMIO_BASE_URL", buildConfigString(resolveProperty(devProperties, localProperties, "BOOMIO_BASE_URL")))
         buildConfigField("String", "BOOMIO_COMPANION_URL", buildConfigString(resolveProperty(devProperties, localProperties, "BOOMIO_COMPANION_URL")))
+        // Live-IPTV edge (bss-iptv). Blank in a build with no IPTV service behind
+        // it, which is what makes the IPTV section show its "not set up" state
+        // rather than probing a host that does not exist.
+        buildConfigField("String", "BOOMIO_IPTV_URL", buildConfigString(resolveProperty(devProperties, localProperties, "BOOMIO_IPTV_URL")))
         // Install-level stream capability hint (e.g. "1080p"). When set, the
         // companion resolver asks bsf to cap streams so higher resolutions
         // (4K) never reach this device's picker.
