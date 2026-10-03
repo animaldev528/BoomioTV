@@ -55,6 +55,14 @@ class ProfileSyncService @Inject constructor(
     private var pullFreshness = ProfilePullFreshness()
     private var lastPulledProfiles = emptyList<UserProfile>()
 
+    /**
+     * Account id whose empty remote profile list we already seeded from the local store, so the
+     * seed push runs at most once per signed-in account per app session. See
+     * [seedRemoteFromLocalIfEmpty] for why this must never run against a non-empty remote range.
+     */
+    @Volatile
+    private var seededEmptyRemoteForUserId: String? = null
+
     private suspend fun <T> withJwtRefreshRetry(block: suspend () -> T): T {
         return try {
             block()
@@ -132,25 +140,89 @@ class ProfileSyncService @Inject constructor(
                     )
                 }
 
+                // A brand-new account has no profile rows server-side yet, and the local store
+                // synthesises a default "Profile 1" that nothing ever pushes (pushToRemote() is
+                // only called from the profile create/save screens). Seed the server from the
+                // local list the first time we see the account's remote list genuinely empty, so
+                // profile 1 materialises server-side on first login instead of waiting for
+                // someone to open Manage Profiles. Guarded and latched in the helper below.
+                var effectiveProfiles = profiles
                 if (profiles.isNotEmpty()) {
                     profileDataStore.replaceAllProfiles(profiles)
                     Log.d(TAG, "Merged ${profiles.size} remote profiles into local store")
+                } else if (seedRemoteFromLocalIfEmpty(userId)) {
+                    // The remote range is no longer empty, so report the list we just seeded from
+                    // rather than the stale empty pull result.
+                    effectiveProfiles = profileManager.profiles.value
                 }
 
                 val currentUserId = (authManager.authState.value as? AuthState.FullAccount)?.userId
                 if (userId != null && currentUserId == userId) {
-                    lastPulledProfiles = profiles
+                    lastPulledProfiles = effectiveProfiles
                     pullFreshness = ProfilePullFreshness(
                         userId = userId,
                         pulledAtMs = SystemClock.elapsedRealtime()
                     )
                 }
-                Result.success(profiles)
+                Result.success(effectiveProfiles)
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to pull profiles from remote", e)
                 Result.failure(e)
             }
         }
+    }
+
+    /**
+     * Seeds the server with the local profile list when a pull came back genuinely empty for a
+     * signed-in account.
+     *
+     * DATA-LOSS GUARD — do not weaken. The `sync_push_profiles` RPC DELETEs every profile row in
+     * the caller's profile range that is not present in the pushed payload. Pushing a stale or
+     * partial local list over a remote range that already holds profiles would therefore destroy
+     * them. This function is only reachable from the branch of [pullFromRemote] where
+     * `sync_pull_profiles` returned an empty list for this call, so the push can only ever run
+     * against an empty range — where the RPC has nothing to delete. Never call it as a retry, and
+     * never call it when the remote list was non-empty.
+     *
+     * Idempotent: latched per account id, so realtime "profiles" events, repeated startup pulls
+     * and recompositions do not push again. The latch is only set after a successful push, so a
+     * transient failure may be retried on a later pull — still only while the remote list is
+     * empty, which keeps the guard above intact.
+     *
+     * Non-fatal: failures are logged and swallowed so startup continues against the local profile
+     * exactly as it does today.
+     *
+     * Called while [pullMutex] is held; [pushToRemote] does not take that mutex, so no deadlock.
+     *
+     * @return true when the local profiles were pushed successfully.
+     */
+    private suspend fun seedRemoteFromLocalIfEmpty(userId: String?): Boolean {
+        // null means the auth state is not a FullAccount (signed out / loading): never push.
+        if (userId == null) return false
+        if (seededEmptyRemoteForUserId == userId) return false
+
+        val localProfiles = profileManager.profiles.value
+        if (localProfiles.isEmpty()) {
+            Log.w(TAG, "Skipping profile seed for $userId: local profile list is empty")
+            return false
+        }
+
+        return pushToRemote()
+            .onSuccess {
+                seededEmptyRemoteForUserId = userId
+                Log.i(
+                    TAG,
+                    "Remote profile list was empty for $userId; seeded ${localProfiles.size} local profile(s)"
+                )
+            }
+            .onFailure { error ->
+                Log.e(
+                    TAG,
+                    "Failed to seed remote profiles for $userId, continuing with local profiles",
+                    error
+                )
+            }
+            .isSuccess
     }
 
     suspend fun deleteProfileData(profileId: Int): Result<Unit> = withContext(Dispatchers.IO) {
