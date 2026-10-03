@@ -100,6 +100,11 @@ data class IptvHorizonDto(
 data class IptvTuneDto(
     @Json(name = "streamId") val streamId: String? = null,
     @Json(name = "playlist") val playlist: String? = null,
-    @Json(name = "contentType") val contentType: String? = null,
-    @Json(name = "status") val status: String? = null
+    @Json(name = "contentType") val contentType: String? = null
+    // There is deliberately no `status` here. The edge's tune response carries a
+    // `session` OBJECT (mediaSequence, buffered segments, uptime, lastError), and
+    // declaring it as `String?` made Moshi throw "Expected a string but was
+    // BEGIN_OBJECT at path $.status" — which failed every channel tune with the
+    // tune having actually succeeded. Nothing read it; it was copied from
+    // IptvPollDto, where `status` really is a string.
 )
