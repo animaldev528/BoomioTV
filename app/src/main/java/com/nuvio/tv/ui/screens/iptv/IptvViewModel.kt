@@ -126,6 +126,18 @@ class IptvViewModel @Inject constructor(
     }
 
     /**
+     * Remembers a channel focused without a programme — a rail, or a channel
+     * the guide has no data for.
+     *
+     * Without this the pane keeps describing the last programme focused in some
+     * other row while the ring sits on a channel, which reads as the guide
+     * being wrong about what is on.
+     */
+    fun onChannelFocused(channel: IptvChannel) {
+        _uiState.update { it.copy(focused = IptvFocused(programme = null, channel = channel)) }
+    }
+
+    /**
      * Tunes [channel] into the preview pane.
      *
      * Only ever called from an explicit press, never from focus. Re-tuning the

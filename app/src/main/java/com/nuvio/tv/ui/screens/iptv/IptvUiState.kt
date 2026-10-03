@@ -64,9 +64,16 @@ data class IptvUiState(
 /** Which of the two presentations the section is showing. */
 enum class IptvView { Guide, Channels }
 
-/** The programme the description pane is about, and the channel it airs on. */
+/**
+ * What the description pane is about: a channel, and the programme focused
+ * within it when there is one.
+ *
+ * [programme] is null when focus is on a channel rather than on a programme —
+ * a channel rail, or a channel the guide carries nothing for. Both are
+ * focusable and both tune, so the pane has to be able to describe them.
+ */
 data class IptvFocused(
-    val programme: IptvProgramme,
+    val programme: IptvProgramme?,
     val channel: IptvChannel
 )
 
