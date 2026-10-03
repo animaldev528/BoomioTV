@@ -1314,6 +1314,39 @@ private fun PlaybackNavHost(
                             logo = channel.icon
                         )
                     )
+                },
+                // A guide programme the pipeline identified carries a real
+                // episode, so this plays it directly — the same route Continue
+                // Watching uses, with manualSelection set because the guide has
+                // already decided which episode and letting auto-selection run
+                // again would be free to pick a different one. Back returns to
+                // the guide, which is where the press came from.
+                onPlayEpisode = { imdbId, mediaType, title, season, episode, episodeName ->
+                    navController.navigate(
+                        Screen.Stream.createRoute(
+                            videoId = imdbId,
+                            contentType = mediaType,
+                            title = title,
+                            season = season,
+                            episode = episode,
+                            episodeName = episodeName,
+                            contentId = imdbId,
+                            contentName = title,
+                            manualSelection = true
+                        )
+                    )
+                },
+                // The fallback when no episode resolved: open the show.
+                // playOnLoad is what separates a play-now press from a
+                // long-press "go to" — same destination, different intent.
+                onOpenShow = { imdbId, mediaType, title, playOnLoad ->
+                    navController.navigate(
+                        Screen.Detail.createRoute(
+                            itemId = imdbId,
+                            itemType = mediaType,
+                            playOnLoad = playOnLoad
+                        )
+                    )
                 }
             )
         }
