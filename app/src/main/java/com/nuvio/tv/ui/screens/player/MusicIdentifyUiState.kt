@@ -34,6 +34,22 @@ sealed interface MusicIdentifyUiState {
         val album: String? = null,
         val artworkUrl: String? = null,
         val provider: String? = null,
+        /**
+         * Carried so "add to library" can hand back what the server actually
+         * matched. ISRC is the key the library dedupes on when it is present;
+         * without it a save falls back to a case-folded title|artist pair, which
+         * is a weaker key and will merge two different recordings that share a
+         * name.
+         */
+        val isrc: String? = null,
+        val providerTrackId: String? = null,
+        /**
+         * Where in the title this cue sits, as the server has it — not the
+         * player's position at the moment of the press. A viewer who presses and
+         * then watches on for ten minutes should still get "42:13", which is
+         * where the song actually was.
+         */
+        val positionMs: Long? = null,
         /** True when this came from the shared cue index — no provider was called. */
         val fromIndex: Boolean = false,
         /** How many songs this episode/title has in the index, this one included. */
@@ -77,6 +93,36 @@ sealed interface MusicIdentifyUiState {
 }
 
 /**
+ * How "add to library" is going.
+ *
+ * Separate from [MusicIdentifyUiState] because the two are genuinely
+ * independent: the answer stays on screen while the save is in flight, and a
+ * failed save must not wipe out what was found.
+ *
+ * [Saved] and [AlreadySaved] are both successes and are kept apart only so the
+ * card can stop implying there is anything left to do. The server reports the
+ * distinction itself — a second press of the same track is a no-op that returns
+ * the row already there — so nothing here has to guess.
+ */
+sealed interface MusicSaveState {
+    data object Idle : MusicSaveState
+
+    data object Saving : MusicSaveState
+
+    /** Newly written to the library. */
+    data object Saved : MusicSaveState
+
+    /** This track was already in the library; nothing changed. */
+    data object AlreadySaved : MusicSaveState
+
+    /** The save did not happen, and [reason] says why. */
+    data class Failed(
+        val reason: MusicUnavailableReason,
+        val detail: String? = null
+    ) : MusicSaveState
+}
+
+/**
  * Map a transport result onto UI state.
  *
  * `ok` with a null match is treated as a miss rather than a crash: the server
@@ -96,6 +142,9 @@ fun MusicIdentifyResult.toUiState(): MusicIdentifyUiState = when (this) {
                     album = m.album,
                     artworkUrl = m.artworkUrl,
                     provider = m.provider,
+                    isrc = m.isrc,
+                    providerTrackId = m.providerTrackId,
+                    positionMs = m.positionMs,
                     fromIndex = dto.source == "cache",
                     cuesInEpisode = dto.cuesInEpisode ?: 0,
                     listenedToTrack = dto.track?.chosen,

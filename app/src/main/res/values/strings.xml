@@ -2439,6 +2439,17 @@
     <string name="music_unavailable">Couldn\'t reach the music service</string>
     <string name="music_unavailable_hint">Check the connection and try again.</string>
     <string name="music_track_mismatch">Played a different audio track than the one selected</string>
+    <string name="music_add_to_library">Add to library</string>
+    <string name="music_adding">Adding…</string>
+    <string name="music_in_library">Added to your library</string>
+    <string name="music_already_in_library">Already in your library</string>
+    <string name="music_add_retry">Try again</string>
+    <string name="music_save_failed">Couldn\'t save that</string>
+    <string name="music_save_failed_hint">Check the connection and try again.</string>
+    <string name="music_not_linked">This TV isn\'t linked to a profile</string>
+    <string name="music_not_linked_hint">Pair the TV from the Boomio dashboard so we know whose library to save into.</string>
+    <string name="music_save_not_linked">No library to save into</string>
+    <string name="music_save_not_linked_hint">This TV isn\'t linked to a profile. Pair it from the Boomio dashboard and try again.</string>
     <string name="cd_back">Back</string>
     <string name="cd_next_episode_thumbnail">Next episode thumbnail</string>
     <string name="cd_current">Current</string>

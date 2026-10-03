@@ -28,6 +28,15 @@ enum class MusicUnavailableReason {
     /** Paired on no TV yet, so there is no session to identify with. */
     NOT_PAIRED,
 
+    /**
+     * The session carries no user, so there is no library to write into.
+     *
+     * Refused rather than guessed at: picking a library for the viewer would put
+     * one person's song in another person's list. Re-pairing the TV from the
+     * dashboard is the fix, so the copy says so.
+     */
+    NOT_LINKED,
+
     /** The call itself failed: offline, timeout, or a 5xx. */
     NETWORK
 }
@@ -42,6 +51,45 @@ sealed interface MusicIdentifyResult {
         val reason: MusicUnavailableReason,
         val detail: String? = null
     ) : MusicIdentifyResult
+}
+
+/**
+ * A track the viewer asked to keep.
+ *
+ * Deliberately identical to the fields the identify answer returned, because
+ * that is what the library stores — re-identifying on save would be a second
+ * provider call for an answer we are already holding.
+ *
+ * No user field: the owner comes from the session on the server. The client
+ * does not get a say in whose library this lands in.
+ */
+data class MusicSaveRequest(
+    val title: String,
+    val artist: String? = null,
+    val album: String? = null,
+    val isrc: String? = null,
+    val artworkUrl: String? = null,
+    val provider: String? = null,
+    val providerTrackId: String? = null,
+    /** Where it was heard, so the library can read back "from tt0119147 · 42:13". */
+    val imdbId: String? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
+    val positionMs: Long? = null
+)
+
+/** How a save ended. */
+sealed interface MusicSaveResult {
+    /**
+     * The track is in the library. [duplicate] is true when it was already
+     * there, which the server tells us rather than leaving us to guess.
+     */
+    data class Stored(val duplicate: Boolean) : MusicSaveResult
+
+    data class Failed(
+        val reason: MusicUnavailableReason,
+        val detail: String? = null
+    ) : MusicSaveResult
 }
 
 /** The context a press carries. Everything here is what the player already knows. */
@@ -163,6 +211,72 @@ class MusicClient @Inject constructor(
             } catch (e: Exception) {
                 Log.w(TAG, "identify failed: ${e.message}")
                 MusicIdentifyResult.Unavailable(MusicUnavailableReason.NETWORK, e.message)
+            }
+        }
+
+    /**
+     * Keep a recognised track in the viewer's library.
+     *
+     * Fast where [identify] is slow — no provider is called and no audio is
+     * fetched, because the answer is already in hand. Callers should still treat
+     * it as a pending action with its own state rather than blocking the card.
+     *
+     * A 409 is the server saying the session has no user behind it. That is
+     * deliberately its own reason and not folded into [MusicUnavailableReason.NETWORK]:
+     * it is a pairing problem with a fix, and telling the viewer "something went
+     * wrong" would hide the one thing they could actually do about it.
+     */
+    suspend fun saveToLibrary(request: MusicSaveRequest): MusicSaveResult =
+        withContext(Dispatchers.IO) {
+            val base = baseUrl()
+                ?: return@withContext MusicSaveResult.Failed(MusicUnavailableReason.NOT_CONFIGURED)
+            val token = authStore.currentToken()
+                ?: return@withContext MusicSaveResult.Failed(MusicUnavailableReason.NOT_PAIRED)
+
+            val body = JSONObject().apply {
+                put("title", request.title)
+                request.artist?.takeIf { it.isNotBlank() }?.let { put("artist", it) }
+                request.album?.takeIf { it.isNotBlank() }?.let { put("album", it) }
+                request.isrc?.takeIf { it.isNotBlank() }?.let { put("isrc", it) }
+                request.artworkUrl?.takeIf { it.isNotBlank() }?.let { put("artworkUrl", it) }
+                request.provider?.takeIf { it.isNotBlank() }?.let { put("provider", it) }
+                request.providerTrackId?.takeIf { it.isNotBlank() }?.let { put("providerTrackId", it) }
+                request.imdbId?.takeIf { it.isNotBlank() }?.let { put("imdbId", it) }
+                request.season?.let { put("season", it) }
+                request.episode?.let { put("episode", it) }
+                request.positionMs?.let { put("positionMs", it) }
+            }.toString().toRequestBody(jsonType)
+
+            val httpRequest = Request.Builder()
+                .url(base.newBuilder().addPathSegments("api/music/library").build())
+                .header("Authorization", "Bearer $token")
+                .post(body)
+                .build()
+
+            try {
+                okHttpClient.newCall(httpRequest).execute().use { response ->
+                    val text = response.body?.string().orEmpty()
+
+                    when {
+                        response.isSuccessful -> MusicSaveResult.Stored(
+                            runCatching { JSONObject(text).optBoolean("duplicate", false) }
+                                .getOrDefault(false)
+                        )
+
+                        response.code == 409 -> MusicSaveResult.Failed(
+                            MusicUnavailableReason.NOT_LINKED,
+                            runCatching { JSONObject(text).optString("error").ifBlank { null } }.getOrNull()
+                        )
+
+                        else -> MusicSaveResult.Failed(
+                            MusicUnavailableReason.NETWORK,
+                            "HTTP ${response.code}"
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "saveToLibrary failed: ${e.message}")
+                MusicSaveResult.Failed(MusicUnavailableReason.NETWORK, e.message)
             }
         }
 

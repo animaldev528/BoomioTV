@@ -1781,6 +1781,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             _uiState.update { it.copy(showStreamInfoOverlay = false) }
         }
         PlayerEvent.OnIdentifyMusic -> identifyMusic()
+        PlayerEvent.OnAddMusicToLibrary -> saveMusicToLibrary()
         PlayerEvent.OnDismissMusicOverlay -> {
             _uiState.update { it.copy(showMusicOverlay = false) }
         }

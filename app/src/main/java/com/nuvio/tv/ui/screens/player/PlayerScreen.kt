@@ -1063,7 +1063,9 @@ fun PlayerScreen(
             visible = uiState.showMusicOverlay && uiState.error == null &&
                 !uiState.showLoadingOverlay && !postPlayRecommendationState.isVisible,
             state = uiState.musicIdentify,
+            saveState = uiState.musicSave,
             onClose = { viewModel.onEvent(PlayerEvent.OnDismissMusicOverlay) },
+            onAddToLibrary = { viewModel.onEvent(PlayerEvent.OnAddMusicToLibrary) },
             modifier = Modifier
                 .fillMaxSize()
                 .zIndex(2.65f)

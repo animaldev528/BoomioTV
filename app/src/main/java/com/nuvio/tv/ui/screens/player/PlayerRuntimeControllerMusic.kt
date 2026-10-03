@@ -1,6 +1,8 @@
 package com.nuvio.tv.ui.screens.player
 
 import com.nuvio.tv.core.boomio.MusicIdentifyRequest
+import com.nuvio.tv.core.boomio.MusicSaveRequest
+import com.nuvio.tv.core.boomio.MusicSaveResult
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -29,7 +31,11 @@ internal fun PlayerRuntimeController.identifyMusic() {
     _uiState.update {
         it.copy(
             showMusicOverlay = true,
-            musicIdentify = MusicIdentifyUiState.Listening
+            musicIdentify = MusicIdentifyUiState.Listening,
+            // A fresh question means a fresh answer, so any save state left over
+            // from the previous one is cleared — otherwise a new song would open
+            // already claiming to be in the library.
+            musicSave = MusicSaveState.Idle
         )
     }
 
@@ -53,5 +59,62 @@ internal fun PlayerRuntimeController.identifyMusic() {
     musicIdentifyJob = scope.launch {
         val result = musicClient.identify(request)
         _uiState.update { it.copy(musicIdentify = result.toUiState()) }
+    }
+}
+
+/**
+ * Keep the song that was just identified.
+ *
+ * Sends back what the identify answer already returned rather than asking the
+ * server to identify again — the track is in hand, and a second provider call
+ * would spend the daily cap to arrive at the same row.
+ *
+ * The owner is not sent. bsc takes it from the session, so this client cannot
+ * put a song in the wrong person's library even if it wanted to.
+ */
+internal fun PlayerRuntimeController.saveMusicToLibrary() {
+    val state = _uiState.value
+    val found = state.musicIdentify as? MusicIdentifyUiState.Found ?: return
+
+    // Already saved, already on its way, or nothing to save. A second press is
+    // the same request, and the server would answer `duplicate` — but there is
+    // no reason to spend a round trip finding that out.
+    if (state.musicSave is MusicSaveState.Saving ||
+        state.musicSave is MusicSaveState.Saved ||
+        state.musicSave is MusicSaveState.AlreadySaved
+    ) {
+        return
+    }
+
+    _uiState.update { it.copy(musicSave = MusicSaveState.Saving) }
+
+    val request = MusicSaveRequest(
+        title = found.title,
+        artist = found.artist,
+        album = found.album,
+        isrc = found.isrc,
+        artworkUrl = found.artworkUrl,
+        provider = found.provider,
+        providerTrackId = found.providerTrackId,
+        imdbId = contentId,
+        season = currentSeason,
+        episode = currentEpisode,
+        // The cue's own position, not where the viewer is now.
+        positionMs = found.positionMs
+    )
+
+    scope.launch {
+        val result = musicClient.saveToLibrary(request)
+        _uiState.update {
+            it.copy(
+                musicSave = when (result) {
+                    is MusicSaveResult.Stored ->
+                        if (result.duplicate) MusicSaveState.AlreadySaved else MusicSaveState.Saved
+
+                    is MusicSaveResult.Failed ->
+                        MusicSaveState.Failed(result.reason, result.detail)
+                }
+            )
+        }
     }
 }

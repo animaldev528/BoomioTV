@@ -213,6 +213,9 @@ data class PlayerUiState(
     // Music identification (the controls-row music button).
     val showMusicOverlay: Boolean = false,
     val musicIdentify: MusicIdentifyUiState = MusicIdentifyUiState.Idle,
+    // Kept beside the identify state rather than inside Found: a failed save must
+    // not discard what was found, and the answer stays on screen while it saves.
+    val musicSave: MusicSaveState = MusicSaveState.Idle,
     // Torrent streaming state
     val isTorrentStream: Boolean = false,
     val torrentDownloadSpeed: Long = 0L,
@@ -348,6 +351,7 @@ sealed class PlayerEvent {
     data object OnDismissStreamInfo : PlayerEvent()
     /** Ask the bsc music service what is playing right now. */
     data object OnIdentifyMusic : PlayerEvent()
+    data object OnAddMusicToLibrary : PlayerEvent()
     data object OnDismissMusicOverlay : PlayerEvent()
     data object OnTogglePlayerStatsHud : PlayerEvent()
     data object OnToggleTorrentStats : PlayerEvent()
