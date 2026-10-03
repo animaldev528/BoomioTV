@@ -210,6 +210,9 @@ data class PlayerUiState(
     // Stream info overlay
     val showStreamInfoOverlay: Boolean = false,
     val streamInfoData: StreamInfoData? = null,
+    // Music identification (the controls-row music button).
+    val showMusicOverlay: Boolean = false,
+    val musicIdentify: MusicIdentifyUiState = MusicIdentifyUiState.Idle,
     // Torrent streaming state
     val isTorrentStream: Boolean = false,
     val torrentDownloadSpeed: Long = 0L,
@@ -343,6 +346,9 @@ sealed class PlayerEvent {
     data object OnSwitchToMpvPlayer : PlayerEvent()
     data object OnShowStreamInfo : PlayerEvent()
     data object OnDismissStreamInfo : PlayerEvent()
+    /** Ask the bsc music service what is playing right now. */
+    data object OnIdentifyMusic : PlayerEvent()
+    data object OnDismissMusicOverlay : PlayerEvent()
     data object OnTogglePlayerStatsHud : PlayerEvent()
     data object OnToggleTorrentStats : PlayerEvent()
 }

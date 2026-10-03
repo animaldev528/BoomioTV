@@ -545,6 +545,11 @@ class BoomioCompanionManager @Inject constructor(
             snapshot.posterUrl?.let { put("posterUrl", it) }
             snapshot.logoUrl?.let { put("logoUrl", it) }
             snapshot.contentType?.let { put("contentType", it) }
+            // 0-based ordinal into the audio list (see CompanionPlaybackSnapshot).
+            // Sent even though the phone ignores it today: the music identify call
+            // prefers the body, and this is the fallback the hub can relay once
+            // device-relay.js whitelists the field.
+            snapshot.audioTrack?.let { put("audioTrack", it) }
             put("volumePercent", companionVolumePercent ?: deviceVolumePercent())
         }
         webSocket?.send(payload.toString())

@@ -1,6 +1,8 @@
 package com.nuvio.tv.ui.screens.player
 
 import com.nuvio.tv.core.activity.ActivityEventReporter
+import com.nuvio.tv.core.boomio.MusicClient
+import com.nuvio.tv.core.sync.SyncClientIdentity
 
 import android.app.Activity
 import android.content.Context
@@ -102,6 +104,8 @@ class PlayerRuntimeController(
     internal val tvRecommendationManager: com.nuvio.tv.core.recommendations.TvRecommendationManager,
     internal val profileId: Int,
     internal val activityEventReporter: ActivityEventReporter,
+    internal val musicClient: MusicClient,
+    internal val syncClientIdentity: SyncClientIdentity,
     savedStateHandle: SavedStateHandle,
     internal val scope: CoroutineScope
 ) {
@@ -570,6 +574,8 @@ class PlayerRuntimeController(
     internal var mpvDelayStartAfterAfrSwitch: Boolean = false
     internal var pauseOverlayJob: Job? = null
     internal val pauseOverlayDelayMs = 5000L
+    /** The in-flight music identification, if any. Guards against double-spend. */
+    internal var musicIdentifyJob: Job? = null
     internal val seekProgressSyncDebounceMs = 700L
     internal val audioDelayUs = AtomicLong(0L)
     internal val subtitleDelayUs = AtomicLong(0L)

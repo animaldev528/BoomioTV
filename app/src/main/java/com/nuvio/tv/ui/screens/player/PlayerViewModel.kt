@@ -5,6 +5,8 @@ import com.nuvio.tv.core.boomio.ActiveCompanionPlayer
 import com.nuvio.tv.core.boomio.BoomioCompanionManager
 import com.nuvio.tv.core.boomio.CompanionPlaybackBridge
 import com.nuvio.tv.core.boomio.CompanionPlaybackSnapshot
+import com.nuvio.tv.core.boomio.MusicClient
+import com.nuvio.tv.core.sync.SyncClientIdentity
 
 import android.content.Context
 import androidx.lifecycle.SavedStateHandle
@@ -103,6 +105,8 @@ class PlayerViewModel @Inject constructor(
     private val activityEventReporter: ActivityEventReporter,
     private val companionPlaybackBridge: CompanionPlaybackBridge,
     private val companionManager: BoomioCompanionManager,
+    private val musicClient: MusicClient,
+    private val syncClientIdentity: SyncClientIdentity,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -149,6 +153,8 @@ class PlayerViewModel @Inject constructor(
         profileId = savedStateHandle.get<String>("profileId")?.toIntOrNull()
             ?: profileManager.activeProfileId.value,
         activityEventReporter = activityEventReporter,
+        musicClient = musicClient,
+        syncClientIdentity = syncClientIdentity,
         savedStateHandle = savedStateHandle,
         scope = viewModelScope
     )
@@ -197,7 +203,13 @@ class PlayerViewModel @Inject constructor(
                 logoUrl = controller.logo,
                 // "channel" for live IPTV. Lets the phone tell a channel from a
                 // VOD title even though both put an id in the imdbId slot.
-                contentType = controller.contentType
+                contentType = controller.contentType,
+                // Which audio track the viewer is hearing. Already a 0-based
+                // ordinal into the audio list, which is the contract the music
+                // API expects. -1 means "nothing selected yet" — reported as
+                // null so the server falls back to the file's default rather
+                // than being told "track -1".
+                audioTrack = controller.uiState.value.selectedAudioTrackIndex.takeIf { it >= 0 }
             )
 
         override fun togglePlayPause(reportParty: Boolean) {
