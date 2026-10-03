@@ -361,6 +361,7 @@ private fun GuideContent(
                 state = state,
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 onFocus = viewModel::onProgrammeFocused,
+                onChannelFocus = viewModel::onChannelFocused,
                 onTune = viewModel::tunePreview,
                 onPlay = { programme, channel ->
                     viewModel.playProgramme(programme, channel) { target ->
@@ -515,6 +516,36 @@ private fun DescriptionPane(focused: IptvFocused?, resolving: Boolean, modifier:
         }
 
         val programme = focused.programme
+        if (programme == null) {
+            // Focus is on a channel rather than a programme: a rail, or a
+            // channel the guide carries nothing for. Both still tune, so name
+            // the channel rather than leaving the last programme's description
+            // on screen as if it were what the ring is on.
+            Text(
+                focused.channel.name,
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = NuvioTheme.colors.TextPrimary,
+                maxLines = 2
+            )
+            Spacer(Modifier.height(NuvioTheme.spacing.xs))
+            Text(
+                if (focused.channel.hasEpg) {
+                    "Nothing on in this window."
+                } else {
+                    "No guide data for this channel."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = NuvioTheme.colors.TextSecondary
+            )
+            Spacer(Modifier.height(NuvioTheme.spacing.md))
+            Text(
+                "Press OK to watch.",
+                style = MaterialTheme.typography.bodySmall,
+                color = NuvioTheme.colors.TextTertiary
+            )
+            return@Column
+        }
         val match = programme.match
 
         Text(
@@ -704,6 +735,7 @@ private fun GuideGrid(
     state: IptvUiState,
     modifier: Modifier,
     onFocus: (IptvProgramme, IptvChannel) -> Unit,
+    onChannelFocus: (IptvChannel) -> Unit,
     onTune: (IptvChannel) -> Unit,
     onPlay: (IptvProgramme, IptvChannel) -> Unit,
     onLongPress: (IptvProgramme, IptvChannel) -> Unit
@@ -726,6 +758,7 @@ private fun GuideGrid(
                 timeScroll = timeScroll,
                 isTuned = state.tuned?.streamId == channel.streamId,
                 onFocus = onFocus,
+                onChannelFocus = onChannelFocus,
                 onTune = onTune,
                 onPlay = onPlay,
                 onLongPress = onLongPress
@@ -742,6 +775,7 @@ private fun ChannelRow(
     timeScroll: androidx.compose.foundation.ScrollState,
     isTuned: Boolean,
     onFocus: (IptvProgramme, IptvChannel) -> Unit,
+    onChannelFocus: (IptvChannel) -> Unit,
     onTune: (IptvChannel) -> Unit,
     onPlay: (IptvProgramme, IptvChannel) -> Unit,
     onLongPress: (IptvProgramme, IptvChannel) -> Unit
@@ -749,7 +783,12 @@ private fun ChannelRow(
     val slots = remember(programmes, windowStartMs) { buildStrip(windowStartMs, programmes) }
 
     Row(Modifier.fillMaxWidth().height(RowHeight), verticalAlignment = Alignment.CenterVertically) {
-        ChannelRail(channel = channel, isTuned = isTuned, onTune = { onTune(channel) })
+        ChannelRail(
+            channel = channel,
+            isTuned = isTuned,
+            onTune = { onTune(channel) },
+            onFocus = { onChannelFocus(channel) }
+        )
 
         Spacer(Modifier.width(NuvioTheme.spacing.sm))
 
@@ -757,7 +796,10 @@ private fun ChannelRow(
             if (slots.isEmpty()) {
                 // A channel with no guide data is MARKED, not hidden. It still
                 // tunes — the guide is a bonus, not a precondition for watching.
-                NoGuideCell(onTune = { onTune(channel) })
+                NoGuideCell(
+                    onTune = { onTune(channel) },
+                    onFocus = { onChannelFocus(channel) }
+                )
             } else {
                 slots.forEach { slot ->
                     val programme = slot.programme
@@ -780,10 +822,18 @@ private fun ChannelRow(
 }
 
 @Composable
-private fun ChannelRail(channel: IptvChannel, isTuned: Boolean, onTune: () -> Unit) {
+private fun ChannelRail(
+    channel: IptvChannel,
+    isTuned: Boolean,
+    onTune: () -> Unit,
+    onFocus: () -> Unit
+) {
     Card(
         onClick = onTune,
-        modifier = Modifier.width(180.dp).fillMaxHeight(),
+        modifier = Modifier
+            .width(180.dp)
+            .fillMaxHeight()
+            .onFocusChanged { if (it.isFocused) onFocus() },
         colors = CardDefaults.colors(
             containerColor = if (isTuned) NuvioTheme.colors.BackgroundElevated
             else NuvioTheme.colors.BackgroundCard,
@@ -822,10 +872,13 @@ private fun ChannelRail(channel: IptvChannel, isTuned: Boolean, onTune: () -> Un
 }
 
 @Composable
-private fun NoGuideCell(onTune: () -> Unit) {
+private fun NoGuideCell(onTune: () -> Unit, onFocus: () -> Unit) {
     Card(
         onClick = onTune,
-        modifier = Modifier.width(280.dp).fillMaxHeight(),
+        modifier = Modifier
+            .width(280.dp)
+            .fillMaxHeight()
+            .onFocusChanged { if (it.isFocused) onFocus() },
         colors = CardDefaults.colors(
             containerColor = NuvioTheme.colors.BackgroundCard,
             focusedContainerColor = NuvioTheme.colors.BackgroundElevated
