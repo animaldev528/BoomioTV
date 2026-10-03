@@ -66,7 +66,11 @@ class BoomioCompanionManager @Inject constructor(
     @ApplicationContext private val context: Context,
     okHttpClient: OkHttpClient,
     private val syncClientIdentity: SyncClientIdentity,
-    private val bridge: CompanionPlaybackBridge
+    private val bridge: CompanionPlaybackBridge,
+    // Lets a companion phone (or a live watch party) put this TV on a channel.
+    // The TV tunes ITSELF rather than being handed a playlist URL, so the IPTV
+    // session token never leaves the device that owns it.
+    private val iptvClient: IptvClient
 ) {
     private val companionUrl: String = BuildConfig.BOOMIO_COMPANION_URL.trim()
     private val wsUrl: String = companionUrl.trimEnd('/') + "/ws"
@@ -224,6 +228,11 @@ class BoomioCompanionManager @Inject constructor(
         val msg = runCatching { JSONObject(text) }.getOrNull() ?: return
         when (msg.optString("type")) {
             "play" -> handlePlay(msg)
+        // Put this TV on a live IPTV channel. Sent by the phone's channel picker
+        // (`_from: "companion"`) and by a live watch party to every member
+        // (`_from: "iptv_party_join"` / `"iptv_party_channel_change"`) — one
+        // primitive, three uses.
+        "iptv_tune" -> handleIptvTune(msg)
             "stealth_playpause" -> {
                 msg.optString("partyId").takeIf { it.isNotBlank() }?.let { _currentPartyId.value = it }
                 // A party broadcast (party_command/party_sync) has already reached every
@@ -450,6 +459,58 @@ class BoomioCompanionManager @Inject constructor(
         )
     }
 
+    /**
+     * Put this TV on a live IPTV channel for a companion phone or a live watch
+     * party.
+     *
+     * Only a channel ID crosses the wire — the TV reserves the tuner itself and
+     * resolves its own playlist URL through [IptvClient], so the IPTV session
+     * token never leaves the device that owns it.
+     *
+     * Dispatched to [scope] because [handleInbound] is called on the main thread
+     * (the WS listener wraps it in runOnMain) and tune() is a network suspend
+     * function; calling it inline would block the frame.
+     */
+    private fun handleIptvTune(msg: JSONObject) {
+        val streamId = msg.optString("streamId").takeIf { it.isNotBlank() } ?: return
+        val channelName = msg.optString("channelName").takeIf { it.isNotBlank() }
+        val partyId = msg.optString("partyId").takeIf { it.isNotBlank() }
+        scope.launch {
+            iptvClient.tune(streamId)
+                .onSuccess { playlistUrl ->
+                    _currentPartyId.value = partyId
+                    bridge.postPlayRequest(
+                        CompanionPlayRequest(
+                            streamUrl = playlistUrl,
+                            title = channelName,
+                            // For a live channel the content id IS the streamId.
+                            imdbId = streamId,
+                            season = null,
+                            episode = null,
+                            resumeFromMs = 0L,
+                            startPaused = false,
+                            partyId = partyId,
+                            source = "iptv_companion",
+                            // The entire live-UI contract (LivePlaybackUiPolicy):
+                            // without it the player draws a VOD seek bar over live
+                            // television. Matches what the IPTV screen sets.
+                            contentType = "channel"
+                        )
+                    )
+                }
+                .onFailure { e ->
+                    val why = when (e) {
+                        is IptvTunerLockedException ->
+                            "A watch party is using the tuner" +
+                                (e.channelName?.let { " on $it" } ?: "")
+                        else -> "Couldn't tune to ${channelName ?: "that channel"}"
+                    }
+                    Log.w(TAG, "iptv_tune $streamId failed: ${e.message}")
+                    showToast(why)
+                }
+        }
+    }
+
     private fun ensureTelemetryLoop() {
         if (telemetryJob?.isActive == true) return
         telemetryJob = scope.launch {
@@ -483,6 +544,7 @@ class BoomioCompanionManager @Inject constructor(
             snapshot.episode?.let { put("episode", it) }
             snapshot.posterUrl?.let { put("posterUrl", it) }
             snapshot.logoUrl?.let { put("logoUrl", it) }
+            snapshot.contentType?.let { put("contentType", it) }
             put("volumePercent", companionVolumePercent ?: deviceVolumePercent())
         }
         webSocket?.send(payload.toString())

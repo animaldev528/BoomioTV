@@ -194,7 +194,10 @@ class PlayerViewModel @Inject constructor(
                 season = controller.currentSeason,
                 episode = controller.currentEpisode,
                 posterUrl = controller.poster,
-                logoUrl = controller.logo
+                logoUrl = controller.logo,
+                // "channel" for live IPTV. Lets the phone tell a channel from a
+                // VOD title even though both put an id in the imdbId slot.
+                contentType = controller.contentType
             )
 
         override fun togglePlayPause(reportParty: Boolean) {

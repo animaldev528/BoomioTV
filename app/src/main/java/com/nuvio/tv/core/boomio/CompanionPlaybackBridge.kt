@@ -19,7 +19,16 @@ data class CompanionPlayRequest(
     val resumeFromMs: Long,
     val startPaused: Boolean,
     val partyId: String?,
-    val source: String?
+    val source: String?,
+    /**
+     * Catalog type for the player route. Live TV is selected SOLELY by
+     * `"channel"` (see LivePlaybackUiPolicy) — the URL is no discriminator, since
+     * live and VOD are both HLS. Without this the consumer could only infer
+     * movie/series from `season`, so a channel pushed by the companion (or an
+     * IPTV watch party) would tune correctly and then draw a VOD seek bar over
+     * live television. Null keeps the old inference for existing callers.
+     */
+    val contentType: String? = null
 )
 
 /** Snapshot of the active player's state, reported to the hub at ~1s cadence. */
@@ -33,7 +42,15 @@ data class CompanionPlaybackSnapshot(
     val season: Int?,
     val episode: Int?,
     val posterUrl: String?,
-    val logoUrl: String?
+    val logoUrl: String?,
+    /**
+     * Catalog type of what is playing — `"channel"` for live TV. Reported so the
+     * phone can NAME the channel it is on: for an IPTV session [imdbId] already
+     * carries the streamId, but without this flag that is indistinguishable from
+     * a VOD imdbId, so "start a party on what the Shield is watching" could not
+     * tell a channel from a movie.
+     */
+    val contentType: String? = null
 )
 
 /**

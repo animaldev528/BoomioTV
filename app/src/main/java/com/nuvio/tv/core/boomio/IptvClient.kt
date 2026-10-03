@@ -19,8 +19,22 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
+
+/**
+ * The edge refused a tune because a live watch party owns the tuner and is on a
+ * different channel. Carries the party's channel so the TV can say WHICH one,
+ * rather than reporting an opaque HTTP 409.
+ *
+ * A refusal is a normal outcome, not a fault: the tuner is genuinely held by
+ * someone else, and the right response is a message the viewer understands.
+ */
+class IptvTunerLockedException(
+    val channelName: String?,
+    val liveStreamId: String?
+) : IllegalStateException("a live watch party is using the tuner")
 
 /** Where a device-code poll stands. */
 sealed interface IptvPollResult {
@@ -305,6 +319,18 @@ class IptvClient @Inject constructor(
                 if (response.code == 401 || response.code == 403) {
                     authStore.clearSession()
                     error("session rejected")
+                }
+                // A live watch party owns the tuner. Distinguished from a generic
+                // failure so the caller can name the channel instead of surfacing
+                // a bare status code.
+                if (response.code == 409) {
+                    val body = runCatching { JSONObject(text) }.getOrNull()
+                    if (body?.optString("error") == "tuner_locked") {
+                        throw IptvTunerLockedException(
+                            channelName = body.optString("channelName").takeIf { it.isNotBlank() },
+                            liveStreamId = body.optString("liveStreamId").takeIf { it.isNotBlank() }
+                        )
+                    }
                 }
                 if (!response.isSuccessful) error("HTTP ${response.code}")
                 val dto = tuneAdapter.fromJson(text) ?: error("empty response")

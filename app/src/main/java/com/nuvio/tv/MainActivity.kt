@@ -949,7 +949,12 @@ open class MainActivity : ComponentActivity() {
                                     streamUrl = request.streamUrl,
                                     title = request.title?.takeIf { it.isNotBlank() } ?: "Remote Playback",
                                     contentId = request.imdbId,
-                                    contentType = if (request.season != null) "series" else "movie",
+                                    // A companion command may name its own catalog
+                                    // type — live IPTV sends "channel", the only
+                                    // value that selects the live player UI.
+                                    // Everything else keeps the original inference.
+                                    contentType = request.contentType
+                                        ?: if (request.season != null) "series" else "movie",
                                     season = request.season,
                                     episode = request.episode,
                                     resumeFromMs = request.resumeFromMs,
