@@ -44,7 +44,9 @@ import com.nuvio.tv.data.local.TrailerSettingsDataStore
 import com.nuvio.tv.data.trailer.TrailerService
 import com.nuvio.tv.core.util.withAppLocale
 import com.nuvio.tv.core.util.isUnreleased
+import com.nuvio.tv.core.util.isDailyShow
 import com.nuvio.tv.core.util.selectEpisodeReleaseValue
+import com.nuvio.tv.core.util.sortEpisodesForDisplay
 import java.time.LocalDate
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -305,7 +307,7 @@ class MetaDetailsViewModel @Inject constructor(
                 state.copy(
                     nextToWatch = nextToWatch,
                     selectedSeason = nextSeason,
-                    episodesForSeason = getEpisodesForSeason(meta.videos, nextSeason)
+                    episodesForSeason = getEpisodesForSeason(meta.videos, nextSeason, state.isDailyShow)
                 )
             } else {
                 state.copy(nextToWatch = nextToWatch)
@@ -894,24 +896,30 @@ class MetaDetailsViewModel @Inject constructor(
         // less canonical one (e.g. tmdb:) — Trakt stores progress under IMDB.
         syncEffectiveContentId(meta)
 
+        val daily = isDailyShow(meta.videos)
         val seasons = meta.videos
             .mapNotNull { it.season }
             .distinct()
-            .sorted()
+            .let { if (daily) it.sortedDescending() else it.sorted() }
             .ifEmpty {
-                // For "other" type content videos lack season/episode numbers.  
+                // For "other" type content videos lack season/episode numbers.
                 // Treat them as a single virtual season so the episodes UI can display them.
                 if (meta.videos.isNotEmpty()) listOf(1) else emptyList()
             }
 
         val defaultEpisodeSeason = findPreferredDefaultEpisode(meta)?.season
-        // Prefer addon-specified default episode season, otherwise first regular season (> 0), fallback to season 0 (specials)
-        val selectedSeason = defaultEpisodeSeason
-            ?.takeIf { it in seasons }
-            ?: seasons.firstOrNull { it > 0 }
-            ?: seasons.firstOrNull()
-            ?: 1
-        val episodesForSeason = getEpisodesForSeason(meta.videos, selectedSeason)
+        // Daily shows always land on the most recent season (seasons run newest-first);
+        // the addon's defaultVideoId and the oldest-season default only apply to regular shows.
+        val selectedSeason = if (daily) {
+            seasons.firstOrNull { it > 0 } ?: seasons.firstOrNull() ?: 1
+        } else {
+            defaultEpisodeSeason
+                ?.takeIf { it in seasons }
+                ?: seasons.firstOrNull { it > 0 }
+                ?: seasons.firstOrNull()
+                ?: 1
+        }
+        val episodesForSeason = getEpisodesForSeason(meta.videos, selectedSeason, daily)
 
         _uiState.update {
             // If nextToWatch already set a season (from pre-computed remap), prefer it
@@ -921,13 +929,14 @@ class MetaDetailsViewModel @Inject constructor(
                 ?.takeIf { s -> s in seasons }
                 ?: selectedSeason
             val effectiveEpisodes = if (effectiveSeason != selectedSeason) {
-                getEpisodesForSeason(meta.videos, effectiveSeason)
+                getEpisodesForSeason(meta.videos, effectiveSeason, daily)
             } else {
                 episodesForSeason
             }
             it.copy(
                 isLoading = false,
                 meta = meta,
+                isDailyShow = daily,
                 seasons = seasons,
                 selectedSeason = effectiveSeason,
                 episodesForSeason = effectiveEpisodes,
@@ -1630,7 +1639,7 @@ class MetaDetailsViewModel @Inject constructor(
 
     private fun selectSeason(season: Int) {
         val meta = _uiState.value.meta ?: return
-        val episodes = getEpisodesForSeason(meta.videos, season)
+        val episodes = getEpisodesForSeason(meta.videos, season, _uiState.value.isDailyShow)
         _uiState.update {
             it.copy(
                 selectedSeason = season,
@@ -1639,9 +1648,9 @@ class MetaDetailsViewModel @Inject constructor(
         }
     }
 
-    private fun getEpisodesForSeason(videos: List<Video>, season: Int): List<Video> {
+    private fun getEpisodesForSeason(videos: List<Video>, season: Int, daily: Boolean): List<Video> {
         val filtered = videos.filter { it.season == season }
-        if (filtered.isNotEmpty()) return filtered.sortedBy { it.episode }
+        if (filtered.isNotEmpty()) return sortEpisodesForDisplay(filtered, daily)
         // Fallback: if no videos match the season (e.g. "other" type with
         // null seasons), return all videos with synthetic season/episode
         // numbers so the episode UI can track watched state.
@@ -1911,6 +1920,7 @@ class MetaDetailsViewModel @Inject constructor(
         val defaultEpisode = findPreferredDefaultEpisode(meta)?.takeIf { preferred ->
             episodePool.any { it.id == preferred.id }
         }
+        val daily = isDailyShow(episodePool)
 
         return buildNextToWatchFromLatestProgress(
             latestProgress = effectiveLatestProgress,
@@ -1919,7 +1929,8 @@ class MetaDetailsViewModel @Inject constructor(
             watchedEpisodes = watchedEpisodes,
             metaId = meta.id,
             defaultEpisode = defaultEpisode,
-            isRewatchMode = !useFurthestEpisode
+            isRewatchMode = !useFurthestEpisode,
+            daily = daily
         )
     }
 
@@ -1930,7 +1941,8 @@ class MetaDetailsViewModel @Inject constructor(
         watchedEpisodes: Set<Pair<Int, Int>> = emptySet(),
         metaId: String,
         defaultEpisode: Video? = null,
-        isRewatchMode: Boolean = false
+        isRewatchMode: Boolean = false,
+        daily: Boolean = false
     ): NextToWatch {
         if (episodes.isEmpty()) {
             return NextToWatch(
@@ -1942,6 +1954,10 @@ class MetaDetailsViewModel @Inject constructor(
                 displayText = localizedContext.getString(R.string.detail_btn_play)
             )
         }
+
+        // Date-based shows are not binged from the pilot: a viewer with no
+        // watch history wants the most recently aired episode, not S01E01.
+        val newestEpisode = if (daily) sortEpisodesForDisplay(episodes, daily = true).firstOrNull() else null
 
         if (latestProgress?.season != null && latestProgress.episode != null) {
             val season = latestProgress.season
@@ -2044,7 +2060,11 @@ class MetaDetailsViewModel @Inject constructor(
             }
             nextUnwatchedEpisode != null -> {
                 val hasWatchedSomething = fallbackProgressMap.isNotEmpty()
-                val preferredEpisode = if (hasWatchedSomething) nextUnwatchedEpisode else (defaultEpisode ?: nextUnwatchedEpisode)
+                val preferredEpisode = when {
+                    newestEpisode != null -> newestEpisode
+                    hasWatchedSomething -> nextUnwatchedEpisode
+                    else -> (defaultEpisode ?: nextUnwatchedEpisode)
+                }
                 val s = preferredEpisode.season
                 val e = preferredEpisode.episode
                 NextToWatch(
@@ -2061,7 +2081,7 @@ class MetaDetailsViewModel @Inject constructor(
                 )
             }
             else -> {
-                val firstEpisode = episodes.firstOrNull()
+                val firstEpisode = newestEpisode ?: episodes.firstOrNull()
                 NextToWatch(
                     watchProgress = null,
                     isResume = false,
