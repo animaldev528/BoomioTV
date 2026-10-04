@@ -39,6 +39,19 @@ data class MusicMatchDto(
     @Json(name = "provider") val provider: String? = null,
     @Json(name = "providerTrackId") val providerTrackId: String? = null,
     @Json(name = "confidence") val confidence: Double? = null,
+    /**
+     * Where to hand this track off, keyed by service: `spotify`, `youtube`,
+     * `deezer`, `apple`, `amazon`, `shazam`. bsc has always returned this, but
+     * the field was absent here, so Moshi dropped it — and because the phone's
+     * answer is relayed *through* this DTO (`wireJson`), the phone could never
+     * see it either. Declaring it is what lets the handoff leave the building.
+     *
+     * Values are URIs and are always strings by construction: bsc's providers
+     * only ever assign `action.uri` / `external_urls.*`. The custom schemes
+     * (`spotify:`, `deezer-query:`) are only meaningful on a device with that
+     * app, which is why the phone keeps a web fallback per service.
+     */
+    @Json(name = "links") val links: Map<String, String>? = null,
     @Json(name = "positionMs") val positionMs: Long? = null,
     @Json(name = "hits") val hits: Int? = null
 )
