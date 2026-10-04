@@ -46,16 +46,16 @@ data class MusicMatchDto(
 /**
  * Which audio stream the server actually listened to.
  *
- * **The server does not send this yet.** It is the field I asked the bsc agent
- * for, because the audio-track number is the one part of this contract that can
- * be wrong *silently*: the TV sends a 0-based ordinal into its audio list, the
- * server compares it against ffprobe's global stream index, and a mismatch
- * degrades to the file's default track with nothing in the response to say so.
+ * The audio-track number is the one part of this contract that can be wrong
+ * *silently*: the TV sends a 0-based ordinal into its audio list, the server
+ * compares it against ffprobe's global stream index, and a mismatch used to
+ * degrade to the file's default track with nothing in the response to say so.
  * On a title where the viewer picked commentary, that means identifying — and
  * then indexing for every other user and device — music they are not hearing.
  *
- * Parsing it now costs nothing and means the answer is visible the day it lands
- * ([reported] vs [chosen]). Until then it is null and the UI stays quiet.
+ * The server has sent all three fields since boomio #78 (`lib/music/index.js`
+ * `selectAudioStream` via `extract.js`), which also split the mismatch out of
+ * the fallbacks: see [MusicTrackSelectionDto.reason] for the closed set.
  */
 @JsonClass(generateAdapter = true)
 data class MusicTrackSelectionDto(
@@ -63,6 +63,15 @@ data class MusicTrackSelectionDto(
     @Json(name = "reported") val reported: Int? = null,
     /** The ffprobe stream index the server used. */
     @Json(name = "chosen") val chosen: Int? = null,
-    /** `reported`, `default`, or `only`. */
+    /**
+     * The closed set, from `extract.js:selectAudioStream`:
+     *
+     * - `reported`     — the track we asked for; agreement.
+     * - `unresolved`   — we asked for one and it did not index a stream, so the
+     *                    server fell back anyway. **The only disagreement.**
+     * - `only`         — one audio stream in the file.
+     * - `default`      — we reported nothing; the file's default disposition.
+     * - `first`        — we reported nothing; no default flagged, took the first.
+     */
     @Json(name = "reason") val reason: String? = null
 )

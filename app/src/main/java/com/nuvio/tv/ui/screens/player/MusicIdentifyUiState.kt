@@ -55,24 +55,32 @@ sealed interface MusicIdentifyUiState {
         /** How many songs this episode/title has in the index, this one included. */
         val cuesInEpisode: Int = 0,
         /**
-         * The ffprobe stream index the server actually listened to, and why.
-         * Null until the server reports it — see [MusicTrackSelectionDto].
+         * The ffprobe stream index the server actually listened to, and why —
+         * see [MusicTrackSelectionDto].
          */
         val listenedToTrack: Int? = null,
         val trackReason: String? = null
     ) : MusicIdentifyUiState {
 
         /**
-         * True when we told the server which track was playing and it listened
-         * to a different one anyway. Worth surfacing: it means the identification
-         * may describe audio the viewer is not hearing.
+         * True when we told the server which track was playing and it could not
+         * honour it, so it listened to something else. Worth surfacing: it means
+         * the identification may describe audio the viewer is not hearing.
          *
-         * `reason == "default"` alongside a *reported* track is the signature of
-         * the ordinal-vs-global-index mismatch. `only` (one track in the file) and
-         * `reported` are both agreement.
+         * `"unresolved"` is the whole signature — `extract.js` sets it precisely
+         * when a track *was* reported and did not index a stream. The other four
+         * outcomes are not disagreement: `"reported"` means we were honoured, and
+         * `"only"`/`"default"`/`"first"` all mean we reported nothing and the
+         * server picked for us.
+         *
+         * Do **not** test this against [listenedToTrack]. `trackReason` is about
+         * what the client sent; `listenedToTrack` is what the server chose, and
+         * on the `"default"` fallback it is always non-null — so pairing the two
+         * fires the warning on every silent-report press while missing the real
+         * mismatch. That was the bug, not the fix.
          */
         val trackDisagrees: Boolean
-            get() = trackReason == "default" && listenedToTrack != null
+            get() = trackReason == "unresolved"
     }
 
     /**
