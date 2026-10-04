@@ -2,6 +2,7 @@ package com.nuvio.tv.ui.screens.player
 
 import com.nuvio.tv.core.activity.ActivityEventReporter
 import com.nuvio.tv.core.boomio.MusicClient
+import com.nuvio.tv.core.boomio.MusicIdentifyResult
 import com.nuvio.tv.core.sync.SyncClientIdentity
 
 import android.app.Activity
@@ -576,6 +577,15 @@ class PlayerRuntimeController(
     internal val pauseOverlayDelayMs = 5000L
     /** The in-flight music identification, if any. Guards against double-spend. */
     internal var musicIdentifyJob: Job? = null
+    /**
+     * Askers that arrived while [musicIdentifyJob] was already running and are
+     * waiting on that answer instead of spending a second provider call.
+     *
+     * Main-thread only: both the enqueue and the drain happen on the player's
+     * main-dispatched scope, and the companion manager's inbound frames are
+     * posted to the main looper before they reach here.
+     */
+    internal val musicIdentifyWaiters = mutableListOf<(MusicIdentifyResult) -> Unit>()
     internal val seekProgressSyncDebounceMs = 700L
     internal val audioDelayUs = AtomicLong(0L)
     internal val subtitleDelayUs = AtomicLong(0L)

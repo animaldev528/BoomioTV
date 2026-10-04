@@ -1,6 +1,7 @@
 package com.nuvio.tv.ui.screens.player
 
 import com.nuvio.tv.core.boomio.MusicIdentifyRequest
+import com.nuvio.tv.core.boomio.MusicIdentifyResult
 import com.nuvio.tv.core.boomio.MusicSaveRequest
 import com.nuvio.tv.core.boomio.MusicSaveResult
 import kotlinx.coroutines.flow.update
@@ -22,23 +23,80 @@ import kotlinx.coroutines.launch
  * the identify route already reads `body.audioTrack`.
  */
 internal fun PlayerRuntimeController.identifyMusic() {
-    // A second press while the first is in flight is the same question. Let it
-    // ride rather than spending another provider call on it — the daily cap
-    // counts provider calls, not presses.
-    if (musicIdentifyJob?.isActive == true) return
+    startMusicIdentify(showOverlay = true) { result ->
+        _uiState.update { it.copy(musicIdentify = result.toUiState()) }
+    }
+}
 
-    val state = _uiState.value
-    _uiState.update {
-        it.copy(
-            showMusicOverlay = true,
-            musicIdentify = MusicIdentifyUiState.Listening,
-            // A fresh question means a fresh answer, so any save state left over
-            // from the previous one is cleared — otherwise a new song would open
-            // already claiming to be in the library.
-            musicSave = MusicSaveState.Idle
-        )
+/**
+ * The same question, asked from the paired phone instead of the TV remote.
+ *
+ * Identical request, identical dedupe, one deliberate difference: nothing is
+ * put on screen. A viewer pressing the note on their phone is looking at the
+ * phone, and covering the picture with a card they did not ask for is exactly
+ * what routing the press here exists to avoid. The answer goes back to the
+ * phone, which renders it.
+ *
+ * [onResult] is called exactly once, on the main thread — including when the
+ * TV's own press is already in flight, in which case this press rides that
+ * answer rather than spending a second provider call on the same question.
+ */
+internal fun PlayerRuntimeController.identifyMusicForCompanion(
+    onResult: (MusicIdentifyResult) -> Unit
+) {
+    startMusicIdentify(showOverlay = false, onAnswered = onResult)
+}
+
+/**
+ * Run one identify and hand the answer to everyone waiting on it.
+ *
+ * [showOverlay] is per-asker, not per-call: the in-flight job was started by
+ * whoever pressed first, and a second asker that joins it still presents the
+ * answer its own way. A TV press that arrives during a phone press opens the
+ * overlay; a phone press that arrives during a TV press does not.
+ */
+private fun PlayerRuntimeController.startMusicIdentify(
+    showOverlay: Boolean,
+    onAnswered: (MusicIdentifyResult) -> Unit
+) {
+    val deliver: (MusicIdentifyResult) -> Unit = { result ->
+        if (showOverlay) {
+            _uiState.update { it.copy(musicIdentify = result.toUiState()) }
+        }
+        onAnswered(result)
     }
 
+    if (showOverlay) {
+        _uiState.update {
+            it.copy(
+                showMusicOverlay = true,
+                musicIdentify = MusicIdentifyUiState.Listening,
+                // A fresh question means a fresh answer, so any save state left
+                // over from the previous one is cleared — otherwise a new song
+                // would open already claiming to be in the library.
+                musicSave = MusicSaveState.Idle
+            )
+        }
+    }
+
+    // A second press while the first is in flight is the same question. Let it
+    // ride rather than spending another provider call on it — the daily cap
+    // counts provider calls, not presses. It still has to be *told* when the
+    // answer lands: a phone that pressed during the TV's own press would
+    // otherwise sit on a spinner until it gave up.
+    if (musicIdentifyJob?.isActive == true) {
+        musicIdentifyWaiters += deliver
+        return
+    }
+
+    // Reaching here means no call is in flight, so anything still in the list
+    // was waiting on one that ended without answering — cancelled, or the scope
+    // that owned it torn down. It would otherwise be handed *this* call's answer
+    // for a different question. Dropping them is the honest failure: their own
+    // asker times out and says so, rather than showing the wrong song.
+    musicIdentifyWaiters.clear()
+
+    val state = _uiState.value
     val request = MusicIdentifyRequest(
         // The companion device id, which is the key the position record is
         // written under (`handleRegister` uses `msg.deviceId`), so the server's
@@ -58,7 +116,17 @@ internal fun PlayerRuntimeController.identifyMusic() {
 
     musicIdentifyJob = scope.launch {
         val result = musicClient.identify(request)
-        _uiState.update { it.copy(musicIdentify = result.toUiState()) }
+        deliver(result)
+        // Anything that asked while this call was in flight gets the answer too.
+        // Looped rather than drained once because the waiters are handed the
+        // result from here: a press that lands mid-delivery joins a job that is
+        // about to return, and would otherwise wait on a spinner for a call
+        // that has already finished. Nothing suspends in this loop, so it ends.
+        while (musicIdentifyWaiters.isNotEmpty()) {
+            val waiters = musicIdentifyWaiters.toList()
+            musicIdentifyWaiters.clear()
+            waiters.forEach { it(result) }
+        }
     }
 }
 

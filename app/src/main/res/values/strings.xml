@@ -2432,6 +2432,8 @@
     <string name="music_no_context_hint">The player didn\'t report a title for what\'s on screen.</string>
     <string name="music_rate_limited">That\'s all for today</string>
     <string name="music_rate_limited_hint">You\'ve reached the daily limit for music search. It resets tomorrow.</string>
+    <string name="music_not_playing">Nothing is playing</string>
+    <string name="music_not_playing_hint">Start a title on the TV, then ask again.</string>
     <string name="music_not_paired">This TV isn\'t linked yet</string>
     <string name="music_not_paired_hint">Pair the TV from the Boomio dashboard to use music search.</string>
     <string name="music_not_configured">Music search isn\'t set up</string>

@@ -116,6 +116,26 @@ interface ActiveCompanionPlayer {
     /** True while a private-listening fork is streaming to a phone ("phone attached"). */
     val isPhoneAudioForkActive: Boolean
         get() = false
+
+    /**
+     * Answer "what is this playing?" for the paired phone.
+     *
+     * The phone cannot ask bsc itself, even though it holds the session token
+     * that would let it: the identify route selects which audio stream to listen
+     * to from the track ordinal the viewer is hearing, and no telemetry record
+     * carries one (`handlePosition` in bsc's `device-relay.js` writes position,
+     * not track). A phone-side call would fall back to the file's default
+     * disposition and identify audio the viewer may have switched away from —
+     * the commentary-track mismatch that the ordinal work exists to close.
+     * This player is the only party holding that ordinal, so the question lands
+     * here.
+     *
+     * [onResult] is called exactly once, on the main thread. The implementation
+     * must not touch `showMusicOverlay`: a press made on the phone is answered on
+     * the phone, and putting a card over the picture is the thing it exists to
+     * avoid.
+     */
+    fun identifyMusicForCompanion(onResult: (MusicIdentifyResult) -> Unit)
 }
 
 /**

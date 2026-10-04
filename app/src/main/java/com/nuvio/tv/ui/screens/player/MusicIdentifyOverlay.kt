@@ -428,6 +428,7 @@ private fun statusHintRes(status: String): Int = when (status) {
 }
 
 private fun unavailableTitleRes(reason: MusicUnavailableReason): Int = when (reason) {
+    MusicUnavailableReason.NOT_PLAYING -> R.string.music_not_playing
     MusicUnavailableReason.NOT_PAIRED -> R.string.music_not_paired
     MusicUnavailableReason.NOT_CONFIGURED -> R.string.music_not_configured
     MusicUnavailableReason.NOT_LINKED -> R.string.music_not_linked
@@ -435,6 +436,7 @@ private fun unavailableTitleRes(reason: MusicUnavailableReason): Int = when (rea
 }
 
 private fun unavailableHintRes(reason: MusicUnavailableReason): Int = when (reason) {
+    MusicUnavailableReason.NOT_PLAYING -> R.string.music_not_playing_hint
     MusicUnavailableReason.NOT_PAIRED -> R.string.music_not_paired_hint
     MusicUnavailableReason.NOT_CONFIGURED -> R.string.music_not_configured_hint
     MusicUnavailableReason.NOT_LINKED -> R.string.music_not_linked_hint
@@ -446,6 +448,9 @@ private fun saveFailTitleRes(reason: MusicUnavailableReason): Int = when (reason
     MusicUnavailableReason.NOT_LINKED -> R.string.music_save_not_linked
     MusicUnavailableReason.NOT_CONFIGURED -> R.string.music_not_configured
     MusicUnavailableReason.NOT_PAIRED -> R.string.music_not_paired
+    // A save only follows a successful identify, so this pair cannot arrive here
+    // — but it is still the honest thing to say if one ever does.
+    MusicUnavailableReason.NOT_PLAYING -> R.string.music_not_playing
     MusicUnavailableReason.NETWORK -> R.string.music_save_failed
 }
 
@@ -453,5 +458,6 @@ private fun saveFailHintRes(reason: MusicUnavailableReason): Int = when (reason)
     MusicUnavailableReason.NOT_LINKED -> R.string.music_save_not_linked_hint
     MusicUnavailableReason.NOT_CONFIGURED -> R.string.music_not_configured_hint
     MusicUnavailableReason.NOT_PAIRED -> R.string.music_not_paired_hint
+    MusicUnavailableReason.NOT_PLAYING -> R.string.music_not_playing_hint
     MusicUnavailableReason.NETWORK -> R.string.music_save_failed_hint
 }

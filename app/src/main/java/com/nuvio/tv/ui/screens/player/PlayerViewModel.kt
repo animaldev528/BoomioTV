@@ -6,6 +6,7 @@ import com.nuvio.tv.core.boomio.BoomioCompanionManager
 import com.nuvio.tv.core.boomio.CompanionPlaybackBridge
 import com.nuvio.tv.core.boomio.CompanionPlaybackSnapshot
 import com.nuvio.tv.core.boomio.MusicClient
+import com.nuvio.tv.core.boomio.MusicIdentifyResult
 import com.nuvio.tv.core.sync.SyncClientIdentity
 
 import android.content.Context
@@ -238,6 +239,13 @@ class PlayerViewModel @Inject constructor(
         override fun stopPhoneAudioFork() = controller.stopPhoneAudioFork()
         override val isPhoneAudioForkActive: Boolean
             get() = controller.isPhoneAudioForkActive()
+
+        // A phone's "what is this?" press, answered with this playback's own
+        // position, stream URL and audio-track ordinal — the fields the phone
+        // has no way to supply. The ordinal is why the press comes here at all;
+        // see [ActiveCompanionPlayer.identifyMusicForCompanion].
+        override fun identifyMusicForCompanion(onResult: (MusicIdentifyResult) -> Unit) =
+            controller.identifyMusicForCompanion(onResult)
     }
 
     init {

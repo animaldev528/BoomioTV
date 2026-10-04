@@ -25,6 +25,15 @@ enum class MusicUnavailableReason {
     /** This build has no bsc base URL compiled in. */
     NOT_CONFIGURED,
 
+    /**
+     * Nothing is playing on this TV, so there is no audio to identify.
+     *
+     * Its own reason rather than folded into [NOT_PAIRED]: a phone whose TV is
+     * simply sitting on the home screen *is* paired and *is* linked, and telling
+     * that viewer to re-pair would send them to fix something that is not broken.
+     */
+    NOT_PLAYING,
+
     /** Paired on no TV yet, so there is no session to identify with. */
     NOT_PAIRED,
 
@@ -136,6 +145,19 @@ class MusicClient @Inject constructor(
 
     /** Configured only when the companion host was compiled in. */
     fun isConfigured(): Boolean = baseUrl() != null
+
+    /**
+     * The identify answer, re-emitted exactly as bsc sent it.
+     *
+     * This exists for the companion relay. A phone that presses "what is this?"
+     * cannot ask bsc itself — the answer depends on the audio-track ordinal the
+     * viewer is hearing, which only this TV holds — so the TV forwards what the
+     * server said. Forwarding *this*, rather than a second shape hand-built on
+     * the TV side, is what keeps the phone parsing the same contract the TV
+     * does: a field added to `MusicIdentifyDto` reaches the phone the moment the
+     * server sends it, with nothing in between to fall behind.
+     */
+    fun wireJson(dto: MusicIdentifyDto): String = identifyAdapter.toJson(dto)
 
     /**
      * The bsc REST base, derived from the companion WebSocket host.
