@@ -2413,6 +2413,45 @@
     <string name="cd_stream_info">Stream info</string>
     <string name="cd_more_actions">More actions</string>
     <string name="cd_close_more_actions">Close more actions</string>
+
+    <!-- Music identification (the player's music button) -->
+    <string name="cd_identify_music">What song is this?</string>
+    <string name="music_listening">Listening…</string>
+    <string name="music_listening_hint">This can take a few seconds. Playback keeps going.</string>
+    <string name="music_artist_unknown">Unknown artist</string>
+    <string name="music_source_index">Already known from earlier</string>
+    <string name="music_source_provider">Identified by %1$s</string>
+    <!-- Deliberately not "in this episode": the same row renders for films. -->
+    <string name="music_cues_one">%1$d song found so far</string>
+    <string name="music_cues_many">%1$d songs found so far</string>
+    <string name="music_no_match">No song recognised here</string>
+    <string name="music_no_match_hint">Nothing matched — which is the usual answer for a scene without music.</string>
+    <string name="music_no_stream">This stream can\'t be listened to</string>
+    <string name="music_no_stream_hint">The service couldn\'t fetch the audio for this title.</string>
+    <string name="music_no_context">Nothing to identify</string>
+    <string name="music_no_context_hint">The player didn\'t report a title for what\'s on screen.</string>
+    <string name="music_rate_limited">That\'s all for today</string>
+    <string name="music_rate_limited_hint">You\'ve reached the daily limit for music search. It resets tomorrow.</string>
+    <string name="music_not_playing">Nothing is playing</string>
+    <string name="music_not_playing_hint">Start a title on the TV, then ask again.</string>
+    <string name="music_not_paired">This TV isn\'t linked yet</string>
+    <string name="music_not_paired_hint">Pair the TV from the Boomio dashboard to use music search.</string>
+    <string name="music_not_configured">Music search isn\'t set up</string>
+    <string name="music_not_configured_hint">This build has no Boomio server configured.</string>
+    <string name="music_unavailable">Couldn\'t reach the music service</string>
+    <string name="music_unavailable_hint">Check the connection and try again.</string>
+    <string name="music_track_mismatch">Played a different audio track than the one selected</string>
+    <string name="music_add_to_library">Add to library</string>
+    <string name="music_adding">Adding…</string>
+    <string name="music_in_library">Added to your library</string>
+    <string name="music_already_in_library">Already in your library</string>
+    <string name="music_add_retry">Try again</string>
+    <string name="music_save_failed">Couldn\'t save that</string>
+    <string name="music_save_failed_hint">Check the connection and try again.</string>
+    <string name="music_not_linked">This TV isn\'t linked to a profile</string>
+    <string name="music_not_linked_hint">Pair the TV from the Boomio dashboard so we know whose library to save into.</string>
+    <string name="music_save_not_linked">No library to save into</string>
+    <string name="music_save_not_linked_hint">This TV isn\'t linked to a profile. Pair it from the Boomio dashboard and try again.</string>
     <string name="cd_back">Back</string>
     <string name="cd_next_episode_thumbnail">Next episode thumbnail</string>
     <string name="cd_current">Current</string>

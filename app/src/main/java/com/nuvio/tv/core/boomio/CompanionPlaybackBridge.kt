@@ -50,7 +50,34 @@ data class CompanionPlaybackSnapshot(
      * a VOD imdbId, so "start a party on what the Shield is watching" could not
      * tell a channel from a movie.
      */
-    val contentType: String? = null
+    val contentType: String? = null,
+    /**
+     * Which audio track the viewer is actually hearing, as a **0-based ordinal
+     * into the audio-only track list** — NOT ffprobe's global stream index.
+     *
+     * The distinction matters and both ways it can go wrong are silent. The
+     * server's `selectAudioStream` (`bsc/lib/music/extract.js`) matches this
+     * against `s.index` over a list already filtered to audio streams — so an
+     * ordinal is compared to a global index, and on a normal movie (video is 0)
+     * the two disagree:
+     *
+     * - ordinal `0` matches nothing and quietly falls back to the file's
+     *   `default` track;
+     * - ordinal `1` matches global index 1, which is the **first** audio track,
+     *   and comes back as though we had been obeyed (`reason: "reported"`).
+     *
+     * Either way, a viewer who deliberately picked a commentary track can have
+     * music identified from a track they are not hearing, and written to
+     * `music_cues` — a table shared by every user and device. The server fix is
+     * one line (index the audio array by the ordinal); until it lands this field
+     * is the agreed contract, and the response's `track` object is the only thing
+     * that makes a disagreement visible.
+     *
+     * `selectedAudioTrackIndex` in the player's uiState is exactly this ordinal:
+     * both the ExoPlayer and MPV paths number audio from 0 within the audio
+     * list, so `PlayerRuntimeControllerTracks.kt` and this agree.
+     */
+    val audioTrack: Int? = null
 )
 
 /**
@@ -89,6 +116,26 @@ interface ActiveCompanionPlayer {
     /** True while a private-listening fork is streaming to a phone ("phone attached"). */
     val isPhoneAudioForkActive: Boolean
         get() = false
+
+    /**
+     * Answer "what is this playing?" for the paired phone.
+     *
+     * The phone cannot ask bsc itself, even though it holds the session token
+     * that would let it: the identify route selects which audio stream to listen
+     * to from the track ordinal the viewer is hearing, and no telemetry record
+     * carries one (`handlePosition` in bsc's `device-relay.js` writes position,
+     * not track). A phone-side call would fall back to the file's default
+     * disposition and identify audio the viewer may have switched away from —
+     * the commentary-track mismatch that the ordinal work exists to close.
+     * This player is the only party holding that ordinal, so the question lands
+     * here.
+     *
+     * [onResult] is called exactly once, on the main thread. The implementation
+     * must not touch `showMusicOverlay`: a press made on the phone is answered on
+     * the phone, and putting a card over the picture is the thing it exists to
+     * avoid.
+     */
+    fun identifyMusicForCompanion(onResult: (MusicIdentifyResult) -> Unit)
 }
 
 /**

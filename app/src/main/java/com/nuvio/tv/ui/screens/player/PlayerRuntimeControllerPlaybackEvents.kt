@@ -1780,6 +1780,11 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         PlayerEvent.OnDismissStreamInfo -> {
             _uiState.update { it.copy(showStreamInfoOverlay = false) }
         }
+        PlayerEvent.OnIdentifyMusic -> identifyMusic()
+        PlayerEvent.OnAddMusicToLibrary -> saveMusicToLibrary()
+        PlayerEvent.OnDismissMusicOverlay -> {
+            _uiState.update { it.copy(showMusicOverlay = false) }
+        }
         PlayerEvent.OnTogglePlayerStatsHud -> {
             val currentState = _uiState.value
             if (currentState.playerStatsHudButtonAvailable) {

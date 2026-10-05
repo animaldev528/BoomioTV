@@ -60,6 +60,10 @@ private const val TAG = "BoomioCompanionManager"
  * already decoding to the phone over direct LAN UDP. The phone supplies `phoneIp`/`port` — the hub
  * relays them, it never derives them (R3). Explicit stop and the hub's heartbeat-driven stop
  * (`audio_fork_stop { reason: "phone_timeout" }`) both arrive as `audio_fork_stop`.
+ *
+ * `music_identify` is the phone-remote "what is this?" press. It is answered here rather than by
+ * the phone, and outbound `music_identify_result` carries the answer back — see
+ * [handleMusicIdentify] for why the question has to travel through the TV.
  */
 @Singleton
 class BoomioCompanionManager @Inject constructor(
@@ -70,7 +74,11 @@ class BoomioCompanionManager @Inject constructor(
     // Lets a companion phone (or a live watch party) put this TV on a channel.
     // The TV tunes ITSELF rather than being handed a playlist URL, so the IPTV
     // session token never leaves the device that owns it.
-    private val iptvClient: IptvClient
+    private val iptvClient: IptvClient,
+    // Only for re-emitting an identify answer in the server's own shape when
+    // forwarding it to the phone that asked. The question itself goes to the
+    // active player, which holds the audio-track ordinal; see [handleMusicIdentify].
+    private val musicClient: MusicClient
 ) {
     private val companionUrl: String = BuildConfig.BOOMIO_COMPANION_URL.trim()
     private val wsUrl: String = companionUrl.trimEnd('/') + "/ws"
@@ -299,6 +307,10 @@ class BoomioCompanionManager @Inject constructor(
                 bridge.activeSearchInput.value?.onRemoteText(msg.optString("text"))
             // Enter from the phone remote's keyboard / voice search.
             "keyboard_submit" -> bridge.activeSearchInput.value?.submit()
+            // "What is this?" from the phone's companion remote. Answered by the
+            // TV (see [handleMusicIdentify]) and forwarded to the phone alone —
+            // nothing is drawn here, which is the point of pressing it there.
+            "music_identify" -> handleMusicIdentify()
             "stop" -> bridge.activePlayer.value?.stop()
             "companion_paired" -> showToast("Phone connected")
             "companion_unpaired" -> showToast("Phone disconnected")
@@ -378,6 +390,68 @@ class BoomioCompanionManager @Inject constructor(
             put("status", status)
             reason?.let { put("reason", it) }
         }.toString())
+    }
+
+    /**
+     * Ask the active player what it is playing, and send its answer to the phone
+     * that asked.
+     *
+     * The phone could reach `POST /api/music/identify` on its own — it holds the
+     * session token — but it must not: the route picks which audio stream to
+     * listen to from the track ordinal the viewer is hearing, and only the player
+     * knows that. A phone-side call would fall back to the file's default
+     * disposition and identify a commentary the viewer had switched away from.
+     *
+     * The answer is forwarded verbatim, `track` and all. `track.reason` is
+     * load-bearing on the phone's side: it is what the "played a different audio
+     * track than the one selected" warning keys on, and dropping it here would
+     * make the phone silently confident about an identification the TV would have
+     * flagged.
+     *
+     * No `showMusicOverlay` anywhere on this path — a press made on the phone is
+     * answered on the phone.
+     */
+    private fun handleMusicIdentify() {
+        val player = bridge.activePlayer.value
+        if (player == null) {
+            // Between titles, or on the home screen. Reported as its own reason
+            // so the phone can say "nothing is playing" instead of sending the
+            // viewer to re-pair a TV that is paired perfectly well.
+            sendMusicIdentifyResult(
+                MusicIdentifyResult.Unavailable(MusicUnavailableReason.NOT_PLAYING)
+            )
+            return
+        }
+        player.identifyMusicForCompanion { result -> sendMusicIdentifyResult(result) }
+    }
+
+    /**
+     * Forward an identify answer to the paired phone. `device-relay.js` routes
+     * any `music_identify_result`-typed frame from a TV to its paired phone, the
+     * same way it routes `audio_fork`.
+     */
+    private fun sendMusicIdentifyResult(result: MusicIdentifyResult) {
+        val frame = JSONObject().apply {
+            put("type", "music_identify_result")
+            when (result) {
+                is MusicIdentifyResult.Answered -> {
+                    put("answered", true)
+                    // The server's own payload, re-emitted — not a second shape
+                    // hand-built here, so a field added to the DTO reaches the
+                    // phone without a change on this side.
+                    put("result", JSONObject(musicClient.wireJson(result.response)))
+                }
+
+                is MusicIdentifyResult.Unavailable -> {
+                    put("answered", false)
+                    // snake_case, matching every other value on this wire
+                    // (`audio_fork`'s `no_active_player`, `different_network`).
+                    put("reason", result.reason.name.lowercase())
+                    result.detail?.let { put("detail", it) }
+                }
+            }
+        }
+        webSocket?.send(frame.toString())
     }
 
     private fun audioManager(): AudioManager? =
@@ -545,6 +619,11 @@ class BoomioCompanionManager @Inject constructor(
             snapshot.posterUrl?.let { put("posterUrl", it) }
             snapshot.logoUrl?.let { put("logoUrl", it) }
             snapshot.contentType?.let { put("contentType", it) }
+            // 0-based ordinal into the audio list (see CompanionPlaybackSnapshot).
+            // Sent even though the phone ignores it today: the music identify call
+            // prefers the body, and this is the fallback the hub can relay once
+            // device-relay.js whitelists the field.
+            snapshot.audioTrack?.let { put("audioTrack", it) }
             put("volumePercent", companionVolumePercent ?: deviceVolumePercent())
         }
         webSocket?.send(payload.toString())

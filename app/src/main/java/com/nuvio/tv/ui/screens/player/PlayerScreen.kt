@@ -63,6 +63,7 @@ import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
@@ -277,6 +278,8 @@ fun PlayerScreen(
             viewModel.onEvent(PlayerEvent.OnDismissTransientOverlay)
         } else if (uiState.showStreamInfoOverlay) {
             dismissStreamInfoOverlay()
+        } else if (uiState.showMusicOverlay) {
+            viewModel.onEvent(PlayerEvent.OnDismissMusicOverlay)
         } else if (uiState.showPauseOverlay) {
             viewModel.onEvent(PlayerEvent.OnDismissPauseOverlay)
         } else if (uiState.showMoreDialog) {
@@ -1052,6 +1055,22 @@ fun PlayerScreen(
                 .zIndex(2.6f)
         )
 
+        // What song is this? Hidden while something more urgent is on screen —
+        // a load, an error, or the post-play card — so a slow answer (measured
+        // 6.5-9.5 s on a large remux) never lands on top of a state the viewer
+        // is already acting on.
+        MusicIdentifyOverlay(
+            visible = uiState.showMusicOverlay && uiState.error == null &&
+                !uiState.showLoadingOverlay && !postPlayRecommendationState.isVisible,
+            state = uiState.musicIdentify,
+            saveState = uiState.musicSave,
+            onClose = { viewModel.onEvent(PlayerEvent.OnDismissMusicOverlay) },
+            onAddToLibrary = { viewModel.onEvent(PlayerEvent.OnAddMusicToLibrary) },
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(2.65f)
+        )
+
         if (uiState.playerStatsHudEnabled && uiState.playerStatsHudButtonAvailable && uiState.error == null) {
             PlayerDebugStatsOverlay(
                 viewModel = viewModel,
@@ -1284,6 +1303,7 @@ fun PlayerScreen(
                 onShowSourcesPanel = { viewModel.onEvent(PlayerEvent.OnShowSourcesPanel) },
                 onShowAudioDialog = { viewModel.onEvent(PlayerEvent.OnShowAudioOverlay) },
                 onShowSubtitleDialog = { viewModel.onEvent(PlayerEvent.OnShowSubtitleOverlay) },
+                onIdentifyMusic = { viewModel.onEvent(PlayerEvent.OnIdentifyMusic) },
                 onShowSpeedDialog = { viewModel.onEvent(PlayerEvent.OnShowSpeedDialog) },
                 onToggleAspectRatio = {
                     Log.d("PlayerScreen", "onToggleAspectRatio called - dispatching event")
@@ -2057,6 +2077,7 @@ private fun PlayerControlsOverlay(
     onShowSourcesPanel: () -> Unit,
     onShowAudioDialog: () -> Unit,
     onShowSubtitleDialog: () -> Unit,
+    onIdentifyMusic: () -> Unit,
     onShowSpeedDialog: () -> Unit,
     onToggleAspectRatio: () -> Unit,
     onSwitchPlayerEngine: () -> Unit,
@@ -2281,6 +2302,23 @@ private fun PlayerControlsOverlay(
                             iconPainter = customAudioPainter,
                             contentDescription = stringResource(R.string.cd_audio_tracks),
                             onClick = onShowAudioDialog,
+                            upFocusRequester = progressUpTarget,
+                            onDownKey = onHideControls,
+                            onFocused = onResetHideTimer
+                        )
+                    }
+
+                    // Not offered on live TV. A channel has no commentary track to
+                    // get wrong, but it has no stable title either — its URL is
+                    // wall-clock-keyed, so every identification would be a fresh
+                    // provider call against a stream the shared cue index can never
+                    // reuse. Nothing about that gets better with use, and the daily
+                    // cap is per device, so live would spend VOD's budget.
+                    if (!isLivePlayback) {
+                        ControlButton(
+                            icon = Icons.Default.MusicNote,
+                            contentDescription = stringResource(R.string.cd_identify_music),
+                            onClick = onIdentifyMusic,
                             upFocusRequester = progressUpTarget,
                             onDownKey = onHideControls,
                             onFocused = onResetHideTimer
