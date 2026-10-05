@@ -14,6 +14,7 @@ data class StreamDto(
     @Json(name = "title") val title: String? = null,
     @Json(name = "description") val description: String? = null,
     @Json(name = "url") val url: String? = null,
+    @Json(name = "streamToken") val streamToken: String? = null,
     @Json(name = "ytId") val ytId: String? = null,
     @Json(name = "infoHash") val infoHash: String? = null,
     @Json(name = "fileIdx") val fileIdx: Int? = null,
@@ -109,5 +110,7 @@ data class ProxyHeadersDto(
 data class SubtitleDto(
     @Json(name = "id") val id: String? = null,
     @Json(name = "url") val url: String,
-    @Json(name = "lang") val lang: String
+    @Json(name = "lang") val lang: String,
+    @Json(name = "headers") val headers: Map<String, String>? = null
 )
+

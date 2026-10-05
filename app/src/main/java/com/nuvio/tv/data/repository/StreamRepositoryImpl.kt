@@ -25,6 +25,7 @@ import com.nuvio.tv.domain.model.ProxyHeaders
 import com.nuvio.tv.domain.model.ScraperInfo
 import com.nuvio.tv.domain.model.Stream
 import com.nuvio.tv.domain.model.StreamBehaviorHints
+import com.nuvio.tv.core.streams.supportsStreamResource
 import com.nuvio.tv.domain.model.enabledAddons
 import com.nuvio.tv.domain.repository.AddonRepository
 import com.nuvio.tv.domain.repository.StreamRepository
@@ -40,17 +41,12 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import java.net.URLEncoder
 import java.security.MessageDigest
 import java.util.Locale
 import javax.inject.Inject
 
 private const val TAG = "StreamRepositoryImpl"
-// Give the installed-addons flow time to populate before giving up and proceeding
-// with whatever it has (usually empty on a cold start — which is what surfaces as
-// "no installed addon supports streams" when the .first() race wins).
-private const val AWAIT_ADDONS_TIMEOUT_MS = 5_000L
 
 class StreamRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -140,7 +136,7 @@ class StreamRepositoryImpl @Inject constructor(
     private suspend fun captureSourceConfiguration(): StreamSourceConfigurationSnapshot {
         while (true) {
             val profileId = profileManager.activeProfileId.value
-            val addons = awaitInstalledAddons()
+            val addons = addonRepository.getInstalledAddons().first().enabledAddons()
             val pluginsEnabled = pluginManager.pluginsEnabled.first()
             val enabledScrapers = if (pluginsEnabled) pluginManager.enabledScrapers.first() else emptyList()
             val groupPluginsByRepository = pluginsEnabled && pluginManager.groupStreamsByRepository.first()
@@ -159,19 +155,6 @@ class StreamRepositoryImpl @Inject constructor(
                 debridSettings = debridSettings
             )
         }
-    }
-
-    /**
-     * The installed-addons flow is stateIn(Eagerly) seeded with an empty list, so
-     * `first()` right after a cold start can return zero addons and make the stream
-     * filter report "no installed addon supports streams". Wait (briefly) for a
-     * populated emission before giving up and proceeding with whatever is there.
-     */
-    private suspend fun awaitInstalledAddons(): List<Addon> {
-        val installedAddons = addonRepository.getInstalledAddons()
-        return withTimeoutOrNull(AWAIT_ADDONS_TIMEOUT_MS) {
-            installedAddons.first { it.isNotEmpty() }
-        }?.enabledAddons() ?: installedAddons.first().enabledAddons()
     }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -212,13 +195,7 @@ class StreamRepositoryImpl @Inject constructor(
                 streamAddons.forEach { addon ->
                     launch {
                         try {
-                            val streamsResult = getStreamsFromAddon(
-                                baseUrl = addon.baseUrl,
-                                type = type,
-                                videoId = videoId,
-                                addonName = addon.displayName,
-                                addonLogo = addon.logo
-                            )
+                            val streamsResult = getStreamsFromAddon(addon, type, videoId)
                             when (streamsResult) {
                                 is NetworkResult.Success -> {
                                     if (streamsResult.data.isNotEmpty()) {
@@ -551,17 +528,24 @@ class StreamRepositoryImpl @Inject constructor(
             ytId = null,
             externalUrl = null,
             quality = quality,
-            qualityValue = parseQualityValue(quality)
+            qualityValue = parseQualityValue(quality),
+            subtitles = subtitles
         )
     }
 
-    private fun Stream.dedupKey(): String =
-        infoHash?.lowercase()?.let { hash -> "$hash:${fileIdx ?: ""}" }
+    private fun Stream.dedupKey(): String {
+        val base = infoHash?.lowercase()?.let { hash -> "$hash:${fileIdx ?: ""}" }
             ?: clientResolve?.infoHash?.lowercase()?.let { hash -> "$hash:${clientResolve.fileIdx}" }
             ?: url
             ?: externalUrl
             ?: ytId
             ?: "${addonName}:${name}:${title}"
+        val nameSuffix = if (base == url) {
+            val discriminator = name?.takeIf { it.isNotBlank() }
+            if (discriminator != null) "|$discriminator" else ""
+        } else ""
+        return "$base$nameSuffix"
+    }
 
     /**
      * Build a description string from scraper result
@@ -589,13 +573,11 @@ class StreamRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getStreamsFromAddon(
-        baseUrl: String,
+        addon: Addon,
         type: String,
-        videoId: String,
-        addonName: String,
-        addonLogo: String?
+        videoId: String
     ): NetworkResult<List<Stream>> {
-        val cleanBaseUrl = baseUrl.trimEnd('/')
+        val cleanBaseUrl = addon.baseUrl.trimEnd('/')
         val queryStart = cleanBaseUrl.indexOf('?')
         val basePath = if (queryStart >= 0) cleanBaseUrl.substring(0, queryStart).trimEnd('/') else cleanBaseUrl
         val baseQuery = if (queryStart >= 0) cleanBaseUrl.substring(queryStart) else ""
@@ -634,47 +616,29 @@ class StreamRepositoryImpl @Inject constructor(
         }
         Log.d(TAG, "Fetching streams type=$type videoId=$videoId url=$streamUrl")
 
-        // Addon name/logo come from the installed-addons manifest cache (the caller
-        // already has them), not a per-request manifest fetch. Re-fetching the manifest
-        // here both wastes a request and thrashes the addon's manifest endpoint (429).
-        val resolvedAddonName = addonName.ifBlank {
-            context.getString(com.nuvio.tv.R.string.stream_addon_unknown)
-        }
+        // Display info comes from the installed addon the caller already holds. Calling
+        // addonRepository.fetchAddon() here caused an unconditional manifest GET ahead of every
+        // queried addon's stream request: fetchAddon is the low-level fetch that does not consult
+        // the cache, so this sidestepped the manifest-cache policy in AddonRepositoryImpl.
+        val addonName = addon.displayName
+        val addonLogo = addon.logo
 
         return when (val result = safeApiCall(context) { api.getStreams(streamUrl) }) {
             is NetworkResult.Success -> {
-                val streams = result.data.streams?.map {
-                    it.toDomain(resolvedAddonName, addonLogo)
+                val streams = result.data.streams?.map { 
+                    it.toDomain(addonName, addonLogo) 
                 } ?: emptyList()
-                Log.d(TAG, "Streams success addon=$resolvedAddonName count=${streams.size} url=$streamUrl")
+                Log.d(TAG, "Streams success addon=$addonName count=${streams.size} url=$streamUrl")
                 NetworkResult.Success(streams)
             }
             is NetworkResult.Error -> {
                 Log.w(
                     TAG,
-                    "Streams failed addon=$resolvedAddonName code=${result.code} message=${result.message} url=$streamUrl"
+                    "Streams failed addon=$addonName code=${result.code} message=${result.message} url=$streamUrl"
                 )
                 result
             }
             NetworkResult.Loading -> NetworkResult.Loading
-        }
-    }
-
-    /**
-     * Check if addon supports stream resource for the given type and video id.
-     * Respects the resource-level idPrefixes declared in the addon manifest,
-     * falling back to the top-level addon idPrefixes if the resource doesn't
-     * declare its own.
-     */
-    private fun Addon.supportsStreamResource(type: String, videoId: String): Boolean {
-        return resources.any { resource ->
-            resource.name == "stream" &&
-            (resource.types.isEmpty() || resource.types.contains(type)) &&
-            run {
-                val prefixes = resource.idPrefixes?.takeIf { it.isNotEmpty() }
-                    ?: idPrefixes.takeIf { it.isNotEmpty() }
-                prefixes == null || prefixes.any { prefix -> videoId.startsWith(prefix) }
-            }
         }
     }
 

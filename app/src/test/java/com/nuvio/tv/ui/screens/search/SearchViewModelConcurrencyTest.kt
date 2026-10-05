@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.search
 
+import com.nuvio.tv.core.boomio.CompanionPlaybackBridge
 import android.content.Context
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
@@ -145,6 +146,11 @@ class SearchViewModelConcurrencyTest {
             tmdbMetadataService = mockk<com.nuvio.tv.core.tmdb.TmdbMetadataService>(relaxed = true),
             tmdbSettingsDataStore = mockk<com.nuvio.tv.data.local.TmdbSettingsDataStore>(relaxed = true),
             activityEventReporter = mockk(relaxed = true),
+            // C8 adds a required `companionPlaybackBridge` to the ctor. A real
+            // instance, not a mock: it is a no-arg, pure-Kotlin class of StateFlows
+            // that SearchViewModel only exposes (SearchScreen is what reads it), so
+            // there is nothing to stub and nothing here touches Android.
+            companionPlaybackBridge = CompanionPlaybackBridge(),
             context = mockk<Context>(relaxed = true)
         )
     }

@@ -98,18 +98,18 @@ val releaseStorePasswordValue = env("NUVIO_RELEASE_STORE_PASSWORD")
 android {
     namespace = "com.nuvio.tv"
     compileSdk = 36
-    lint {
-        checkReleaseBuilds = false
-        abortOnError = false
-    }
     ndkVersion = "29.0.14206865"
 
     defaultConfig {
-        applicationId = "com.boomio.tv"
+        applicationId = "com.nuvio.tv"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1057
-        versionName = "0.8.16-beta"
+        versionCode = 1062
+        versionName = "1.0.0"
+
+        // Brand scheme this distribution answers to in `AndroidManifest.xml`.
+        // Flavors that must not claim another app's scheme override it (see `boomio`).
+        manifestPlaceholders["deeplinkScheme"] = "nuvio"
 
         buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${localProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
         buildConfigField("String", "INTRODB_API_URL", "\"${localProperties.getProperty("INTRODB_API_URL", "")}\"")
@@ -121,7 +121,7 @@ android {
         buildConfigField("String", "TRAKT_API_URL", "\"${localProperties.getProperty("TRAKT_API_URL", "https://api.trakt.tv/")}\"")
         buildConfigField("String", "TRAKT_REDIRECT_URI", "\"${localProperties.getProperty("TRAKT_REDIRECT_URI", "urn:ietf:wg:oauth:2.0:oob")}\"")
         buildConfigField("String", "SIMKL_CLIENT_ID", buildConfigString(resolveProperty(devProperties, localProperties, "SIMKL_CLIENT_ID")))
-        buildConfigField("String", "SIMKL_APP_NAME", buildConfigString(resolveProperty(devProperties, localProperties, "SIMKL_APP_NAME", "boomio")))
+        buildConfigField("String", "SIMKL_APP_NAME", buildConfigString(resolveProperty(devProperties, localProperties, "SIMKL_APP_NAME", "nuvio")))
         buildConfigField("String", "TMDB_API_KEY", "\"${localProperties.getProperty("TMDB_API_KEY", "")}\"")
         buildConfigField("String", "TV_LOGIN_WEB_BASE_URL", "\"${localProperties.getProperty("TV_LOGIN_WEB_BASE_URL", "https://nuvio.tv/tv-login")}\"")
         buildConfigField("String", "DEVICE_LOGIN_WEB_BASE_URL", "\"${localProperties.getProperty("DEVICE_LOGIN_WEB_BASE_URL", "https://nuvio.tv/link")}\"")
@@ -148,6 +148,10 @@ android {
         buildConfigField("String", "PREMIUMIZE_CLIENT_ID", "\"${localProperties.getProperty("PREMIUMIZE_CLIENT_ID", "")}\"")
         buildConfigField("String", "BOOMIO_BASE_URL", buildConfigString(resolveProperty(devProperties, localProperties, "BOOMIO_BASE_URL")))
         buildConfigField("String", "BOOMIO_COMPANION_URL", buildConfigString(resolveProperty(devProperties, localProperties, "BOOMIO_COMPANION_URL")))
+        // Live-IPTV edge (bss-iptv). Blank in a build with no IPTV service behind
+        // it, which is what makes the IPTV section show its "not set up" state
+        // rather than probing a host that does not exist.
+        buildConfigField("String", "BOOMIO_IPTV_URL", buildConfigString(resolveProperty(devProperties, localProperties, "BOOMIO_IPTV_URL")))
         // Install-level stream capability hint (e.g. "1080p"). When set, the
         // companion resolver asks bsf to cap streams so higher resolutions
         // (4K) never reach this device's picker.
@@ -156,7 +160,7 @@ android {
         buildConfigField("String", "SENTRY_DSN", buildConfigString(sentryDsn))
 
         // In-app updater (GitHub Releases)
-        buildConfigField("String", "GITHUB_OWNER", "\"animaldev528\"")
+        buildConfigField("String", "GITHUB_OWNER", "\"NuvioMedia\"")
         buildConfigField("String", "GITHUB_REPO", "\"NuvioTV\"")
     }
 
@@ -173,13 +177,44 @@ android {
         }
         create("playstore") {
             dimension = "distribution"
-            applicationId = "com.boomio.app"
+            applicationId = "com.nuvio.app"
             buildConfigField("boolean", "FEATURE_PLUGINS_ENABLED", "false")
             buildConfigField("boolean", "FEATURE_IN_APP_UPDATES_ENABLED", "false")
             buildConfigField("boolean", "FEATURE_IN_APP_TRAILERS_ENABLED", "false")
             buildConfigField("boolean", "FEATURE_EXTERNAL_TRAILERS_ENABLED", "true")
             buildConfigField("boolean", "FEATURE_EXTERNAL_PLAYBACK_KEEP_ALIVE_ENABLED", "false")
             buildConfigField("boolean", "FEATURE_CUSTOM_SERVER_CONNECTIONS_ENABLED", "false")
+        }
+        // Branded fork distribution. Kept as a flavor (rather than a fork-wide
+        // rename) so this branch still builds an unmodified upstream app, and so
+        // the branding lives in `src/boomio/` where upstream merges cannot touch it.
+        create("boomio") {
+            dimension = "distribution"
+            // Distinct id + our own keystore, so this installs alongside the
+            // official Nuvio app on the same device.
+            applicationId = "com.boomio.tv"
+            manifestPlaceholders["deeplinkScheme"] = "boomio"
+
+            // Same feature set as `full` — this build replaces the sideload build.
+            buildConfigField("boolean", "FEATURE_PLUGINS_ENABLED", "true")
+            buildConfigField("boolean", "FEATURE_IN_APP_UPDATES_ENABLED", "true")
+            buildConfigField("boolean", "FEATURE_IN_APP_TRAILERS_ENABLED", "true")
+            buildConfigField("boolean", "FEATURE_EXTERNAL_TRAILERS_ENABLED", "true")
+            buildConfigField("boolean", "FEATURE_EXTERNAL_PLAYBACK_KEEP_ALIVE_ENABLED", "true")
+            buildConfigField("boolean", "FEATURE_CUSTOM_SERVER_CONNECTIONS_ENABLED", "true")
+
+            // The in-app updater must read the Boomio fork's releases. Left at
+            // upstream's values it would offer an upstream APK, which cannot be
+            // installed over this one (different package id and signing key).
+            buildConfigField("String", "GITHUB_OWNER", "\"animaldev528\"")
+            buildConfigField("String", "GITHUB_REPO", "\"BoomioTV\"")
+            // Simkl is told which app is talking to it; keep the local.properties
+            // escape hatch working.
+            buildConfigField(
+                "String",
+                "SIMKL_APP_NAME",
+                buildConfigString(resolveProperty(devProperties, localProperties, "SIMKL_APP_NAME", "boomio"))
+            )
         }
     }
 
@@ -319,6 +354,16 @@ android {
         getByName("main") {
             jniLibs.srcDirs("src/main/jniLibs")
         }
+        // `main` compiles against a set of flavor-scoped seams that every
+        // distribution must supply its own implementation of: AppFeaturePolicy,
+        // PluginManager, PluginRuntimeHooks, PluginModule, and the in-app updater
+        // (UpdateViewModel / UpdateBannerHost / UpdateRepository / ...).
+        // `playstore` has stubs of its own. `boomio` matches `full`'s feature set,
+        // so it points at `full`'s implementations rather than duplicating them —
+        // that way upstream fixes to those files reach this flavor for free.
+        getByName("boomio") {
+            java.srcDir("src/full/java")
+        }
     }
 
     packaging {
@@ -346,8 +391,16 @@ android {
 
 androidComponents {
     onVariants(selector().withBuildType("debug")) { variant ->
-        val isPlaystore = variant.productFlavors.any { it.second == "playstore" }
-        variant.applicationId.set(if (isPlaystore) "com.boomio.appdebug" else "com.boomiodebug.com")
+        val flavor = variant.productFlavors.firstOrNull()?.second
+        variant.applicationId.set(
+            when (flavor) {
+                "playstore" -> "com.nuvio.appdebug"
+                // Without its own debug id the boomio debug build would reuse
+                // `full`'s, and the two could not be installed side by side.
+                "boomio" -> "com.boomiodebug.com"
+                else -> "com.nuviodebug.com"
+            }
+        )
     }
 }
 
@@ -507,7 +560,7 @@ dependencies {
     // Local nextlib-mediainfo fork (static FFmpeg; no libav*.so in final AAR)
     implementation(files("libs/nextlib-mediainfo-local.aar"))
     implementation("io.github.abdallahmehiz:mpv-android-lib:0.1.12")
-    implementation("dev.chrisbanes.haze:haze-android:0.7.3") {
+    implementation("dev.chrisbanes.haze:haze-android:1.7.2") {
         exclude(group = "org.jetbrains.compose.ui")
         exclude(group = "org.jetbrains.compose.foundation")
     }
@@ -526,6 +579,16 @@ dependencies {
         exclude(group = "com.github.AmaryllisVFX", module = "newpipeextractor")
         exclude(group = "com.github.AmaryllisVFX.newpipeextractor")
         exclude(group = "info.debatty", module = "java-string-similarity")
+    }
+
+    // `boomio` compiles `src/full/java` (see the sourceSets block), which is where the
+    // CloudStream plugin runtime and the other flavour-scoped seams live — so it needs
+    // every `fullImplementation` dependency above. Extend the configuration instead of
+    // duplicating the list: a new full-only dependency then reaches `boomio` on its own,
+    // and upstream's dependency lines stay untouched for merges.
+    afterEvaluate {
+        configurations.getByName("boomioImplementation")
+            .extendsFrom(configurations.getByName("fullImplementation"))
     }
 
     // Markdown rendering

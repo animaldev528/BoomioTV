@@ -12,6 +12,7 @@ data class Stream(
     val title: String?,
     val description: String?,
     val url: String?,
+    val streamToken: String? = null,
     val ytId: String?,
     val infoHash: String?,
     val fileIdx: Int?,
@@ -24,7 +25,8 @@ data class Stream(
     val qualityValue: Int = -1,
     val clientResolve: StreamClientResolve? = null,
     val debridCacheStatus: StreamDebridCacheStatus? = null,
-    val badges: List<StreamBadge> = emptyList()
+    val badges: List<StreamBadge> = emptyList(),
+    val subtitles: List<Subtitle> = emptyList()
 ) {
     /**
      * Returns the primary stream source URL

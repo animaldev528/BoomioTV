@@ -22,6 +22,7 @@ local.properties
 libass-android
 Stremio addons refer
 nuviotv.jks
+boomio-release.jks
 CLAUDE.md
 build_and_install.sh
 android-tv-samples
@@ -68,5 +69,3 @@ status-page/
 SIGNING.txt
 build.log
 .nuvio-fork/
-
-app-full-armeabi-v7a-release.apk

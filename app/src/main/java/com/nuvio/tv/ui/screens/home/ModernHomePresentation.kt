@@ -1,18 +1,18 @@
 package com.nuvio.tv.ui.screens.home
 
 import android.content.Context
-import android.content.res.Configuration
 import androidx.compose.runtime.Immutable
 import com.nuvio.tv.LocaleCache
 import com.nuvio.tv.R
+import com.nuvio.tv.core.util.withAppLocale
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PLACEHOLDER_IMAGE_URL
 import com.nuvio.tv.domain.model.ratingGateKey
 import com.nuvio.tv.domain.model.stableItemKey
+import com.nuvio.tv.ui.util.StableList
 import com.nuvio.tv.ui.util.asStable
-import java.util.Locale
 import kotlinx.coroutines.withContext
 
 @Immutable
@@ -36,7 +36,7 @@ internal fun buildModernHomePresentation(
     maxCatalogRows: Int? = null
 ): ModernHomePresentationState {
     val visibleHomeRows = resolveVisibleHomeRows(input)
-    val localizedContext = getLocalizedContext(context)
+    val localizedContext = context.withAppLocale()
     val strContinueWatching = localizedContext.getString(R.string.continue_watching)
     val strAirsDate = localizedContext.getString(R.string.cw_airs_date)
     val strUpcoming = localizedContext.getString(R.string.cw_upcoming)
@@ -538,14 +538,12 @@ private fun buildHomeDrillTarget(row: CatalogRow, tiles: List<MetaPreview>): Dri
     )
 }
 
-private fun getLocalizedContext(context: Context): Context {
-    val tag = LocaleCache.localeTag.takeIf { it != LocaleCache.UNSET && it.isNotEmpty() }
-        ?: return context
-    val locale = Locale.forLanguageTag(tag)
-    val config = Configuration(context.resources.configuration)
-    config.setLocale(locale)
-    return context.createConfigurationContext(config)
-}
+// A private `getLocalizedContext` helper sits here on fork/dev, but it is dead code on
+// this branch: upstream 1.0.0 replaced that mechanism with `Context.withAppLocale()`,
+// which `buildModernHomePresentation` calls at the top. The fork's copy only survives on
+// fork/dev because its lineage predates that change — its one call site there is where
+// this branch now calls `withAppLocale`. Re-adding it would mean importing
+// `java.util.Locale`/`android.content.res.Configuration` for an uncalled function.
 
 private fun Collection.hasVisibleFolders(): Boolean {
     return folders.isNotEmpty()
@@ -559,6 +557,7 @@ internal fun buildCarouselRowLookups(carouselRows: List<HeroCarouselRow>): Carou
     val fallbackBackdropByRow = LinkedHashMap<String, String>(carouselRows.size)
     val activeRowKeys = LinkedHashSet<String>(carouselRows.size)
     val activeItemKeysByRow = LinkedHashMap<String, Set<String>>(carouselRows.size)
+    val itemIdentitiesByRow = LinkedHashMap<String, StableList<String>>(carouselRows.size)
     val activeCatalogItemIds = LinkedHashSet<String>()
 
     carouselRows.forEachIndexed { index, row ->
@@ -574,14 +573,31 @@ internal fun buildCarouselRowLookups(carouselRows: List<HeroCarouselRow>): Carou
         activeRowKeys += row.key
 
         val itemKeys = LinkedHashSet<String>(row.items.list.size)
+        val itemIdentities = ArrayList<String>(row.items.list.size)
         row.items.list.forEach { item ->
             itemKeys.add(item.key)
-            val payload = item.payload
-            if (payload is ModernPayload.Catalog) {
-                activeCatalogItemIds += payload.itemId
+            when (val payload = item.payload) {
+                is ModernPayload.Catalog -> {
+                    itemIdentities += "${payload.itemType}:${payload.itemId}"
+                    activeCatalogItemIds += payload.itemId
+                }
+                is ModernPayload.CollectionFolder -> {
+                    itemIdentities += "folder:${payload.folderId}"
+                }
+                is ModernPayload.Drill -> {
+                    // Drill tiles are added by the hub port; without a branch here the
+                    // sealed `when` no longer compiles once ModernPayload.Drill exists.
+                    // The identity must match what the row rebuilds to, so a drill tile
+                    // that survives a rebuild keeps focus instead of sliding to index 0.
+                    itemIdentities += "drill:${payload.target.drillCatalogId}"
+                }
+                is ModernPayload.ContinueWatching -> {
+                    itemIdentities += "cw:${payload.item.hashCode()}"
+                }
             }
         }
         activeItemKeysByRow[row.key] = itemKeys
+        itemIdentitiesByRow[row.key] = itemIdentities.asStable()
     }
 
     return CarouselRowLookups(
@@ -592,6 +608,7 @@ internal fun buildCarouselRowLookups(carouselRows: List<HeroCarouselRow>): Carou
         fallbackBackdropByRow = fallbackBackdropByRow.asStable(),
         activeRowKeys = activeRowKeys.asStable(),
         activeItemKeysByRow = activeItemKeysByRow.asStable(),
+        itemIdentitiesByRow = itemIdentitiesByRow.asStable(),
         activeCatalogItemIds = activeCatalogItemIds.asStable()
     )
 }

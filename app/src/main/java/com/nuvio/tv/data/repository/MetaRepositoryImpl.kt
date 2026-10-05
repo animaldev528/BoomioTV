@@ -81,7 +81,13 @@ class MetaRepositoryImpl @Inject constructor(
          *  others reporting nothing. */
         data class NotFound(
             val attemptedAddonNames: List<String> = emptyList(),
-            val failures: List<MetaAttemptFailure> = emptyList()
+            val failures: List<MetaAttemptFailure> = emptyList(),
+            /**
+             * Every candidate was attempted and every one of them answered "no such item". Set by
+             * the lookup loop, which is the only place that knows how many candidates there were,
+             * rather than inferred from [failures] by a caller.
+             */
+            val allAttemptsMissing: Boolean = false
         ) : MetaLookupResult()
         /** The first viable candidate is the same addon that served the catalog,
          *  so the item already has its meta — no request needed. */
@@ -226,12 +232,7 @@ class MetaRepositoryImpl @Inject constructor(
             addonMetaCache.remove(cacheKey)
         }
 
-        // In-flight dedup is keyed by source too: a source-aware lookup can return
-        // SourceSufficient while the same title asked without a source must fetch,
-        // so sharing one Deferred between them would hand the wrong result back.
-        val inFlightKey = inFlightAddonMetaKey(type, id, sourceAddonBaseUrl)
-
-        inFlightAddonMeta[inFlightKey]?.let { existingDeferred ->
+        inFlightAddonMeta[cacheKey]?.let { existingDeferred ->
             when (val lookupResult = existingDeferred.await()) {
                 is MetaLookupResult.Found -> {
                     emit(NetworkResult.Success(lookupResult.meta))
@@ -351,11 +352,20 @@ class MetaRepositoryImpl @Inject constructor(
                     failures = attemptedFailures
                 )
             }
-            emit(NetworkResult.Error(fallbackMessage))
+            // Classified like the main path below. No addon declaring the type is final, and so is
+            // every legacy candidate answering "no such item"; only a request failure is retryable.
+            val fallbackFinal = fallbackAddons.isEmpty() ||
+                attemptedFailures.all { it.kind == MetaFailureKind.MISSING }
+            emit(
+                NetworkResult.Error(
+                    fallbackMessage,
+                    code = if (fallbackFinal) NetworkResult.META_NOT_FOUND_CODE else null
+                )
+            )
             return@flow
         }
 
-        val deferred = inFlightAddonMeta.getOrPut(inFlightKey) {
+        val deferred = inFlightAddonMeta.getOrPut(cacheKey) {
             repositoryScope.async {
                 try {
                     // Kept here rather than in the enclosing flow's lists: this
@@ -363,6 +373,8 @@ class MetaRepositoryImpl @Inject constructor(
                     // everyone else would report "no addon found" for addons tried.
                     val loopAddonNames = linkedSetOf<String>()
                     val loopFailures = mutableListOf<MetaAttemptFailure>()
+                    var attempted = 0
+                    var allMissing = true
 
                     // Normalize source addon URL for comparison so we can detect
                     // when the candidate is the same addon that served the catalog.
@@ -383,6 +395,7 @@ class MetaRepositoryImpl @Inject constructor(
                         val url = buildMetaUrl(addon.baseUrl, candidateType, id)
                         Log.d(TAG, "Trying meta addonId=${addon.id} addonName=${addon.name} type=$candidateType id=$id url=$url")
                         loopAddonNames += addon.displayName
+                        attempted++
                         try {
                             val response = api.getMeta(url)
                             if (response.isSuccessful) {
@@ -404,6 +417,7 @@ class MetaRepositoryImpl @Inject constructor(
                                     kind = if (response.code() == 404) MetaFailureKind.MISSING else MetaFailureKind.REQUEST_FAILED,
                                     detail = response.message() ?: "HTTP ${response.code()}"
                                 )
+                                if (response.code() != 404) allMissing = false
                             }
                         } catch (e: kotlinx.coroutines.CancellationException) {
                             throw e
@@ -414,10 +428,19 @@ class MetaRepositoryImpl @Inject constructor(
                                 kind = MetaFailureKind.REQUEST_FAILED,
                                 detail = e.message ?: context.getString(R.string.network_error_unknown)
                             )
+                            allMissing = false
                             /* try next */
                         }
                     }
-                    MetaLookupResult.NotFound(loopAddonNames.toList(), loopFailures)
+                    // Comparing against the candidate list makes "every candidate was attempted"
+                    // explicit rather than implied by the loop never breaking early.
+                    MetaLookupResult.NotFound(
+                        attemptedAddonNames = loopAddonNames.toList(),
+                        failures = loopFailures,
+                        allAttemptsMissing = attempted > 0 &&
+                            attempted == prioritizedCandidates.size &&
+                            allMissing
+                    )
                 } finally {
                     inFlightAddonMeta.remove(cacheKey)
                 }
@@ -434,6 +457,10 @@ class MetaRepositoryImpl @Inject constructor(
             is MetaLookupResult.NotFound -> {
                 // The loop reports its own attempts. The enclosing lists are only used
                 // by the legacy raw-type path, which returns before reaching here.
+                // Every addon answering "no such item" is a final answer, not a failure. Flag it
+                // so callers can cache the outcome instead of asking again on every focus. Only a
+                // request failure stays retryable.
+                val allMissing = lookupResult.allAttemptsMissing
                 emit(
                     NetworkResult.Error(
                         buildAggregateFailureMessage(
@@ -441,7 +468,8 @@ class MetaRepositoryImpl @Inject constructor(
                             id = id,
                             attemptedAddonNames = lookupResult.attemptedAddonNames,
                             failures = lookupResult.failures
-                        )
+                        ),
+                        code = if (allMissing) NetworkResult.META_NOT_FOUND_CODE else null
                     )
                 )
             }
@@ -551,17 +579,6 @@ class MetaRepositoryImpl @Inject constructor(
      */
     private fun metaLookupCacheKey(type: String, id: String): String =
         "${inferCanonicalType(type.trim(), id).lowercase()}:$id"
-
-    /**
-     * Key for the in-flight [inFlightAddonMeta] map. Differs from
-     * [metaLookupCacheKey] by including the source addon: the result depends on it
-     * (a source-aware lookup short-circuits to SourceSufficient, a source-less one
-     * fetches), so the two must never share a Deferred.
-     */
-    private fun inFlightAddonMetaKey(type: String, id: String, sourceAddonBaseUrl: String?): String {
-        val source = sourceAddonBaseUrl?.let(::normalizedAddonKey) ?: ""
-        return "${metaLookupCacheKey(type, id)}|src=$source"
-    }
 
     /**
      * Installed, enabled addons. Waits up to [INSTALLED_ADDONS_WAIT_MS] for a real

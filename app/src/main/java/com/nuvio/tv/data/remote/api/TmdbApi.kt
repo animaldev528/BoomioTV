@@ -250,48 +250,6 @@ interface TmdbApi {
         @Query("language") language: String? = null
     ): Response<TmdbGenresResponse>
 
-    // ── Taste-picker rails (Phase 3). Minimal popular + query-search surface for the
-    // on-TV picker; deliberately not the full feat/search-people branch. Movie/TV search
-    // and popular responses share the discover result shape.
-    @GET("movie/popular")
-    suspend fun popularMovies(
-        @Query("api_key") apiKey: String,
-        @Query("language") language: String? = null,
-        @Query("page") page: Int = 1
-    ): Response<TmdbDiscoverResponse>
-
-    @GET("tv/popular")
-    suspend fun popularTv(
-        @Query("api_key") apiKey: String,
-        @Query("language") language: String? = null,
-        @Query("page") page: Int = 1
-    ): Response<TmdbDiscoverResponse>
-
-    @GET("person/popular")
-    suspend fun popularPeople(
-        @Query("api_key") apiKey: String,
-        @Query("language") language: String? = null,
-        @Query("page") page: Int = 1
-    ): Response<TmdbPersonSearchResponse>
-
-    @GET("search/movie")
-    suspend fun searchMovies(
-        @Query("api_key") apiKey: String,
-        @Query("query") query: String,
-        @Query("language") language: String? = null,
-        @Query("page") page: Int = 1,
-        @Query("include_adult") includeAdult: Boolean = false
-    ): Response<TmdbDiscoverResponse>
-
-    @GET("search/tv")
-    suspend fun searchTv(
-        @Query("api_key") apiKey: String,
-        @Query("query") query: String,
-        @Query("language") language: String? = null,
-        @Query("page") page: Int = 1,
-        @Query("include_adult") includeAdult: Boolean = false
-    ): Response<TmdbDiscoverResponse>
-
     @GET("search/keyword")
     suspend fun searchKeywords(
         @Query("api_key") apiKey: String,

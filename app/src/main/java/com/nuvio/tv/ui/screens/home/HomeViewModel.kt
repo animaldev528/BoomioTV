@@ -186,6 +186,35 @@ class HomeViewModel @Inject constructor(
     internal val _failedEnrichmentIds = MutableStateFlow<Set<String>>(emptySet())
     val failedEnrichmentIds: StateFlow<Set<String>> = _failedEnrichmentIds.asStateFlow()
 
+    /**
+     * Bounded like the enrichment and prefetch caches beside it. This set is only a hint for the
+     * hero, telling it to stop waiting and render catalog data, so evicting the oldest entry costs
+     * at most one frame of the loading state the next time that item is focused.
+     *
+     * Insertion order is part of the contract even though the type is a plain Set: eviction drops
+     * the oldest entry, and both this and clearEnrichmentFailure preserve order.
+     */
+    internal fun markEnrichmentFailed(id: String) {
+        _failedEnrichmentIds.update { current ->
+            if (id in current) return@update current
+            val updated = LinkedHashSet(current).apply { add(id) }
+            while (updated.size > MAX_ENRICHMENT_CACHE_SIZE) {
+                updated.remove(updated.first())
+            }
+            updated
+        }
+    }
+
+    /** Enrichment succeeded after a previous failure, so the item is no longer a failed one. */
+    internal fun clearEnrichmentFailure(id: String) {
+        _failedEnrichmentIds.update { current -> if (id in current) current - id else current }
+    }
+
+    /** Drops every failure marker, for the resets that clear the caches beside this one. */
+    internal fun clearEnrichmentFailures() {
+        _failedEnrichmentIds.value = emptySet()
+    }
+
     internal val catalogStateLock = Any()
     internal val catalogsMap = linkedMapOf<String, CatalogRow>()
     internal val catalogItemKeyIndex = mutableMapOf<String, MutableSet<String>>()
@@ -560,10 +589,13 @@ class HomeViewModel @Inject constructor(
     private fun observeProgressSourceChanges() {
         viewModelScope.launch {
             var previousSource: com.nuvio.tv.data.local.WatchProgressSource? = null
+            var previousProfileId: Int? = null
             traktSettingsDataStore.watchProgressSource
                 .collect { source ->
-                    if (previousSource != null && previousSource != source) {
-                        // Source changed — clear CW caches to prevent mixing.
+                    val currentProfileId = profileManager.activeProfileId.value
+                    val profileChanged = previousProfileId != null && previousProfileId != currentProfileId
+                    if (previousSource != null && previousSource != source && !profileChanged) {
+                        // Genuine in-profile source change — clear CW caches to prevent mixing.
                         cwMetaCache.clear()
                         cwEnrichedNextUpOverlay.clear()
                         cwEnrichedInProgressOverlay.clear()
@@ -578,6 +610,7 @@ class HomeViewModel @Inject constructor(
                         loadContinueWatching()
                     }
                     previousSource = source
+                    previousProfileId = currentProfileId
                 }
         }
     }

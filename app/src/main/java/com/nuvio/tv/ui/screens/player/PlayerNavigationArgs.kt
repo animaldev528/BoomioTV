@@ -33,9 +33,11 @@ internal data class PlayerNavigationArgs(
     val sourcesJson: String?,
     val contentLanguage: String?,
     val cloudSessionToken: String?,
+    val streamToken: String?,
     val rememberedAudioLanguage: String?,
     val rememberedAudioName: String?,
     val launchStartedAtMs: Long?,
+    val profileId: Int?,
     val resumeFromMs: Long?,
     val startPaused: Boolean
 ) {
@@ -94,9 +96,11 @@ internal data class PlayerNavigationArgs(
                 sourcesJson = decodedOrNull("sources"),
                 contentLanguage = decodedOrNull("contentLanguage"),
                 cloudSessionToken = decodedOrNull("cloudSessionToken"),
+                streamToken = decodedOrNull("streamToken"),
                 rememberedAudioLanguage = decodedOrNull("rememberedAudioLanguage"),
                 rememberedAudioName = decodedOrNull("rememberedAudioName"),
                 launchStartedAtMs = savedStateHandle.get<String>("launchStartedAtMs")?.toLongOrNull(),
+                profileId = savedStateHandle.get<String>("profileId")?.toIntOrNull(),
                 resumeFromMs = savedStateHandle.get<String>("resumeFromMs")?.toLongOrNull(),
                 startPaused = savedStateHandle.get<String>("startPaused")?.toBooleanStrictOrNull() == true
             )

@@ -1,6 +1,9 @@
 package com.nuvio.tv.ui.screens.player
 
 import com.nuvio.tv.core.activity.ActivityEventReporter
+import com.nuvio.tv.core.boomio.MusicClient
+import com.nuvio.tv.core.boomio.MusicIdentifyResult
+import com.nuvio.tv.core.sync.SyncClientIdentity
 
 import android.app.Activity
 import android.content.Context
@@ -44,6 +47,7 @@ import com.nuvio.tv.data.repository.SkipIntroRepository
 import com.nuvio.tv.data.repository.SkipInterval
 import com.nuvio.tv.data.repository.EpisodeMappingEntry
 import com.nuvio.tv.data.repository.TraktEpisodeMappingService
+import com.nuvio.tv.domain.model.Subtitle
 import com.nuvio.tv.domain.model.Video
 import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.domain.repository.AddonRepository
@@ -61,11 +65,12 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.nuvio.tv.core.util.withAppLocale
 import java.lang.ref.WeakReference
 import java.util.concurrent.atomic.AtomicLong
 
 class PlayerRuntimeController(
-    internal val context: Context,
+    context: Context,
     internal val watchProgressRepository: WatchProgressRepository,
     internal val metaRepository: MetaRepository,
     internal val streamRepository: StreamRepository,
@@ -98,10 +103,16 @@ class PlayerRuntimeController(
     internal val streamBadgePresentation: com.nuvio.tv.core.streams.StreamBadgePresentation,
     internal val playbackIssueReportRepository: PlaybackIssueReportRepository,
     internal val tvRecommendationManager: com.nuvio.tv.core.recommendations.TvRecommendationManager,
+    internal val profileId: Int,
     internal val activityEventReporter: ActivityEventReporter,
+    internal val musicClient: MusicClient,
+    internal val syncClientIdentity: SyncClientIdentity,
     savedStateHandle: SavedStateHandle,
     internal val scope: CoroutineScope
 ) {
+
+    /** Resolved once so every `context.getString(...)` here follows the app language. */
+    internal val context: Context = context.withAppLocale()
 
     companion object {
         internal const val TAG = "PlayerViewModel"
@@ -181,6 +192,7 @@ class PlayerRuntimeController(
     internal val rememberedAudioLanguage: String? = navigationArgs.rememberedAudioLanguage
     internal val rememberedAudioName: String? = navigationArgs.rememberedAudioName
     internal val cloudSessionToken: String? = navigationArgs.cloudSessionToken
+    internal val streamToken: String? = navigationArgs.streamToken
     internal val mediaSourceFactory = PlayerMediaSourceFactory(context.applicationContext)
 
     internal var currentVideoHash: String? = navigationArgs.videoHash
@@ -200,6 +212,7 @@ class PlayerRuntimeController(
     internal var currentStreamResponseHeaders: Map<String, String> = emptyMap()
     internal var currentStreamMimeType: String?
     internal var currentHeaders: Map<String, String>
+    internal var streamSubtitles: List<Subtitle> = emptyList()
 
     init {
         val initialPlaybackRequest = PlayerMediaSourceFactory.normalizePlaybackRequest(
@@ -213,6 +226,8 @@ class PlayerRuntimeController(
             responseHeaders = currentStreamResponseHeaders
         )
         currentHeaders = initialPlaybackRequest.headers
+        streamSubtitles = StreamSidecarSubtitles.forUrl(initialStreamUrl)
+            .ifEmpty { StreamSidecarSubtitles.forUrl(currentStreamUrl) }
     }
 
     fun getCurrentStreamUrl(): String = currentStreamUrl
@@ -413,6 +428,7 @@ class PlayerRuntimeController(
     internal var startupLoadingReportJob: Job? = null
     internal var sourceStreamsJob: Job? = null
     internal var sourceBadgeJob: Job? = null
+    internal var sourceFilterFullList: List<com.nuvio.tv.domain.model.Stream> = emptyList()
     internal var sourceBadgedAddonNames: Set<String> = emptySet()
     internal var sourceStreamsScope: kotlinx.coroutines.CoroutineScope? = null
     internal var episodeStreamsScope: kotlinx.coroutines.CoroutineScope? = null
@@ -445,6 +461,10 @@ class PlayerRuntimeController(
 
     internal var playbackStartedForParentalGuide = false
     internal var hasRenderedFirstFrame = false
+    // Prevent the previous stream's end from completing the new stream.
+    internal var endDetectionArmed = false
+    // Ignore EOF until MPV has reported a non-EOF state for this stream.
+    internal var mpvEofSeenClear = false
     internal var shouldEnforceAutoplayOnFirstReady = true
 
     internal var rebufferCount: Int = 0
@@ -454,6 +474,8 @@ class PlayerRuntimeController(
     internal var effectiveBackBufferDurationMs: Int = 0
     /** Custom LoadControl for this playback (null when using stock); used to resolve the back buffer at first frame. */
     internal var currentBitrateAwareLoadControl: BitrateAwareLoadControl? = null
+    /** Parallel chunk buffer overhead (MB) currently deducted from the target buffer size. */
+    internal var currentParallelChunkOverheadMb: Int = 0
     /** Back buffer (ms) the user configured, captured at build to restore once DV7 status is known. */
     internal var configuredBackBufferMs: Int = 0
     internal var metaVideos: List<Video> = emptyList()
@@ -512,6 +534,7 @@ class PlayerRuntimeController(
     internal var stillWatchingEnabledSetting: Boolean = false
     internal var stillWatchingEpisodeThresholdSetting: Int =
         PlayerSettings.DEFAULT_STILL_WATCHING_EPISODE_THRESHOLD
+    internal var mpvHi10pGnextSoftwareFallbackEnabledSetting: Boolean = false
     internal var mpvHardwareDecodeModeSetting: MpvHardwareDecodeMode = MpvHardwareDecodeMode.AUTO_SAFE
     internal var mpvPreferredAudioLanguages: List<String> = emptyList()
     internal var currentStreamBingeGroup: String? = navigationArgs.bingeGroup
@@ -545,6 +568,7 @@ class PlayerRuntimeController(
     internal var ffmpegAudioRenderer: FfmpegAudioRenderer? = null
     internal var mpvView: NuvioMpvSurfaceView? = null
     internal var mpvInitializationInProgress: Boolean = false
+    internal var mpvMediaLoadPrepared: Boolean = false
     internal var mpvTrackRefreshJob: Job? = null
     internal var mpvTrackRefreshInProgress: Boolean = false
     internal var pendingMpvHardRestartOnNextAttach: Boolean = false
@@ -552,6 +576,17 @@ class PlayerRuntimeController(
     internal var mpvDelayStartAfterAfrSwitch: Boolean = false
     internal var pauseOverlayJob: Job? = null
     internal val pauseOverlayDelayMs = 5000L
+    /** The in-flight music identification, if any. Guards against double-spend. */
+    internal var musicIdentifyJob: Job? = null
+    /**
+     * Askers that arrived while [musicIdentifyJob] was already running and are
+     * waiting on that answer instead of spending a second provider call.
+     *
+     * Main-thread only: both the enqueue and the drain happen on the player's
+     * main-dispatched scope, and the companion manager's inbound frames are
+     * posted to the main looper before they reach here.
+     */
+    internal val musicIdentifyWaiters = mutableListOf<(MusicIdentifyResult) -> Unit>()
     internal val seekProgressSyncDebounceMs = 700L
     internal val audioDelayUs = AtomicLong(0L)
     internal val subtitleDelayUs = AtomicLong(0L)
@@ -589,14 +624,12 @@ class PlayerRuntimeController(
     // Streams where manual Convert-to-DV8.1 mode 2 failed to play, so the next
     // attempt is forced to libdovi mode 1 before falling back to HDR10 base layer.
     internal val dv7Mode1ForcedStreamUrls: MutableSet<String> = mutableSetOf()
-    internal val vc1SoftwarePreferredStreamUrls: MutableSet<String> = mutableSetOf()
     internal val vc1TrackSelectionBypassStreamUrls: MutableSet<String> = mutableSetOf()
     internal val safeAudioForcedStreamUrls: MutableSet<String> = mutableSetOf()
     internal val audioDisabledForcedStreamUrls: MutableSet<String> = mutableSetOf()
     internal var isMapDv7ToHevcActiveForCurrentPlayback: Boolean = false
     internal var isManualDv81Mode2ActiveForCurrentPlayback: Boolean = false
     internal var isExperimentalDv7ToDv81ActiveForCurrentPlayback: Boolean = false
-    internal var isVc1SoftwareFallbackActiveForCurrentPlayback: Boolean = false
     internal var isVc1TrackSelectionBypassActiveForCurrentPlayback: Boolean = false
     internal var isSafeAudioModeActiveForCurrentPlayback: Boolean = false
     internal var isAudioDisabledForCurrentPlayback: Boolean = false

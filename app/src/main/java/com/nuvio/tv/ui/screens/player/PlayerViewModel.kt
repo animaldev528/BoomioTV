@@ -5,6 +5,12 @@ import com.nuvio.tv.core.boomio.ActiveCompanionPlayer
 import com.nuvio.tv.core.boomio.BoomioCompanionManager
 import com.nuvio.tv.core.boomio.CompanionPlaybackBridge
 import com.nuvio.tv.core.boomio.CompanionPlaybackSnapshot
+import com.nuvio.tv.core.boomio.MusicClient
+import com.nuvio.tv.core.boomio.MusicIdentifyResult
+import com.nuvio.tv.core.boomio.TrickplayClient
+import com.nuvio.tv.core.boomio.TrickplaySet
+import com.nuvio.tv.core.sync.SyncClientIdentity
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 import android.content.Context
 import androidx.lifecycle.SavedStateHandle
@@ -46,7 +52,10 @@ import com.nuvio.tv.data.repository.TraktRelatedService
 import com.nuvio.tv.data.trailer.TrailerService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -99,9 +108,13 @@ class PlayerViewModel @Inject constructor(
     private val externalPlaybackTracker: com.nuvio.tv.core.player.ExternalPlaybackTracker,
     private val subtitleFileCache: com.nuvio.tv.core.player.SubtitleFileCache,
     private val tvRecommendationManager: com.nuvio.tv.core.recommendations.TvRecommendationManager,
+    profileManager: com.nuvio.tv.core.profile.ProfileManager,
     private val activityEventReporter: ActivityEventReporter,
     private val companionPlaybackBridge: CompanionPlaybackBridge,
     private val companionManager: BoomioCompanionManager,
+    private val musicClient: MusicClient,
+    private val trickplayClient: TrickplayClient,
+    private val syncClientIdentity: SyncClientIdentity,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
@@ -145,7 +158,11 @@ class PlayerViewModel @Inject constructor(
         streamBadgePresentation = streamBadgePresentation,
         playbackIssueReportRepository = playbackIssueReportRepository,
         tvRecommendationManager = tvRecommendationManager,
+        profileId = savedStateHandle.get<String>("profileId")?.toIntOrNull()
+            ?: profileManager.activeProfileId.value,
         activityEventReporter = activityEventReporter,
+        musicClient = musicClient,
+        syncClientIdentity = syncClientIdentity,
         savedStateHandle = savedStateHandle,
         scope = viewModelScope
     )
@@ -191,7 +208,16 @@ class PlayerViewModel @Inject constructor(
                 season = controller.currentSeason,
                 episode = controller.currentEpisode,
                 posterUrl = controller.poster,
-                logoUrl = controller.logo
+                logoUrl = controller.logo,
+                // "channel" for live IPTV. Lets the phone tell a channel from a
+                // VOD title even though both put an id in the imdbId slot.
+                contentType = controller.contentType,
+                // Which audio track the viewer is hearing. Already a 0-based
+                // ordinal into the audio list, which is the contract the music
+                // API expects. -1 means "nothing selected yet" — reported as
+                // null so the server falls back to the file's default rather
+                // than being told "track -1".
+                audioTrack = controller.uiState.value.selectedAudioTrackIndex.takeIf { it >= 0 }
             )
 
         override fun togglePlayPause(reportParty: Boolean) {
@@ -220,6 +246,13 @@ class PlayerViewModel @Inject constructor(
         override fun stopPhoneAudioFork() = controller.stopPhoneAudioFork()
         override val isPhoneAudioForkActive: Boolean
             get() = controller.isPhoneAudioForkActive()
+
+        // A phone's "what is this?" press, answered with this playback's own
+        // position, stream URL and audio-track ordinal — the fields the phone
+        // has no way to supply. The ordinal is why the press comes here at all;
+        // see [ActiveCompanionPlayer.identifyMusicForCompanion].
+        override fun identifyMusicForCompanion(onResult: (MusicIdentifyResult) -> Unit) =
+            controller.identifyMusicForCompanion(onResult)
     }
 
     init {
@@ -235,6 +268,102 @@ class PlayerViewModel @Inject constructor(
     val postPlayRecommendationUiState: StateFlow<PostPlayRecommendationUiState>
         get() = postPlayRecommendationController.uiState
 
+    // ── Scrub preview (trickplay) ────────────────────────────────────────────
+    //
+    // The frame the viewer is scrubbing to. Resolved lazily, on the first scrub
+    // of a title, and null for the ordinary case of a title whose sprites have
+    // not been rendered yet — "no thumbnail" is a state, not an error, and
+    // nothing here may delay or fail a seek.
+
+    private val _scrubPreview = MutableStateFlow<TrickplaySet?>(null)
+
+    /** Non-null once this title's sprite set has been resolved. */
+    val scrubPreview: StateFlow<TrickplaySet?> = _scrubPreview.asStateFlow()
+
+    /** mediaKey + token of the set in [scrubPreview] / the in-flight request. */
+    private var scrubPreviewKey: String? = null
+    private var scrubPreviewRequestedAtMs = 0L
+    private var scrubPreviewJob: Job? = null
+
+    /**
+     * Fetch this title's sprite set, at most once per title per token.
+     *
+     * Called on every preview-seek event, so the guards matter: a drag emits one
+     * event per D-pad repeat, and without them a single scrub would fire dozens
+     * of lookups. A title that has no sprites is retried only after
+     * [SCRUB_PREVIEW_RETRY_MS], because the first play is exactly when the edge
+     * starts rendering them — asking once and never again would mean the
+     * thumbnails that appear mid-episode never show up at all.
+     */
+    fun prepareScrubPreview() {
+        val mediaKey = currentTrickplayMediaKey() ?: return
+        val token = currentStreamToken() ?: return
+        val key = "$mediaKey\u0000$token"
+        val now = System.currentTimeMillis()
+
+        if (key == scrubPreviewKey) {
+            if (scrubPreviewJob?.isActive == true) return
+            if (_scrubPreview.value != null) return
+            if (now - scrubPreviewRequestedAtMs < SCRUB_PREVIEW_RETRY_MS) return
+        } else {
+            // A different episode (or a re-minted token): the cues already in
+            // hand describe frames of something else, or carry a token the edge
+            // will now refuse. Drop them rather than show the wrong picture.
+            _scrubPreview.value = null
+            scrubPreviewJob?.cancel()
+        }
+
+        scrubPreviewKey = key
+        scrubPreviewRequestedAtMs = now
+        scrubPreviewJob = viewModelScope.launch {
+            val set = trickplayClient.lookup(mediaKey, token)
+            // Publish only if this is still what is being watched: a slow lookup
+            // that lands after the viewer moved to the next episode must not
+            // overwrite that episode's preview with this one's.
+            if (scrubPreviewKey == key) _scrubPreview.value = set
+        }
+    }
+
+    /**
+     * The server's own key convention (lib/skip-store.js `mediaKeyFor`), built
+     * here because the handoff response does not carry it: `imdb:<id>` for a
+     * film, `imdb:<id>:s<season>e<episode>` for an episode. Season and episode
+     * are UNPADDED — `s3e7`, never `s03e07`.
+     *
+     * Null for anything that is not a TMDB/IMDb-keyed title (a live IPTV
+     * channel puts a channel id in the same slot), which is also everything the
+     * server's media-key allowlist would reject.
+     */
+    private fun currentTrickplayMediaKey(): String? {
+        val imdbId = controller.contentId?.takeIf { it.startsWith("tt") } ?: return null
+        val season = controller.currentSeason
+        val episode = controller.currentEpisode
+        return if (season != null && episode != null) {
+            "imdb:$imdbId:s$season" + "e$episode"
+        } else {
+            "imdb:$imdbId"
+        }
+    }
+
+    /**
+     * The stream token, now delivered as a nav arg: the server returns it
+     * beside the stream URL, and the URL the client actually plays carries no
+     * token.
+     *
+     * Not the companion session token: the sprite routes verify this one with
+     * the same `verifyStreamToken()` the playback proxy uses, IP binding
+     * included, so the token that plays is the token that previews. The URL
+     * query-param fallback below remains for the Stremio/cast handoff path,
+     * whose URL still carries `?token=`. Null for a local file or a torrent,
+     * which have no edge and no sprites.
+     */
+    private fun currentStreamToken(): String? =
+        controller.streamToken?.takeIf { it.isNotBlank() }
+            ?: controller.getCurrentStreamUrl()
+                .toHttpUrlOrNull()
+                ?.queryParameter("token")
+                ?.takeIf { it.isNotBlank() }
+
     val effectiveAutoplayEnabled = playerSettingsDataStore.playerSettings
         .map(StreamAutoPlayPolicy::isEffectivelyEnabled)
         .distinctUntilChanged()
@@ -247,6 +376,12 @@ class PlayerViewModel @Inject constructor(
     fun getCurrentHeaders(): Map<String, String> = controller.getCurrentHeaders()
 
     fun getCurrentFileSizeBytes(): Long? = controller.currentVideoSize
+
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    fun getPlayerNativeMemoryBytes(): Long? {
+        val allocator = controller._loadControl?.allocator as? androidx.media3.exoplayer.upstream.DefaultAllocator ?: return null
+        return allocator.totalBytesAllocated.toLong().coerceAtLeast(0L)
+    }
 
     fun stopAndRelease() {
         postPlayRecommendationController.stop()
@@ -306,6 +441,10 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun onEvent(event: PlayerEvent) {
+        // The one funnel every scrub passes through, whichever surface raised it
+        // (the controls row, or the seek overlay shown with the controls hidden),
+        // so the sprite lookup is kicked off in exactly one place.
+        if (event is PlayerEvent.OnPreviewSeekBy) prepareScrubPreview()
         controller.onEvent(event)
         if (!suppressPartyReport) reportPartyEvent(event)
     }
@@ -403,7 +542,8 @@ class PlayerViewModel @Inject constructor(
             season = controller.currentSeason,
             episode = controller.currentEpisode,
             episodeTitle = controller.currentEpisodeTitle,
-            year = controller.year
+            year = controller.year,
+            profileId = controller.profileId
         )
         val headers = controller.getCurrentHeaders()
         val nextEpisodeSnapshot = controller.metaVideos
@@ -463,5 +603,14 @@ class PlayerViewModel @Inject constructor(
             }
             onResult(launched)
         }
+    }
+
+    private companion object {
+        /**
+         * How long a "this title has no sprites" answer stands before a later
+         * scrub may ask again. The edge renders sprites on the first play, so the
+         * answer really does change — but not between two D-pad repeats.
+         */
+        const val SCRUB_PREVIEW_RETRY_MS = 45_000L
     }
 }

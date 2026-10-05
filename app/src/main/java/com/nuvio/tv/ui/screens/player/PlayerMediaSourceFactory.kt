@@ -3,8 +3,10 @@ package com.nuvio.tv.ui.screens.player
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.NuvioEngineConfig
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.cache.CacheDataSink
 import androidx.media3.datasource.cache.CacheDataSource
@@ -19,7 +21,7 @@ import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ExtractorsFactory
 import androidx.media3.extractor.text.SubtitleParser
-import com.nuvio.tv.BoomioApplication
+import com.nuvio.tv.NuvioApplication
 import com.nuvio.tv.core.network.IPv4FirstDns
 import com.nuvio.tv.data.local.PlayerSettings
 import com.nuvio.tv.data.local.VodCacheSizeMode
@@ -66,7 +68,7 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
     // OkHttp client used only by the opt-in parallel-connections path.
     private val playbackHttpClient by lazy {
         PlayerPlaybackNetworking.playbackHttpClient.newBuilder()
-            .cookieJar(BoomioApplication.extensionCookieJar)
+            .cookieJar(NuvioApplication.extensionCookieJar)
             .let { NuvioExoPlayerPerformanceHelper.applyNetworkOptimizations(it) }
             .build()
     }
@@ -84,6 +86,7 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
         url: String,
         headers: Map<String, String>,
         subtitleConfigurations: List<MediaItem.SubtitleConfiguration> = emptyList(),
+        subtitleRoutes: Map<String, SubtitleRoute> = emptyMap(),
         filename: String? = null,
         responseHeaders: Map<String, String> = emptyMap(),
         mimeTypeOverride: String? = null,
@@ -129,6 +132,8 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
                 setDefaultRequestProperties(sanitizedHeaders)
                 setUserAgent(DEFAULT_USER_AGENT)
             }
+            val effectiveNative =
+                nuvioPerformanceModeEnabled || NuvioEngineConfig.get().isNativeAllocationEnabled()
             ParallelRangeDataSource.Factory(
                 okHttpFactory,
                 if (mp4SessionMode) 1 else parallelConnectionCount,
@@ -142,7 +147,7 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
                         .coerceAtMost(com.nuvio.tv.ui.screens.settings.MemoryBudget.tierMaxChunkMb * 1024)
                         .toLong() * 1024L
                 },
-                useNativeMemory = nuvioPerformanceModeEnabled,
+                useNativeMemory = effectiveNative,
                 shouldAllowBackgroundPrefetch = { parallelStartupPrefetchUnlocked.get() },
                 onResolvedUri = { resolved -> currentVodCacheResolvedUrl = resolved?.toString() }
             )
@@ -178,7 +183,14 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
         }
 
         val extractorsFactory = customExtractorsFactory ?: DefaultExtractorsFactory()
-        val defaultFactory = DefaultMediaSourceFactory(progressiveFactory, extractorsFactory).apply {
+        // MediaItem subtitle tracks load through this factory too; route addon subtitles through the
+        // subtitle download path so they don't inherit the stream's headers and client.
+        val defaultSourceFactory = if (subtitleConfigurations.isNotEmpty()) {
+            SubtitleRoutingDataSourceFactory(progressiveFactory, url, headers, subtitleRoutes)
+        } else {
+            progressiveFactory
+        }
+        val defaultFactory = DefaultMediaSourceFactory(defaultSourceFactory, extractorsFactory).apply {
             setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
             customSubtitleParserFactory?.let { parserFactory ->
                 setSubtitleParserFactory(parserFactory)
@@ -256,7 +268,7 @@ internal class PlayerMediaSourceFactory(private val context: Context) {
 
     companion object {
         private const val MIME_VIDEO_QUICK_TIME = "video/quicktime"
-        private const val MP4_SESSION_CHUNK_BYTES = 8L * 1024L * 1024L
+        internal const val MP4_SESSION_CHUNK_BYTES = 8L * 1024L * 1024L
         private const val ENABLE_VOD_CACHE = true
         private const val VOD_CACHE_FREE_SPACE_RESERVE_BYTES = 1024L * 1024L * 1024L
         internal const val DEFAULT_USER_AGENT =
@@ -744,6 +756,32 @@ private inline fun <reified T : Throwable> Throwable.findCause(): T? {
 }
 
 private class PlayerLoadErrorHandlingPolicy : DefaultLoadErrorHandlingPolicy(6) {
+    override fun getFallbackSelectionFor(
+        fallbackOptions: LoadErrorHandlingPolicy.FallbackOptions,
+        loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo
+    ): LoadErrorHandlingPolicy.FallbackSelection? {
+        val responseCode = loadErrorInfo.exception
+            .findCause<androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException>()
+            ?.responseCode
+        if (
+            shouldPreferAlternativeHlsTrack(
+                responseCode = responseCode,
+                dataType = loadErrorInfo.mediaLoadData.dataType,
+                alternativeTrackAvailable = fallbackOptions.isFallbackAvailable(
+                    LoadErrorHandlingPolicy.FALLBACK_TYPE_TRACK
+                )
+            )
+        ) {
+            // A media-segment 404 belongs to the selected rendition. Exclude that
+            // rendition first so HLS can continue with another compatible track.
+            return LoadErrorHandlingPolicy.FallbackSelection(
+                LoadErrorHandlingPolicy.FALLBACK_TYPE_TRACK,
+                DefaultLoadErrorHandlingPolicy.DEFAULT_TRACK_EXCLUSION_MS
+            )
+        }
+        return super.getFallbackSelectionFor(fallbackOptions, loadErrorInfo)
+    }
+
     override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long {
         val httpException = loadErrorInfo.exception.findCause<androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException>()
         if (httpException != null) {
@@ -762,3 +800,12 @@ private class PlayerLoadErrorHandlingPolicy : DefaultLoadErrorHandlingPolicy(6) 
         } else super.getRetryDelayMsFor(loadErrorInfo)
     }
 }
+
+internal fun shouldPreferAlternativeHlsTrack(
+    responseCode: Int?,
+    dataType: Int,
+    alternativeTrackAvailable: Boolean
+): Boolean =
+    responseCode == 404 &&
+        dataType == C.DATA_TYPE_MEDIA &&
+        alternativeTrackAvailable

@@ -13,6 +13,7 @@ import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.repository.AddonRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Deferred
@@ -26,26 +27,58 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.launch
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.sync.AddonSyncService
 import javax.inject.Inject
+import javax.inject.Singleton
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 
-class AddonRepositoryImpl @Inject constructor(
+/**
+ * Scoped @Singleton on the class, not only on the @Binds in RepositoryModule. The binding scopes
+ * the AddonRepository *interface*; anything injecting AddonRepositoryImpl directly would otherwise
+ * get its own instance, with its own manifest cache, refresh clock and stateIn collector.
+ */
+@Singleton
+class AddonRepositoryImpl(
     private val api: AddonApi,
     private val preferences: AddonPreferences,
     private val addonSyncService: AddonSyncService,
     private val authManager: AuthManager,
-    @ApplicationContext private val context: Context
+    private val context: Context,
+    /**
+     * The dispatcher backing syncScope, the manifest cache disk IO and installedAddonsFlow.
+     * Injectable so tests can drive the flow and the background sweep on a test dispatcher
+     * instead of racing real IO threads; production always gets Dispatchers.IO.
+     */
+    private val dispatcher: CoroutineDispatcher,
+    /** Source of the refresh clock, injectable so the TTL policy can be tested without waiting. */
+    private val clock: () -> Long
 ) : AddonRepository {
+
+    @Inject
+    constructor(
+        api: AddonApi,
+        preferences: AddonPreferences,
+        addonSyncService: AddonSyncService,
+        authManager: AuthManager,
+        @ApplicationContext context: Context
+    ) : this(
+        api = api,
+        preferences = preferences,
+        addonSyncService = addonSyncService,
+        authManager = authManager,
+        context = context,
+        dispatcher = Dispatchers.IO,
+        clock = System::currentTimeMillis
+    )
 
     companion object {
         private const val TAG = "AddonRepository"
@@ -59,14 +92,13 @@ class AddonRepositoryImpl @Inject constructor(
         // conditional GETs to the same manifest URL (cache-miss round + combine
         // re-runs on every cache-revision bump), which trips per-IP rate limiters
         // (aiot 429s after 5 req/5s) and drops the addon from the installed list.
-        private const val MANIFEST_COMBINE_DEBOUNCE_MS = 300L
         private const val MANIFEST_FETCH_MAX_ATTEMPTS = 3
         private const val MANIFEST_FETCH_BACKOFF_BASE_MS = 300L
         private const val DELAYED_RETRY_DELAY_MS = 20_000L
         private const val DELAYED_RETRY_MAX = 3
     }
 
-    private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val syncScope = CoroutineScope(SupervisorJob() + dispatcher)
     private var syncJob: Job? = null
     var isSyncingFromRemote = false
 
@@ -115,33 +147,69 @@ class AddonRepositoryImpl @Inject constructor(
     private val scheduledDelayedRetries = ConcurrentHashMap<String, Job>()
     private val delayedRetryCounts = ConcurrentHashMap<String, Int>()
     @Volatile
-    private var lastManifestRefreshTime = 0L
+    private var lastManifestRefreshAttemptTime = 0L
     private var manifestRefreshJob: Job? = null
+    private val manifestRefreshLock = Any()
 
     init {
         syncScope.launch { loadManifestCacheFromDisk() }
     }
 
     private fun isCacheStale(): Boolean =
-        System.currentTimeMillis() - lastManifestRefreshTime > MANIFEST_CACHE_TTL_MS
+        clock() - lastManifestRefreshAttemptTime > MANIFEST_CACHE_TTL_MS
 
+    /**
+     * Scheduling is serialised so that the staleness check, the timestamp and the job assignment
+     * happen as one step. Without the lock two recomputations can each observe a stale clock and
+     * an inactive job before either launched coroutine runs, and both sweep - the timestamp alone
+     * cannot prevent that, because it is written on the dispatcher rather than at the call site.
+     *
+     * The attempt is recorded here rather than after the fetches complete, so the record does not
+     * depend on the sweep finishing or on fetchAddon staying exception-free. The cost is that a
+     * cancelled sweep still counts as an attempt; nothing cancels this job or syncScope today, so
+     * that only arises at process death, where the field dies with the process anyway.
+     *
+     * The policy this encodes is a minimum interval between refresh *starts*, not a guarantee of
+     * freshness for a period after one completes. A sweep that outlived the TTL would therefore be
+     * eligible to run again as soon as it finished. Do not "fix" that by moving the assignment to
+     * completion: on an all-failed sweep that reinstates the bug this exists to prevent.
+     */
     private fun scheduleManifestRefresh(urls: List<String>) {
-        if (manifestRefreshJob?.isActive == true) return
-        manifestRefreshJob = syncScope.launch {
-            val refreshed = urls.map { url ->
-                async {
-                    fetchAddon(url)
+        if (urls.isEmpty()) {
+            // Nothing to attempt, so nothing is recorded - otherwise enabling an addon straight
+            // afterwards inherits a full TTL window it never had.
+            Log.d(TAG, "Background manifest refresh skipped: no enabled addons")
+            return
+        }
+        synchronized(manifestRefreshLock) {
+            if (manifestRefreshJob?.isActive == true) return
+            // Re-checked under the lock: the caller tested this before we got here.
+            if (!isCacheStale()) return
+            lastManifestRefreshAttemptTime = clock()
+            manifestRefreshJob = syncScope.launch {
+                val refreshed = urls.map { url ->
+                    async {
+                        fetchAddon(url)
+                    }
+                }.awaitAll()
+                // isCacheStale() is re-evaluated every time installedAddonsFlow's combine emits -
+                // on any addon add, remove, rename, enable or disable, and on any manifest cache
+                // mutation - so leaving the clock unset after a failed sweep makes each of those
+                // schedule another full fetch of every addon, indefinitely, while offline or
+                // while an addon is down. Manifests that are missing entirely are recovered by
+                // the cache-miss path above, which does not consult this clock, so waiting out
+                // the TTL here only delays refreshing manifests that are already cached and
+                // usable.
+                if (refreshed.any { it is NetworkResult.Success }) {
+                    Log.d(TAG, "Background manifest refresh completed")
+                } else {
+                    Log.w(TAG, "Background manifest refresh failed for all ${urls.size} addon(s)")
                 }
-            }.awaitAll()
-            val anyUpdated = refreshed.any { it is NetworkResult.Success }
-            if (anyUpdated) {
-                lastManifestRefreshTime = System.currentTimeMillis()
-                Log.d(TAG, "Background manifest refresh completed")
             }
         }
     }
 
-    private suspend fun loadManifestCacheFromDisk() = kotlinx.coroutines.withContext(Dispatchers.IO) {
+    private suspend fun loadManifestCacheFromDisk() = kotlinx.coroutines.withContext(dispatcher) {
         try {
             val prefs = context.getSharedPreferences(MANIFEST_CACHE_PREFS, Context.MODE_PRIVATE)
             if (prefs.contains(LEGACY_MANIFEST_CACHE_KEY)) {
@@ -180,11 +248,13 @@ class AddonRepositoryImpl @Inject constructor(
             preferences.addonEnabledStates,
             manifestCacheRevision
         ) { urls, names, enabledStates, _ -> Triple(urls, names, enabledStates) }
-        // Every successful manifest cache write bumps manifestCacheRevision, which
-        // re-fires this combine; a burst of parallel fetches therefore cascades into
-        // a storm of flatMapLatest re-runs that cancel each other's in-flight fetch
-        // round and fire it again. Debounce collapses the burst into one re-run.
-        .debounce(MANIFEST_COMBINE_DEBOUNCE_MS)
+        // Every successful manifest cache write bumps manifestCacheRevision, which re-fires
+        // this combine into a fresh flatMapLatest round. That is not a duplicate-request
+        // storm: each round's fetchAddon joins the single-flight Deferred above, so a URL is
+        // still hit once per in-flight window. A debounce here would coalesce the rounds too,
+        // but it makes recomputation time-dependent, and upstream's
+        // AddonManifestPlaceholderTest pins it as deterministic under an injected dispatcher
+        // and clock ("an all-failed sweep does not re-arm on the next recomputation").
         .flatMapLatest { (urls, userNames, enabledStates) ->
             flow {
                 if (urls.isEmpty()) {
@@ -220,18 +290,28 @@ class AddonRepositoryImpl @Inject constructor(
                                         ?.copy(enabled = false)
                                         ?: placeholderAddon(canonical, userNames, enabled = false)
                                 }
+                                // On failure fall back to a placeholder rather than null. Returning
+                                // null drops the addon from the emitted list entirely, so an installed
+                                // URL whose manifest has never been fetched successfully becomes
+                                // invisible in the addon manager - and unremovable, because removal is
+                                // driven by the listed row. The disabled branch above already does this.
+                                // A placeholder carries no resources or catalogs, so it is not queried
+                                // for streams and contributes no catalog rows until a real manifest
+                                // arrives.
                                 (getCachedManifest(canonical) ?: when (val result = fetchAddon(url)) {
                                     is NetworkResult.Success -> result.data
                                     else -> {
-                                        // Don't silently drop the addon — retry in the
-                                        // background so a transient failure doesn't make
-                                        // streams "unsupported" until the next 6h refresh.
+                                        // Keep upstream's placeholder shape — returning null
+                                        // would drop the addon from the list entirely, making
+                                        // it invisible and unremovable. But still record the
+                                        // failure so the background re-attempt below self-heals
+                                        // it, instead of waiting out the whole 6h refresh.
                                         failedUrls.add(canonical)
-                                        null
+                                        placeholderAddon(canonical, userNames, enabled)
                                     }
-                                })?.copy(enabled = enabled)
+                                }).copy(enabled = enabled)
                             }
-                        }.awaitAll().filterNotNull()
+                        }.awaitAll()
                     }
                     if (failedUrls.isNotEmpty()) {
                         scheduleDelayedManifestRetry(failedUrls)
@@ -245,7 +325,7 @@ class AddonRepositoryImpl @Inject constructor(
                         urls.filter { url -> enabledByUrl[canonicalizeUrl(url)] ?: true }
                     )
                 }
-            }.flowOn(Dispatchers.IO)
+            }.flowOn(dispatcher)
         }
         .stateIn(syncScope, SharingStarted.Eagerly, emptyList<Addon>())
 
@@ -262,7 +342,13 @@ class AddonRepositoryImpl @Inject constructor(
         val existing = inFlightManifestFetches[key]
         if (existing != null) return existing.await()
 
-        val deferred = syncScope.async(Dispatchers.IO, CoroutineStart.LAZY) {
+        // Inherit syncScope's dispatcher instead of hardcoding Dispatchers.IO. Production is
+        // unchanged - the constructor's dispatcher already defaults to IO and syncScope is built
+        // from it - but hardcoding it here escaped the injected dispatcher, so a caller driving
+        // the repository on a test dispatcher still raced a real IO thread. That made the fetch
+        // land after the caller's next statement, which AddonManifestPlaceholderTest observes
+        // when it samples the manifest call count straight after a mutation.
+        val deferred = syncScope.async(start = CoroutineStart.LAZY) {
             doFetchAddon(cleanBaseUrl)
         }
         val previous = inFlightManifestFetches.putIfAbsent(key, deferred)
@@ -518,7 +604,10 @@ class AddonRepositoryImpl @Inject constructor(
         }
 
     private fun bumpManifestCacheRevision() {
-        manifestCacheRevision.value = manifestCacheRevision.value + 1
+        // scheduleManifestRefresh fetches every addon in parallel and each success can call
+        // this through putCachedManifestIfChanged, so a plain read-modify-write can lose an
+        // increment and with it one re-emission of installedAddonsFlow.
+        manifestCacheRevision.update { it + 1 }
     }
 
     private fun hasManifestChanged(existing: Addon, incoming: Addon): Boolean =

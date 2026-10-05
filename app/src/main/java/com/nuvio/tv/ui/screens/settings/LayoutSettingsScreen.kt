@@ -400,6 +400,19 @@ fun LayoutSettingsContent(
                             onFocused = { focusedSection = LayoutSettingsSection.HOME_CONTENT }
                         )
                     }
+                    if (uiState.modernSidebarEnabled) {
+                        CompactToggleRow(
+                            title = stringResource(R.string.layout_hide_floating_pill),
+                            subtitle = stringResource(R.string.layout_hide_floating_pill_sub),
+                            checked = uiState.sidebarCollapsedByDefault,
+                            onToggle = {
+                                viewModel.onEvent(
+                                    LayoutSettingsEvent.SetSidebarCollapsed(!uiState.sidebarCollapsedByDefault)
+                                )
+                            },
+                            onFocused = { focusedSection = LayoutSettingsSection.HOME_CONTENT }
+                        )
+                    }
                     DiscoverLocationRow(
                         selectedLocation = uiState.discoverLocation,
                         rememberedLocation = uiState.lastNonOffDiscoverLocation,
@@ -1158,9 +1171,9 @@ private fun EpisodeOptionsOverlayStyleDialog(
 ) {
     val options = listOf(
         SettingsPickerOption(
-            EpisodeOptionsOverlayStyle.NONE,
-            stringResource(R.string.layout_episode_options_overlay_none),
-            stringResource(R.string.layout_episode_options_overlay_none_desc)
+            EpisodeOptionsOverlayStyle.BLUR,
+            stringResource(R.string.layout_episode_options_overlay_blur),
+            stringResource(R.string.layout_episode_options_overlay_blur_desc)
         ),
         SettingsPickerOption(
             EpisodeOptionsOverlayStyle.ARTWORK,
@@ -1168,9 +1181,9 @@ private fun EpisodeOptionsOverlayStyleDialog(
             stringResource(R.string.layout_episode_options_overlay_artwork_desc)
         ),
         SettingsPickerOption(
-            EpisodeOptionsOverlayStyle.BLUR,
-            stringResource(R.string.layout_episode_options_overlay_blur),
-            stringResource(R.string.layout_episode_options_overlay_blur_desc)
+            EpisodeOptionsOverlayStyle.NONE,
+            stringResource(R.string.layout_episode_options_overlay_none),
+            stringResource(R.string.layout_episode_options_overlay_none_desc)
         )
     )
 

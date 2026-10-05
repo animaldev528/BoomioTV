@@ -1,6 +1,12 @@
 package com.nuvio.tv.ui.navigation
 
 import com.nuvio.tv.ui.theme.NuvioMotion
+import com.nuvio.tv.ui.components.PlaybackAvailabilityProvider
+import com.nuvio.tv.ui.components.LocalPlaybackAvailability
+import com.nuvio.tv.ui.components.canStream
+import android.widget.Toast
+import androidx.compose.ui.platform.LocalContext
+import com.nuvio.tv.R
 
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.EnterTransition
@@ -25,6 +31,7 @@ import com.nuvio.tv.ui.screens.LayoutSelectionScreen
 import com.nuvio.tv.ui.screens.detail.MetaDetailsScreen
 import com.nuvio.tv.ui.screens.home.HomeScreen
 import com.nuvio.tv.ui.screens.addon.AddonManagerScreen
+import com.nuvio.tv.ui.screens.iptv.IptvScreen
 import com.nuvio.tv.ui.screens.addon.CatalogOrderScreen
 import com.nuvio.tv.ui.screens.kids.KidWallKind
 import com.nuvio.tv.ui.screens.kids.KidWallScreen
@@ -62,6 +69,19 @@ fun NuvioNavHost(
     startDestination: String = Screen.Home.route,
     hideBuiltInHeaders: Boolean = false
 ) {
+    PlaybackAvailabilityProvider {
+        PlaybackNavHost(navController, startDestination, hideBuiltInHeaders)
+    }
+}
+
+@Composable
+private fun PlaybackNavHost(
+    navController: NavHostController,
+    startDestination: String,
+    hideBuiltInHeaders: Boolean
+) {
+    val playbackAvailability = LocalPlaybackAvailability.current
+    val context = LocalContext.current
     fun isStreamToPlayer(from: String, to: String): Boolean {
         return from.startsWith("stream/") && to.startsWith("player/")
     }
@@ -211,15 +231,27 @@ fun NuvioNavHost(
                         )
                     )
                 },
-                onContinueWatchingClick = { item ->
+                onContinueWatchingClick = onContinueWatchingClick@{ item ->
+                    if (!playbackAvailability.canStream(item)) {
+                        Toast.makeText(context, R.string.playback_unavailable_message, Toast.LENGTH_SHORT).show()
+                        return@onContinueWatchingClick
+                    }
                     navController.navigate(createContinueWatchingRoute(item))
                 },
-                onContinueWatchingStartFromBeginning = { item ->
+                onContinueWatchingStartFromBeginning = onContinueWatchingStartFromBeginning@{ item ->
+                    if (!playbackAvailability.canStream(item)) {
+                        Toast.makeText(context, R.string.playback_unavailable_message, Toast.LENGTH_SHORT).show()
+                        return@onContinueWatchingStartFromBeginning
+                    }
                     navController.navigate(
                         createContinueWatchingRoute(item, startFromBeginning = true)
                     )
                 },
-                onContinueWatchingPlayManually = { item ->
+                onContinueWatchingPlayManually = onContinueWatchingPlayManually@{ item ->
+                    if (!playbackAvailability.canStream(item)) {
+                        Toast.makeText(context, R.string.playback_unavailable_message, Toast.LENGTH_SHORT).show()
+                        return@onContinueWatchingPlayManually
+                    }
                     navController.navigate(
                         createContinueWatchingRoute(item, manualSelection = true)
                     )
@@ -490,6 +522,11 @@ fun NuvioNavHost(
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
+                },
+                navArgument("profileId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
                 }
             )
         ) { backStackEntry ->
@@ -579,7 +616,9 @@ fun NuvioNavHost(
                                 infoHash = playbackInfo.infoHash,
                                 fileIdx = playbackInfo.fileIdx,
                                 sources = playbackInfo.sources,
-                                contentLanguage = playbackInfo.contentLanguage
+                                contentLanguage = playbackInfo.contentLanguage,
+                                streamToken = playbackInfo.streamToken,
+                                profileId = playbackInfo.profileId
                             )
                         )
                     }
@@ -619,7 +658,9 @@ fun NuvioNavHost(
                                 infoHash = playbackInfo.infoHash,
                                 fileIdx = playbackInfo.fileIdx,
                                 sources = playbackInfo.sources,
-                                contentLanguage = playbackInfo.contentLanguage
+                                contentLanguage = playbackInfo.contentLanguage,
+                                streamToken = playbackInfo.streamToken,
+                                profileId = playbackInfo.profileId
                             )
                         ) {
                             popUpTo(Screen.Stream.route) { inclusive = true }
@@ -764,7 +805,17 @@ fun NuvioNavHost(
                     nullable = true
                     defaultValue = null
                 },
+                navArgument("streamToken") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
                 navArgument("launchStartedAtMs") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("profileId") {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
@@ -898,7 +949,8 @@ fun NuvioNavHost(
                                         contentName = args?.getString("contentName"),
                                         manualSelection = true,
                                         returnToDetailOnBack = returnToDetailOnBack,
-                                        returnToHomeOnBack = returnToHomeOnBack
+                                        returnToHomeOnBack = returnToHomeOnBack,
+                                        profileId = args?.getString("profileId")?.toIntOrNull()
                                     )
                                 ) {
                                     popUpTo(Screen.Stream.route) { inclusive = true }
@@ -951,7 +1003,8 @@ fun NuvioNavHost(
                             contentName = args?.getString("contentName"),
                             runtime = null,
                             returnToDetailOnBack = returnToDetailOnBack,
-                            returnToHomeOnBack = returnToHomeOnBack
+                            returnToHomeOnBack = returnToHomeOnBack,
+                            profileId = args?.getString("profileId")?.toIntOrNull()
                         )
                         navController.navigate(route) {
                             popUpTo(Screen.Player.route) { inclusive = true }
@@ -1079,7 +1132,8 @@ fun NuvioNavHost(
                                 returnToDetailOnBack = args?.getString("returnToDetailOnBack")
                                     ?.toBooleanStrictOrNull() == true,
                                 returnToHomeOnBack = args?.getString("returnToHomeOnBack")
-                                    ?.toBooleanStrictOrNull() == true
+                                    ?.toBooleanStrictOrNull() == true,
+                                profileId = args?.getString("profileId")?.toIntOrNull()
                             )
 
                             navController.navigate(route) {
@@ -1248,6 +1302,59 @@ fun NuvioNavHost(
                 onBackPress = { navController.popBackStack() },
                 onNavigateToCatalogOrder = { navController.navigate(Screen.CatalogOrder.route) },
                 onNavigateToCollections = { navController.navigate(Screen.Collections.route) }
+            )
+        }
+
+        composable(Screen.Iptv.route) {
+            IptvScreen(
+                onPlayChannel = { playlistUrl, channel ->
+                    // contentType="channel" is the whole live-playback contract:
+                    // it selects the live UI (no seek bar, no progress resume) and
+                    // tells the player this URL has no duration.
+                    navController.navigate(
+                        Screen.Player.createRoute(
+                            streamUrl = playlistUrl,
+                            title = channel.name,
+                            contentId = channel.streamId,
+                            contentType = "channel",
+                            contentName = channel.name,
+                            logo = channel.icon
+                        )
+                    )
+                },
+                // A guide programme the pipeline identified carries a real
+                // episode, so this plays it directly — the same route Continue
+                // Watching uses, with manualSelection set because the guide has
+                // already decided which episode and letting auto-selection run
+                // again would be free to pick a different one. Back returns to
+                // the guide, which is where the press came from.
+                onPlayEpisode = { imdbId, mediaType, title, season, episode, episodeName ->
+                    navController.navigate(
+                        Screen.Stream.createRoute(
+                            videoId = imdbId,
+                            contentType = mediaType,
+                            title = title,
+                            season = season,
+                            episode = episode,
+                            episodeName = episodeName,
+                            contentId = imdbId,
+                            contentName = title,
+                            manualSelection = true
+                        )
+                    )
+                },
+                // The fallback when no episode resolved: open the show.
+                // playOnLoad is what separates a play-now press from a
+                // long-press "go to" — same destination, different intent.
+                onOpenShow = { imdbId, mediaType, title, playOnLoad ->
+                    navController.navigate(
+                        Screen.Detail.createRoute(
+                            itemId = imdbId,
+                            itemType = mediaType,
+                            playOnLoad = playOnLoad
+                        )
+                    )
+                }
             )
         }
 

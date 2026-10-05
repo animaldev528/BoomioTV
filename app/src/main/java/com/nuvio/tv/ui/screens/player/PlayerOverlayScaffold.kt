@@ -34,6 +34,17 @@ internal fun PlayerOverlayScaffold(
     dismissOnCenter: Boolean = false,
     dismissOnBackgroundClick: Boolean = false,
     overlayTint: Color = Color.Black.copy(alpha = 0.34f),
+    /**
+     * Whether to paint the dimming backdrop behind the content.
+     *
+     * On by default, because every overlay that takes over the screen needs it to
+     * separate itself from the video. A small corner card does not: it is legible
+     * on its own and dimming the film to show it is a worse trade than leaving the
+     * picture alone. Turning this off removes all three layers — the left
+     * gradient, [overlayTint] and the top gradient — rather than only the middle
+     * one, since leaving the gradients would still darken two edges of the frame.
+     */
+    drawBackdrop: Boolean = true,
     contentPadding: PaddingValues = PaddingValues(),
     topEndContent: (@Composable () -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit
@@ -121,6 +132,7 @@ internal fun PlayerOverlayScaffold(
                             )
                         )
                         onDrawBehind {
+                            if (!drawBackdrop) return@onDrawBehind
                             drawRect(brush = horizontalGradient)
                             if (overlayTint.alpha > 0f) {
                                 drawRect(color = overlayTint)
