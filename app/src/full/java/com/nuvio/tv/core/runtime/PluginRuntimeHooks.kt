@@ -7,6 +7,7 @@ import android.util.Log
 import com.lagradost.cloudstream3.AcraApplication
 import com.lagradost.cloudstream3.app
 import com.lagradost.nicehttp.ignoreAllSSLErrors
+import com.nuvio.app.core.overlay.withOverlayProxy
 import com.nuvio.tv.NuvioApplication
 import okhttp3.Cache
 import okhttp3.OkHttpClient
@@ -49,7 +50,7 @@ object PluginRuntimeHooks {
             }
 
             try {
-                app.baseClient = OkHttpClient.Builder()
+                app.baseClient = OkHttpClient.Builder().withOverlayProxy()
                     .dns(com.nuvio.tv.core.network.IPv4FirstDns())
                     .cookieJar(NuvioApplication.extensionCookieJar)
                     .followRedirects(true)

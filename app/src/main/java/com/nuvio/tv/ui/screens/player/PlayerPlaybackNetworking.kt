@@ -4,6 +4,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import com.nuvio.app.core.overlay.withOverlayProxy
 import com.nuvio.tv.core.network.IPv4FirstDns
 import okhttp3.OkHttpClient
 import java.net.HttpURLConnection
@@ -44,7 +45,7 @@ internal object PlayerPlaybackNetworking {
             maxRequests = 64
             maxRequestsPerHost = 32
         }
-        OkHttpClient.Builder()
+        OkHttpClient.Builder().withOverlayProxy()
             .dispatcher(dispatcher)
             .dns(IPv4FirstDns())
             .eventListenerFactory(PlaybackConnectionEvents)
@@ -69,7 +70,7 @@ internal object PlayerPlaybackNetworking {
             maxRequests = 64
             maxRequestsPerHost = 32
         }
-        OkHttpClient.Builder()
+        OkHttpClient.Builder().withOverlayProxy()
             .dispatcher(dispatcher)
             .dns(IPv4FirstDns())
             .eventListenerFactory(PlaybackConnectionEvents)

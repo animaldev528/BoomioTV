@@ -3,6 +3,7 @@ package com.nuvio.tv.core.torrent
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.nuvio.app.core.overlay.withOverlayProxy
 import com.nuvio.tv.core.network.IPv4FirstDns
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -41,7 +42,7 @@ class TorrServerApi @Inject constructor(
         private val JSON_TYPE = "application/json".toMediaType()
     }
 
-    private val client = OkHttpClient.Builder()
+    private val client = OkHttpClient.Builder().withOverlayProxy()
         .dns(IPv4FirstDns())
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)

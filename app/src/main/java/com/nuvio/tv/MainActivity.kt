@@ -104,6 +104,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import com.nuvio.app.core.sync.AppForegroundMonitor
+import com.nuvio.app.core.sync.AppVisibility
 import com.nuvio.tv.ui.components.LocalStartupLoadingState
 import com.nuvio.tv.ui.components.LocalStartupSplashEnabled
 import com.nuvio.tv.ui.components.StartupLoadingState
@@ -1519,6 +1521,10 @@ open class MainActivity : ComponentActivity() {
         super.onStart()
         startupSyncService.startPeriodicSurfacePulls()
         androidTvChannelSyncService.onForegroundChanged(true)
+        // The overlay's discovery ladder is foreground-scoped: the mDNS browse and the
+        // endpoint walk only run while something is visible, and the multicast lock is held
+        // for one browse at a time. Without this the ladder never walks at all.
+        AppForegroundMonitor.notify(AppVisibility.Foreground)
     }
 
     override fun onStop() {
@@ -1528,6 +1534,7 @@ open class MainActivity : ComponentActivity() {
         // App going to background (e.g. user returning to the launcher): reconcile the
         // Continue Watching channel once so Projectivy repaints it with fresh progress.
         androidTvChannelSyncService.onForegroundChanged(false)
+        AppForegroundMonitor.notify(AppVisibility.Background)
     }
 
     override fun onDestroy() {

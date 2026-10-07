@@ -18,6 +18,14 @@ import coil3.request.allowRgb565
 import coil3.bitmapFactoryMaxParallelism
 
 import okio.Path.Companion.toOkioPath
+import com.nuvio.app.core.overlay.OverlayEndpointDiscovery
+import com.nuvio.app.core.overlay.OverlayEnrollment
+import com.nuvio.app.core.overlay.OverlayLocalDiscovery
+import com.nuvio.app.core.overlay.OverlayProvisioning
+import com.nuvio.app.core.overlay.OverlayRelay
+import com.nuvio.app.core.overlay.OverlaySession
+import com.nuvio.app.core.overlay.OverlayTunnel
+import com.nuvio.app.core.overlay.withOverlayProxy
 import com.nuvio.tv.core.diagnostics.SentryInitializer
 import com.nuvio.tv.core.image.StaleWhileRevalidateCacheStrategy
 import com.nuvio.tv.core.runtime.PluginRuntimeHooks
@@ -86,6 +94,25 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
         companionManager.start()
         // Reports decode + sink capabilities to the bsm fleet view; inert when BSM_BASE_URL is blank.
         deviceCapabilityReporter.start()
+
+        // ---- VPN overlay -------------------------------------------------------------
+        // Order is load-bearing, and mirrors mobile's MainActivity.onCreate:
+        //  * the discovery ladder's first rung BORROWS OverlayLocalDiscovery's browse, so the
+        //    browse has to exist before the ladder is built;
+        //  * OverlayRelay.start() binds its diallers ONCE per process and runs before the ladder
+        //    has walked anything, so it is handed a DeferredTunnelDialer that reads the tunnel
+        //    state PER DIAL. Starting the relay before OverlaySession is what makes that safe --
+        //    a tunnel reference captured here would sit at Down for the process's life.
+        // None of these opens a socket. The browse is foreground-triggered, and the relay binds
+        // no listener at all until BOOMIO_OVERLAY_ADDR is set, so an unconfigured build stays
+        // inert even with this block present.
+        OverlayLocalDiscovery.initialize(this)
+        OverlayTunnel.initialize(this)
+        OverlayEndpointDiscovery.initialize(this)
+        OverlayRelay.initialize()
+        OverlaySession.initialize(this)
+        OverlayEnrollment.initialize(this)
+        OverlayProvisioning.initialize(this)
         // Load locale synchronously so it's available before Activity.attachBaseContext.
         // SharedPreferences reads are fast (cached in memory after first access).
         val tag = getSharedPreferences("app_locale", Context.MODE_PRIVATE)
@@ -99,7 +126,7 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
                 maxRequests = 32
                 maxRequestsPerHost = 16
             }
-            OkHttpClient.Builder()
+            OkHttpClient.Builder().withOverlayProxy()
                 .dispatcher(imageDispatcher)
                 .dns(IPv4FirstDns())
                 .connectTimeout(4, TimeUnit.SECONDS)

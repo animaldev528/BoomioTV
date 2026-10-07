@@ -66,6 +66,14 @@ import androidx.tv.material3.Text
 import com.nuvio.tv.R
 import com.nuvio.tv.data.local.Dv7HandlingMode
 import com.nuvio.tv.data.local.InternalPlayerEngine
+import com.nuvio.app.core.overlay.LocalServerSource
+import com.nuvio.app.core.overlay.LocalServerState
+import com.nuvio.app.core.overlay.LocalServerStatus
+import com.nuvio.app.core.overlay.OverlayEndpointDiscovery
+import com.nuvio.app.core.overlay.OverlayEndpointState
+import com.nuvio.app.core.overlay.OverlayEndpointStatus
+import com.nuvio.app.core.overlay.OverlayLocalDiscovery
+import com.nuvio.app.core.overlay.OverlayTunnel
 import com.nuvio.tv.domain.model.ExperienceMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -193,6 +201,14 @@ fun AdvancedSettingsContent(
     val dvDiagnostics by playbackVm.lastPlaybackDiagnostics.collectAsStateWithLifecycle(
         initialValue = com.nuvio.tv.core.player.LastPlaybackDiagnostics.EMPTY
     )
+
+    // Server connection (the VPN overlay). Both statuses are read, and the section below is
+    // gated on the PAIR rather than on either one -- see the comment at the item.
+    val localServerStatus by LocalServerState.status.collectAsStateWithLifecycle()
+    val overlayEndpointStatus by OverlayEndpointState.status.collectAsStateWithLifecycle()
+    val showOverlaySection =
+        localServerStatus !is LocalServerStatus.Idle ||
+            overlayEndpointStatus !is OverlayEndpointStatus.Idle
 
     // Stream Speed Test States
     var streamTestState by remember { mutableStateOf("Idle") }
@@ -513,6 +529,43 @@ fun AdvancedSettingsContent(
                         }
                     }
                 )
+            }
+        }
+
+        // ---- Server connection (VPN overlay) ------------------------------------------
+        // Gated on a PAIR of statuses, not on one. `LocalServerStatus` says where boomio traffic
+        // is going; `OverlayEndpointStatus` says how the app went looking for the tunnel. They
+        // answer different questions and can disagree -- and the failure that matters is exactly
+        // the one where they do: a ladder that has exhausted every automatic rung leaves
+        // `LocalServerStatus` at `Idle` while the endpoint status holds the only message that
+        // carries the user's next action. Gating on the server status alone would hide that line,
+        // which is the same reasoning that keeps the endpoint row ungated on mobile.
+        if (showOverlaySection) {
+            item(key = "overlay_header") {
+                Text(
+                    text = stringResource(R.string.overlay_section_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = NuvioTheme.colors.TextTertiary,
+                    modifier = Modifier.padding(top = NuvioTheme.spacing.xs)
+                )
+            }
+
+            item(key = "overlay_status") {
+                SettingsGroupCard(modifier = Modifier.fillMaxWidth()) {
+                    SettingsActionRow(
+                        title = stringResource(R.string.overlay_status_title),
+                        subtitle = overlayStatusText(localServerStatus, overlayEndpointStatus),
+                        value = stringResource(R.string.overlay_status_recheck),
+                        onClick = {
+                            // The same three seams the ladder walks, re-run on demand. Each is
+                            // fire-and-forget and takes its own mutex, so a press during a walk
+                            // that is already in flight is a no-op rather than a second walk.
+                            OverlayLocalDiscovery.refreshAsync()
+                            OverlayEndpointDiscovery.refreshAsync()
+                            OverlayTunnel.refreshAsync()
+                        }
+                    )
+                }
             }
         }
 
@@ -902,6 +955,51 @@ private fun NetworkMetricCard(
             color = if (value != null && !loading) NuvioTheme.colors.TextPrimary else NuvioTheme.colors.TextTertiary
         )
     }
+}
+
+/**
+ * The one line this screen shows about the overlay.
+ *
+ * The ordering is the specification, not a preference.
+ *
+ * [OverlayEndpointStatus.NeedsManual] is checked first because it is the only state with an
+ * action attached -- every automatic rung has missed and the ladder is waiting on a person.
+ * A line that buries it under a passing "found" is a dead end dressed up as progress.
+ *
+ * [LocalServerStatus.Found] comes next because it names the address traffic is *actually*
+ * taking, which outranks any statement about how an address was found.
+ *
+ * The two "found" cases are worded apart on purpose: the tunnel is not "local", and calling it
+ * so would send someone looking on their own network for a machine that is somewhere else.
+ */
+@Composable
+private fun overlayStatusText(
+    local: LocalServerStatus,
+    endpoint: OverlayEndpointStatus
+): String = when {
+    endpoint is OverlayEndpointStatus.NeedsManual ->
+        stringResource(R.string.overlay_status_needs_manual, endpoint.reason)
+
+    local is LocalServerStatus.Found -> when (local.source) {
+        LocalServerSource.LAN -> stringResource(R.string.overlay_status_found_lan, local.address)
+        LocalServerSource.TUNNEL -> stringResource(R.string.overlay_status_found_tunnel, local.address)
+    }
+
+    endpoint is OverlayEndpointStatus.Found ->
+        stringResource(R.string.overlay_status_endpoint_found, endpoint.endpoint.authority)
+
+    endpoint is OverlayEndpointStatus.Unavailable ->
+        stringResource(R.string.overlay_status_unavailable, endpoint.reason)
+
+    local is LocalServerStatus.Unavailable ->
+        stringResource(R.string.overlay_status_unavailable, local.reason)
+
+    endpoint is OverlayEndpointStatus.Searching || local is LocalServerStatus.Searching ->
+        stringResource(R.string.overlay_status_searching)
+
+    // Unreachable behind the gate -- the gate is `not (Idle and Idle)`. Present so the `when`
+    // is exhaustive without an `else` that would silently swallow a future state.
+    else -> stringResource(R.string.overlay_status_idle)
 }
 
 @Composable

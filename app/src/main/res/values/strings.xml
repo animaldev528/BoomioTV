@@ -503,6 +503,18 @@
     <string name="settings_network_subtitle">Latency and download diagnostics</string>
     <string name="settings_advanced">Advanced</string>
     <string name="settings_advanced_subtitle">Performance, navigation, cache, and diagnostics</string>
+    <!-- Server connection (the VPN overlay). Shown in Advanced; the section is gated on both
+         discovery statuses at once, so a device with no server on its network sees nothing. -->
+    <string name="overlay_section_title">Server connection</string>
+    <string name="overlay_status_title">Boomio server</string>
+    <string name="overlay_status_recheck">Check again</string>
+    <string name="overlay_status_searching">Looking for the server\u2026</string>
+    <string name="overlay_status_idle">Not started</string>
+    <string name="overlay_status_found_lan">On your network at %1$s</string>
+    <string name="overlay_status_found_tunnel">Through the private tunnel at %1$s</string>
+    <string name="overlay_status_endpoint_found">Endpoint found at %1$s</string>
+    <string name="overlay_status_needs_manual">No server found automatically \u2014 %1$s</string>
+    <string name="overlay_status_unavailable">Unavailable \u2014 %1$s</string>
     <string name="experience_mode_essential">Essential</string>
     <string name="experience_mode_advanced">Advanced</string>
     <string name="experience_mode_choose_title">Choose your Nuvio experience</string>
