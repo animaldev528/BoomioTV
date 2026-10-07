@@ -5,6 +5,7 @@ import com.nuvio.tv.core.auth.TransientAuthRefreshException
 import com.nuvio.tv.core.auth.shouldRetryAuthRefreshResponse
 import com.nuvio.tv.core.network.BackendRateLimitCoordinator
 import com.nuvio.tv.core.network.BackendRateLimitPlugin
+import com.nuvio.tv.core.network.createSupabaseHttpEngine
 import com.nuvio.tv.core.network.backendRetryDelayMillis
 import com.nuvio.tv.core.network.isRetryableBackendResponse
 import com.nuvio.tv.core.network.isSafeBackendRetryRequest
@@ -54,6 +55,13 @@ object SupabaseModule {
             supabaseUrl = serverConfiguration.backendUrl,
             supabaseKey = serverConfiguration.publishableKey
         ) {
+            // Overlay relay seam. supabase-kt would otherwise build its own engine from the
+            // platform default, which is the one engine in the app no overlay seam reaches.
+            // At home the DNS pin hides that; off the LAN it is the whole failure -- see
+            // `createSupabaseHttpEngine`, and mobile's `SupabaseHttpPlatform.kt`, which this
+            // mirrors. Pairing and the tunnel keep working without it, which is exactly why
+            // the symptom reads as a server fault rather than a missing seam.
+            httpEngine = createSupabaseHttpEngine()
             httpConfig {
                 install(BackendRateLimitPlugin) {
                     coordinator = rateLimitCoordinator
