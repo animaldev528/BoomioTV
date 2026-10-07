@@ -647,6 +647,23 @@ internal object OverlayLocalDiscovery {
         }.getOrDefault(false)
     }
 
+    /**
+     * Whether the default network is a LAN transport (Wi-Fi or Ethernet).
+     *
+     * ⚠️ **`internal` rather than private because [OverlayEndpointDiscovery] reads it too** — but
+     * only as its *last* resort, when neither the egress match nor the on-link test could read the
+     * network at all. See `OverlayEndpointDiscovery.preferLanFor`.
+     *
+     * ⚠️ **This describes the link, not the network's identity, and a phone hotspot is a Wi-Fi
+     * transport.** A device that roamed from the house to a hotspot answers `true` here, which is
+     * why this can no longer be the first question asked. It was, and it sent a TV on a hotspot to
+     * its own unroutable LAN address (measured 2026-10-07).
+     *
+     * The caveat that once made the answer meaningful for that caller still holds: the overlay's own
+     * tunnel is userspace and registers no VPN network, so sitting on Wi-Fi still reads as LAN even
+     * with the tunnel up. A third-party `VpnService` (NordVPN) does hold the slot and therefore
+     * reads as non-LAN.
+     */
     internal fun isOnLocalNetwork(context: Context): Boolean {
         val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             ?: return false

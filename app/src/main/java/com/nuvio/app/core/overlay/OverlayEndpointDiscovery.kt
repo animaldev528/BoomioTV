@@ -619,7 +619,7 @@ internal object OverlayEndpointDiscovery {
         val key = validServerKeyOrNull(known.serverPublicKeyBase64) ?: return null
         // ⚠️ **Ordered for the network in force, because the rungs that would have corrected a
         // wrong guess are exactly the ones that just failed.**
-        val onLan = isOnLocalNetwork()
+        val onLan = preferLanFor(names)
         val attempt = names.inOrder(preferLan = onLan)
         if (attempt.isEmpty()) return null
 
@@ -676,24 +676,97 @@ internal object OverlayEndpointDiscovery {
     }
 
     /**
-     * True when the default network is a LAN transport, which is the one bit of ordering this
-     * tier needs and the gate cannot supply.
+     * Which of the two published names suits the network this client is standing on — the one bit
+     * of ordering this tier needs and the gate cannot supply.
      *
-     * ⚠️ **Trustworthy here specifically because this overlay is userspace.** A `VpnService`
-     * tunnel -- the design D2 that all of this exists to avoid -- makes the active network the
-     * VPN, so a transport test would answer "not LAN" while the device sits on the sofa. The
-     * in-app tunnel registers no such network, so the answer stays the physical one.
+     * ⚠️ **The transport test is the last resort now, not the first question, and the reason is
+     * measurable.** Asking "is the active network Wi-Fi or Ethernet?" answers *true on a phone
+     * hotspot*, because a hotspot is a Wi-Fi transport. A device that roamed from the house to a
+     * hotspot therefore read as "at home", took `lan=`, found no 443 forward (the tunnel needs
+     * nothing but UDP 51820), and first-wins kept an unroutable private address. Measured on
+     * 2026-10-07, from a TV sitting on `10.151.14.131`:
      *
-     * ⚠️ **A third-party VPN holding the slot still reads as non-LAN**, because that network *is*
-     * a VPN transport. The result is WAN-first, which is the same answer a roaming device gets
-     * and is corrected by the next walk if it is wrong. It only bites when every rung has already
-     * failed, which on the LAN means mDNS *and* [LOCAL_RECORD] both missed.
+     * ```
+     * Every rung missed the gate; climbing published names (LAN first): boomio-lan.duckdns.org, ...
+     * No published name answered the gate on 443 (...) after 2000ms; taking 192.168.68.65:51820 anyway
+     * ```
      *
-     * An unknown context defaults to LAN-first, matching [OverlayDiscoveryNames.inOrder]: before
-     * `initialize` there is no network to read, and the published order is the safe assumption.
+     * The transport test is not wrong so much as *unrelated*: it describes the link layer, and the
+     * question is whether this device's traffic reaches the house. Two things answer that directly,
+     * tried in order of how much they depend on the outside world:
+     *
+     * 1. **[egressMatchesPublishedWan] — the ground truth.** Fetch this device's own public address
+     *    and compare it with the one the server publishes. Equal means the device is behind the
+     *    house router whatever its transport is, and that settles both regimes at once with no
+     *    tiebreak: at home it matches, on a hotspot it does not. Costs one HTTP round trip.
+     * 2. **The on-link test — the half that needs no internet.** Resolve `lan=` and ask whether it
+     *    lands inside a subnet this device is attached to. `lan=` is a *public* record holding a
+     *    *private* address, so it resolves everywhere and is on-link in exactly one place. Costs one
+     *    resolve, and it is what catches the case the first test gets wrong: a stale DuckDNS `A`
+     *    record would make the egress comparison disagree while the device sits on the sofa.
+     *
+     * ⚠️ **Neither saying home is not the same as neither answering.** If either test returned a
+     * verdict and both said "not home", the answer is WAN-first and the transport test must not get
+     * a vote — that is the hotspot case above, and letting the transport test break the tie would
+     * reinstate the bug. It is consulted only when *nothing* could answer: no `wan=` published, no
+     * connectivity to ask, or an address-family mismatch that makes the comparison meaningless.
+     *
+     * ⚠️ **The fallback is untrustworthy by design under a third-party VPN.** A `VpnService`
+     * (NordVPN) makes the active network the VPN transport, and this overlay's own tunnel is
+     * userspace and registers none — so the fallback reads non-LAN under NordVPN even at home. That
+     * was already true before this change, and it is why the fallback is last: both tests above read
+     * the network *identity* rather than the link, and both are correct under a VPN. It only bites
+     * when every rung has already failed, which on the LAN means mDNS *and* [LOCAL_RECORD] missed.
      */
-    private fun isOnLocalNetwork(): Boolean =
-        appContext?.let { OverlayLocalDiscovery.isOnLocalNetwork(it) } ?: true
+    private suspend fun preferLanFor(names: OverlayDiscoveryNames): Boolean {
+        // 1. Ground truth, when the server publishes a WAN name and something will answer it.
+        val egressHome = names.wan?.let { egressMatchesPublishedWan(it, EGRESS_BUDGET_MS) }
+        if (egressHome == true) {
+            Log.i(TAG, "This network's public address is the published WAN; preferring the LAN name")
+            return true
+        }
+
+        // 2. The offline backup: does `lan=` land on a subnet we are attached to?
+        val onLinkHome = names.lan?.let { lanNameIsOnLink(it) }
+        if (onLinkHome == true) {
+            Log.i(
+                TAG,
+                "'${names.lan}' is on a subnet this device is attached to; preferring the LAN name",
+            )
+            return true
+        }
+
+        // 3. Something answered, and neither answer was "home".
+        if (egressHome != null || onLinkHome != null) {
+            Log.i(
+                TAG,
+                "Egress match ${egressHome ?: "unknown"}, on-link ${onLinkHome ?: "unknown"}: " +
+                    "nothing says home, preferring the WAN name",
+            )
+            return false
+        }
+
+        // 4. Nothing could tell. The old signal, and only here.
+        val transport = appContext?.let { OverlayLocalDiscovery.isOnLocalNetwork(it) } ?: true
+        Log.i(TAG, "No test could read the network; falling back to the transport check ($transport)")
+        return transport
+    }
+
+    /**
+     * Whether the LAN name resolves onto a subnet this device currently holds — or null when there
+     * is nothing to compare against.
+     *
+     * Split out from [preferLanFor] because the three answers are genuinely different: `true` is
+     * evidence of home, `false` is evidence against it, and `null` is *no evidence at all*, which
+     * must not be allowed to outvote a test that did manage to speak.
+     */
+    private suspend fun lanNameIsOnLink(host: String): Boolean? {
+        val context = appContext ?: return null
+        val address = resolveHost(host, NAME_RESOLVE_BUDGET_MS) ?: return null
+        val links = localLinkAddresses(context)
+        if (links.isEmpty()) return null
+        return links.any { (link, prefixLength) -> isOnLink(link, prefixLength, address) }
+    }
 
     // ---------------------------------------------------------------------------------------
     // The gate, and what happens to a winner
