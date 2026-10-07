@@ -20,7 +20,75 @@ internal data class OverlayMdnsAdvert(
     val serverPublicKeyBase64: String?,
     val port: Int?,
     val serviceName: String?,
+    /**
+     * The advert's `lan=`/`wan=` -- the two names that outlive the network this advert came
+     * from. Null when the advert did not carry them, which is the case for a server older than
+     * `#66`. See [OverlayDiscoveryNames].
+     *
+     * ⚠️ **These are not part of the tuple.** The tuple is what a *tunnel* needs -- a key and a
+     * port, both true wherever the client stands. These are what the *ladder* needs once the
+     * address it pinned has stopped routing, in which case nothing about the tuple is wrong and
+     * the endpoint is still useless.
+     */
+    val lanName: String? = null,
+    val wanName: String? = null,
 )
+
+/**
+ * The two names a server publishes alongside its tuple, so a client that found it on one network
+ * can still find it on the next.
+ *
+ * ⚠️ **These are names, never addresses, and that is the whole point.** The rest of the tuple is
+ * a property of the *deployment* -- the key, the port, both of which are true wherever the client
+ * stands. The endpoint the ladder finally accepts is a **literal address**, and a literal learned
+ * on the LAN is meaningless the moment the client leaves it: at home the SRV target is
+ * `192.168.68.65`, and off it that address routes nowhere. The names are the part of discovery
+ * that stays true across the move. `lan=` resolves to the server's private address at home,
+ * `wan=` resolves publicly; *which one works is not a property of the name but of where the
+ * client is standing*, which is why [inOrder] tries them rather than deciding between them.
+ *
+ * ⚠️ **A pair, replaced wholesale, not two independently-updated fields.** Both publication
+ * channels carry both names from one server at one instant, so a publication carrying only one is
+ * the server's *current truth* -- a name that has been withdrawn -- rather than a half-heard
+ * message. Merging field-by-field would keep a withdrawn `wan=` alive for the life of the
+ * process, which is precisely the stale-discovery failure this whole subsystem exists to avoid.
+ */
+internal data class OverlayDiscoveryNames(
+    val lan: String?,
+    val wan: String?,
+) {
+    /** True when the publication carried neither name, which is the case for a pre-`#66` server. */
+    val isEmpty: Boolean get() = lan == null && wan == null
+
+    /**
+     * The names to climb, in the order to climb them -- **LAN first unless [preferLan]**.
+     *
+     * At home `lan=` is the reachable one and `wan=` is not (the public address does not hairpin
+     * -- architecture §7); off-LAN the reverse holds. Trying `lan=` first therefore costs one
+     * failed probe at home and *nothing* away from it, because a private address on a foreign
+     * network fails immediately rather than after a timeout. The reverse order would put the
+     * working name behind a guaranteed-dead one on every cold start at home, which is the common
+     * case.
+     *
+     * ⚠️ **`preferLan` exists because that reasoning assumes the gate can still tell the names
+     * apart.** A private address fails fast on a foreign network only while there is something to
+     * fail *against*; with the WAN edge closed -- the in-app tunnel's whole point, since it needs
+     * nothing but UDP 51820 -- nothing answers for either name, and the order becomes the only
+     * thing doing the choosing. [OverlayEndpointDiscovery] therefore passes the network it is
+     * really on, so the name that suits it is tried first *and* is the one kept when no name
+     * proves itself. The default is the published order, which is what a caller with no network
+     * to read should get.
+     *
+     * Deduplicated, because a publisher that set both fields to the same name would otherwise
+     * cost a second resolve and a second failed probe -- on the failure path, for an answer the
+     * ladder already has. Trying one name twice is never a different question. Deduplication runs
+     * before the reversal, so the result is deduplicated either way round.
+     */
+    fun inOrder(preferLan: Boolean = true): List<String> {
+        val byPreference = listOfNotNull(lan, wan).distinct()
+        return if (preferLan) byPreference else byPreference.asReversed()
+    }
+}
 
 /**
  * The part of a discovery advert that is a **tunnel**, as opposed to an address.
@@ -59,6 +127,12 @@ internal data class OverlayAdvertTuple(
      * today: [provisioningPort] resolves to [port] when this is null.
      */
     val provisioningPortOverride: Int? = null,
+    /**
+     * `lan=`/`wan=` -- the two names the server publishes beside its tuple. Null when the record
+     * predates the field, which must read as "no names" rather than as a name that is blank.
+     */
+    val lanName: String? = null,
+    val wanName: String? = null,
 ) {
     /**
      * Whether the record says a client may provision.
@@ -168,6 +242,8 @@ private fun advertTupleFrom(field: (String) -> String?): OverlayAdvertTuple {
         provisioningPublicKeyBase64 = validServerKeyOrNull(value("ppk")),
         provisioningEnabled = value("prov").toProvisioningFlagOrNull(),
         provisioningPortOverride = value("pport").orEmpty().toPortOrNull(),
+        lanName = validDiscoveryNameOrNull(value("lan")),
+        wanName = validDiscoveryNameOrNull(value("wan")),
     )
 }
 
@@ -197,6 +273,33 @@ internal fun String?.toProvisioningFlagOrNull(): Boolean? = when (this?.trim()?.
     "1", "true" -> true
     "0", "false" -> false
     else -> null
+}
+
+/** Characters that can never appear in a hostname, and so can never appear in a discovery name. */
+private const val ILLEGAL_NAME_CHARS = "/:=;\\@?#"
+
+/**
+ * A discovery name a client could actually resolve, or null.
+ *
+ * ⚠️ **A name is not an authority, and this is where that is enforced.** `lan=`/`wan=` carry a
+ * **hostname** -- the `A` record does the resolving -- so a value carrying a scheme, a port, a
+ * path or whitespace is a publisher bug rather than something to be salvaged by guessing which
+ * part was meant. Rejecting is the honest reading, and it is validated here rather than at the
+ * resolver for the same reason [toPortOrNull] is: a garbage value would otherwise become a
+ * resolver call on the ladder's *failure* path, which is the one place a stray timeout is least
+ * affordable.
+ *
+ * A single trailing dot is dropped, because `boomio.duckdns.org.` and `boomio.duckdns.org` are
+ * one name written two ways, and only one of them compares equal to what a log or a test
+ * expects. Interior dots are the name and are untouched. The result is lowercased for the same
+ * reason -- DNS is case-insensitive, so two spellings of one name should not be two entries in a
+ * cache or two lines in a log.
+ */
+internal fun validDiscoveryNameOrNull(value: String?): String? {
+    val candidate = value?.trim()?.removeSuffix(".")?.lowercase().orEmpty()
+    if (candidate.isEmpty()) return null
+    if (candidate.any { it.isWhitespace() || it in ILLEGAL_NAME_CHARS }) return null
+    return candidate
 }
 
 /**

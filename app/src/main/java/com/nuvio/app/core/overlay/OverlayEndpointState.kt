@@ -29,6 +29,21 @@ enum class OverlayEndpointSource {
      * this endpoint — and splitting them would only add a state with no distinct behaviour.
      */
     MANUAL,
+
+    /**
+     * The two names the server publishes, climbed **only after every rung has missed the gate**.
+     *
+     * ⚠️ **This is not a fourth rung, and the order above is what says so.** The three rungs
+     * answer "where is the server?"; this answers "the answer I had has gone stale", which is a
+     * state only the gate can detect. It fires when rung 1 has nothing to say *and* the address
+     * rung 3 is still holding does not answer on the current network -- which is exactly the
+     * device having left the house. It is declared last because it is tried last, and because an
+     * endpoint that came from a name must be distinguishable in a support log from one a human
+     * typed.
+     *
+     * See `OverlayDiscoveryNames` for what the names are and why they are a pair.
+     */
+    DISCOVERY_NAME,
 }
 
 /**

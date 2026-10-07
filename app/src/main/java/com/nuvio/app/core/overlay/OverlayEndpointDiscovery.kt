@@ -196,6 +196,26 @@ internal object OverlayEndpointDiscovery {
     private const val EDGE_PORT = 443
 
     /**
+     * How long one published name gets to resolve, in the names tier.
+     *
+     * The same shape as rung 2's budget and for the same reason -- a miss has to stay cheap. It
+     * is a separate constant rather than a shared one because the two bound different things:
+     * rung 2 bounds *one* name the ladder always climbs, this bounds *each* of up to two names
+     * it climbs only after everything else has already failed.
+     */
+    private const val NAME_RESOLVE_BUDGET_MS = 1_200L
+
+    /**
+     * The whole names tier, in and out.
+     *
+     * ⚠️ **This exists because the tier runs on the path where someone is already waiting for an
+     * answer.** Two names, each with a resolve and a gate probe, is four bounded waits that add
+     * up -- and unlike a rung, this one has nothing to do afterwards but tell the person to type
+     * an address. The ceiling is what stops that message arriving seconds late.
+     */
+    private const val NAME_TIER_BUDGET_MS = 4_000L
+
+    /**
      * The same foreground cadence the two pin sources use.
      *
      * ⚠️ **Never armed by entry into [`resolve`].** Stamping it on the way in meant a walk that
@@ -252,6 +272,20 @@ internal object OverlayEndpointDiscovery {
     /** The endpoint last accepted, so a re-run that finds nothing does not erase a good answer. */
     @Volatile
     private var current: OverlayEndpoint? = null
+
+    /**
+     * The two names the last advert published, if it published any.
+     *
+     * ⚠️ **Held here rather than read from the advert on demand**, because the advert is cleared
+     * with the pin -- and the clear is exactly the moment this tier has to survive. `clear()`
+     * drops `lastVerifiedAdvert` on a network change, so an advert read at `namedFallback` time
+     * would be gone precisely when it is needed. The names are copied out of the advert the
+     * moment it is seen, and they outlive both the pin and the network they came from.
+     *
+     * Replaced wholesale; see [rememberNames].
+     */
+    @Volatile
+    private var discoveryNames: OverlayDiscoveryNames? = null
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
@@ -409,6 +443,18 @@ internal object OverlayEndpointDiscovery {
         }
         working?.let { return@withLock accept(it) }
 
+        // ⚠️ **The published names are tried here -- after the gate, before giving up -- and not
+        // as a fourth rung.** A rung answers "where is the server"; this answers "the answer I had
+        // has gone stale", which is a state only the gate can detect. Putting it here is what lets
+        // the rungs above stay cheap while still covering the one transition none of them
+        // survives: the device leaving the network whose advert it learned the server on.
+        //
+        // It is deliberately *not* guarded on `candidates.isEmpty()`. Off the LAN rung 3 is never
+        // empty -- it holds the LAN address from the last session, written back by [accept] -- and
+        // every candidate it contributes is dead. An empty check would therefore never be reached
+        // in the one case this tier exists for.
+        namedFallback()?.let { return@withLock accept(it) }
+
         // ⚠️ **Nothing answered the gate, so the first candidate is taken anyway** — and this is
         // the one place the ladder deliberately overrules its own probe. It is the same call
         // `OverlayLocalDiscovery` makes, and it learned it the hard way: a liveness probe once
@@ -446,6 +492,10 @@ internal object OverlayEndpointDiscovery {
         // bound should not silently follow the pin's if the pin's ever moves.
         OverlayLocalDiscovery.refresh(windowMs = RUNG1_BUDGET_MS)
         val advert = OverlayLocalDiscovery.lastVerifiedAdvert() ?: return null
+        // Recorded before the key is judged. The names are a fact about the *server*, published
+        // by the same advert, and an advert whose key is unusable is still a server whose name is
+        // worth knowing -- the ladder may yet have to find it by name on another network.
+        rememberNames(advert.lanName, advert.wanName)
         val key = validServerKeyOrNull(advert.serverPublicKeyBase64)
         if (key == null) {
             Log.d(TAG, "Rung 1: advert has no usable pubkey; falling through")
@@ -470,6 +520,9 @@ internal object OverlayEndpointDiscovery {
      */
     private suspend fun rung2LocalRecord(context: Context): OverlayEndpoint? {
         val resolved = OverlayDnsClient.resolve(context, LOCAL_RECORD, RUNG2_BUDGET_MS) ?: return null
+        // Same reasoning as rung 1: recorded whether or not this record's key is usable, because
+        // the names are a fact about the server rather than about this particular answer.
+        rememberNames(resolved.tuple.lanName, resolved.tuple.wanName)
         val key = validServerKeyOrNull(resolved.tuple.serverPublicKeyBase64)
         if (key == null) {
             Log.d(TAG, "Rung 2: '$LOCAL_RECORD' resolved but published no usable key")
@@ -514,6 +567,133 @@ internal object OverlayEndpointDiscovery {
             source = OverlayEndpointSource.MANUAL,
         )
     }
+
+    // ---------------------------------------------------------------------------------------
+    // The names tier -- the last resort before the ladder gives up
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * Records the names a server published, replacing the pair wholesale.
+     *
+     * ⚠️ **The pair is replaced wholesale; a partial publication is not merged.** Both channels
+     * publish both names from one server at one instant, so a record carrying only `lan=` is the
+     * server's *current* truth -- a `wan=` that has been withdrawn -- rather than a half-heard
+     * message. Merging field by field would keep a withdrawn name alive for the life of the
+     * process, which is the stale-discovery failure this whole subsystem exists to prevent.
+     *
+     * Values arrive already validated: both parsers run them through [validDiscoveryNameOrNull],
+     * so a blank or malformed field is `null` by the time it reaches here.
+     */
+    private fun rememberNames(lan: String?, wan: String?) {
+        val names = OverlayDiscoveryNames(lan = lan, wan = wan)
+        if (names.isEmpty) return
+        if (names == discoveryNames) return
+        Log.i(TAG, "Discovery names learned: lan=${names.lan ?: "-"} wan=${names.wan ?: "-"}")
+        discoveryNames = names
+    }
+
+    /**
+     * The last resort before the ladder gives up: climb the names the server published.
+     *
+     * ⚠️ **This runs only when every rung has missed the gate**, and that placement is the whole
+     * point. The rungs answer "where is the server"; this answers "the answer I had has gone
+     * stale", which is a state neither they nor a cached address can detect. It is what covers
+     * the one transition none of them survives: the device leaving the network whose advert it
+     * learned the server on.
+     *
+     * ⚠️ **It is deliberately not guarded on `candidates.isEmpty()`.** A remembered name can be
+     * the only thing that works when the address rung 3 is still holding has gone dead -- and a
+     * name that is already known costs nothing to try when there was nothing else to try. That
+     * is why the call site sits *above* the empty check in [resolve]: off the LAN, rung 3 is
+     * never empty (it holds the LAN address from last time) and every candidate it contributes
+     * is dead, so an empty check would never even be reached.
+     *
+     * The handshake remains the only real verdict; a name that turns out to be wrong fails
+     * visibly and is corrected by the next walk, which is the trade §10.7 chose over a silent
+     * fallback (see `onNetworkChanged`). The cost is the one ordering can never remove: the gate
+     * proves the *name* is plausible, never that the forward is open.
+     */
+    private suspend fun namedFallback(): OverlayEndpoint? {
+        val names = discoveryNames ?: return null
+        val known = current ?: return null
+        val key = validServerKeyOrNull(known.serverPublicKeyBase64) ?: return null
+        // ⚠️ **Ordered for the network in force, because the rungs that would have corrected a
+        // wrong guess are exactly the ones that just failed.**
+        val onLan = isOnLocalNetwork()
+        val attempt = names.inOrder(preferLan = onLan)
+        if (attempt.isEmpty()) return null
+
+        Log.i(
+            TAG,
+            "Every rung missed the gate; climbing published names " +
+                "(${if (onLan) "LAN first" else "WAN first"}): ${attempt.joinToString()}",
+        )
+
+        val startedAt = SystemClock.elapsedRealtime()
+
+        // ⚠️ **The fallback is the *first* name that resolved, not the last.** Off-LAN the walk is
+        // WAN-first, so the first name to resolve is the public one; letting a later name overwrite
+        // it would swap the right answer for `lan=`'s private address -- the exact failure this
+        // tier is being taught to avoid. First-wins is also what makes it race-free: it is set on
+        // the earliest iteration that reaches the gate, so a walk cut short by [NAME_TIER_BUDGET_MS]
+        // still leaves the preferred name behind rather than an empty tier.
+        var unproven: OverlayEndpoint? = null
+
+        val proven = withContext(Dispatchers.IO) {
+            withTimeoutOrNull(NAME_TIER_BUDGET_MS) {
+                for (name in attempt) {
+                    val address = resolveHost(name, NAME_RESOLVE_BUDGET_MS) ?: continue
+                    val candidate = endpointOf(
+                        address = address,
+                        port = known.port,
+                        key = key,
+                        source = OverlayEndpointSource.DISCOVERY_NAME,
+                    ) ?: continue
+                    if (isReachable(candidate.host, EDGE_PORT)) return@withTimeoutOrNull candidate
+                    if (unproven == null) unproven = candidate
+                }
+                null
+            }
+        }
+
+        // Kept loud, and split by which thing failed: "the names did not resolve" and "the names
+        // resolved but nothing answered" are different faults, and the tier is quiet enough that
+        // this line is the only place either one shows up.
+        if (proven == null) {
+            val elapsedMs = SystemClock.elapsedRealtime() - startedAt
+            val tried = attempt.joinToString()
+            if (unproven == null) {
+                Log.w(TAG, "No published name resolved ($tried) after ${elapsedMs}ms")
+            } else {
+                Log.w(
+                    TAG,
+                    "No published name answered the gate on $EDGE_PORT ($tried) after " +
+                        "${elapsedMs}ms; taking ${unproven!!.authority} anyway",
+                )
+            }
+        }
+        return proven ?: unproven
+    }
+
+    /**
+     * True when the default network is a LAN transport, which is the one bit of ordering this
+     * tier needs and the gate cannot supply.
+     *
+     * ⚠️ **Trustworthy here specifically because this overlay is userspace.** A `VpnService`
+     * tunnel -- the design D2 that all of this exists to avoid -- makes the active network the
+     * VPN, so a transport test would answer "not LAN" while the device sits on the sofa. The
+     * in-app tunnel registers no such network, so the answer stays the physical one.
+     *
+     * ⚠️ **A third-party VPN holding the slot still reads as non-LAN**, because that network *is*
+     * a VPN transport. The result is WAN-first, which is the same answer a roaming device gets
+     * and is corrected by the next walk if it is wrong. It only bites when every rung has already
+     * failed, which on the LAN means mDNS *and* [LOCAL_RECORD] both missed.
+     *
+     * An unknown context defaults to LAN-first, matching [OverlayDiscoveryNames.inOrder]: before
+     * `initialize` there is no network to read, and the published order is the safe assumption.
+     */
+    private fun isOnLocalNetwork(): Boolean =
+        appContext?.let { OverlayLocalDiscovery.isOnLocalNetwork(it) } ?: true
 
     // ---------------------------------------------------------------------------------------
     // The gate, and what happens to a winner
