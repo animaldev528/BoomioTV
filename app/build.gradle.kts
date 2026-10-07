@@ -156,6 +156,17 @@ android {
         // companion resolver asks bsf to cap streams so higher resolutions
         // (4K) never reach this device's picker.
         buildConfigField("String", "BOOMIO_MAX_RESOLUTION", buildConfigString(resolveProperty(devProperties, localProperties, "BOOMIO_MAX_RESOLUTION")))
+
+        // In-app VPN overlay (userspace WireGuard + LAN discovery). Every value is
+        // blank in a normal build, and a blank BOOMIO_OVERLAY_ADDR is the single
+        // switch that keeps the whole overlay subsystem inert.
+        buildConfigField("String", "BOOMIO_OVERLAY_ADDR", buildConfigString(resolveProperty(devProperties, localProperties, "BOOMIO_OVERLAY_ADDR")))
+        buildConfigField("String", "BOOMIO_OVERLAY_ENDPOINT", buildConfigString(resolveProperty(devProperties, localProperties, "BOOMIO_OVERLAY_ENDPOINT")))
+        buildConfigField("String", "BOOMIO_OVERLAY_PUBKEY", buildConfigString(resolveProperty(devProperties, localProperties, "BOOMIO_OVERLAY_PUBKEY")))
+        // Deliberately blank, unlike the phone's 10.77.0.2/32 default: .2 is the
+        // address the PHONE's peer record owns, and a TV that silently claimed it
+        // would break the phone's tunnel. Enrollment assigns this device its own.
+        buildConfigField("String", "BOOMIO_OVERLAY_LOCAL_CIDR", buildConfigString(resolveProperty(devProperties, localProperties, "BOOMIO_OVERLAY_LOCAL_CIDR")))
         buildConfigField("String", "SPONSOR_NAMES", buildConfigString(sponsorNames))
         buildConfigField("String", "SENTRY_DSN", buildConfigString(sentryDsn))
 
@@ -559,6 +570,10 @@ dependencies {
     implementation("io.github.peerless2012:ass-media:0.4.0")
     // Local nextlib-mediainfo fork (static FFmpeg; no libav*.so in final AAR)
     implementation(files("libs/nextlib-mediainfo-local.aar"))
+
+    // In-app VPN overlay: wireguard-go + gVisor netstack, built with gomobile.
+    // Carries jni/arm64-v8a and jni/armeabi-v7a libgojni.so.
+    implementation(files("libs/lib-overlaywg-release.aar"))
     implementation("io.github.abdallahmehiz:mpv-android-lib:0.1.12")
     implementation("dev.chrisbanes.haze:haze-android:1.7.2") {
         exclude(group = "org.jetbrains.compose.ui")
@@ -624,6 +639,42 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     testImplementation("io.mockk:mockk:1.13.12")
+
+    // The ported overlay host-test suite. Robolectric is required: 11 of its 14
+    // files drive android.util.Log and ShadowSystemClock on the JVM, and they die
+    // without a real Android runtime.
+    //
+    // mockwebserver must match the okhttp that actually RESOLVES here, not the one
+    // this module declares: `com.squareup.okhttp3:okhttp:4.12.0` is upgraded to 5.3.2
+    // by the graph, and a 4.x MockWebServer links against `okhttp3.internal.Util`,
+    // which 5.x dropped -- every MockWebServer-backed test then dies with
+    // `NoClassDefFoundError: okhttp3/internal/Util`. 5.3.2 is also exactly what mobile
+    // pins for this same suite (composeApp/build.gradle.kts:510).
+    testImplementation("org.robolectric:robolectric:4.16")
+    testImplementation("com.squareup.okhttp3:mockwebserver:5.3.2")
+
+    // The ported overlay host-test suite is the *only* consumer of `kotlin.test` in
+    // this module -- 203 of the tree's 220 existing test files import `org.junit.Test`
+    // directly -- so nothing else here proves the artifact resolves at all. Mobile
+    // declares it explicitly for the same suite (composeApp/build.gradle.kts:674,
+    // `implementation(libs.kotlin.test)`), and the ported tests were written against
+    // that declaration. `kotlin("test")` is that same coordinate, versioned by the
+    // Kotlin plugin rather than pinned separately.
+    testImplementation(kotlin("test"))
+
+    // NOTE: this classpath deliberately keeps `org.conscrypt:conscrypt-android` exactly as
+    // upstream has it. An earlier revision excluded it here to stop Robolectric installing
+    // Conscrypt's Android `OpenSSLProvider` (whose NativeCryptoJni calls
+    // `System.loadLibrary("conscrypt_jni")`, unresolvable on a JVM) -- which DID fix the
+    // ported overlay suite, but replaced Conscrypt with robolectric's DESKTOP
+    // `conscrypt-openjdk-uber` for every other test too, and that broke 3 PRE-EXISTING
+    // tests in `SubtitleCredentialScopeTest` (which build their own TLS server; the desktop
+    // provider fails them with `unexpected end of stream on https://127.0.0.1:<port>`).
+    // The pristine baseline passes those 3, so the classpath must stay baseline-exact.
+    //
+    // The overlay suite gets what it actually needs -- no Conscrypt at all -- from a
+    // package-scoped `app/src/test/resources/com/nuvio/app/core/overlay/robolectric.properties`
+    // (`conscryptMode=OFF`), which touches only `com.nuvio.app.core.overlay`.
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
