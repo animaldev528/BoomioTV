@@ -26,6 +26,7 @@ import com.nuvio.app.core.overlay.OverlayRelay
 import com.nuvio.app.core.overlay.OverlaySession
 import com.nuvio.app.core.overlay.OverlayTunnel
 import com.nuvio.app.core.overlay.withOverlayProxy
+import com.nuvio.app.features.boomio.BoomioSessionRepository
 import com.nuvio.tv.core.diagnostics.SentryInitializer
 import com.nuvio.tv.core.image.StaleWhileRevalidateCacheStrategy
 import com.nuvio.tv.core.runtime.PluginRuntimeHooks
@@ -106,6 +107,13 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
         // None of these opens a socket. The browse is foreground-triggered, and the relay binds
         // no listener at all until BOOMIO_OVERLAY_ADDR is set, so an unconfigured build stays
         // inert even with this block present.
+        //
+        // The session store initialises FIRST, and it is the one part of this that is not inert:
+        // it hydrates a persisted `bs_ses_` token, and OverlayEnrollment -- further down -- binds
+        // to that flow. Publishing before enrollment starts collecting is what makes a TV that
+        // was linked in a previous life enroll on THIS cold start instead of waiting for a link
+        // that will never come again.
+        BoomioSessionRepository.initialize(this)
         OverlayLocalDiscovery.initialize(this)
         OverlayTunnel.initialize(this)
         OverlayEndpointDiscovery.initialize(this)

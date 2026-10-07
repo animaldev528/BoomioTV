@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SignalWifiOff
 import androidx.compose.material.icons.filled.Speed
@@ -74,6 +75,9 @@ import com.nuvio.app.core.overlay.OverlayEndpointState
 import com.nuvio.app.core.overlay.OverlayEndpointStatus
 import com.nuvio.app.core.overlay.OverlayLocalDiscovery
 import com.nuvio.app.core.overlay.OverlayTunnel
+import com.nuvio.app.features.boomio.BoomioLinkFailure
+import com.nuvio.app.features.boomio.BoomioLinkState
+import com.nuvio.app.features.boomio.BoomioSessionRepository
 import com.nuvio.tv.domain.model.ExperienceMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -206,9 +210,20 @@ fun AdvancedSettingsContent(
     // gated on the PAIR rather than on either one -- see the comment at the item.
     val localServerStatus by LocalServerState.status.collectAsStateWithLifecycle()
     val overlayEndpointStatus by OverlayEndpointState.status.collectAsStateWithLifecycle()
+    // The link gate's own state, read here rather than inside the item so that the section's
+    // visibility can depend on it -- see the third disjunct.
+    val boomioSession by BoomioSessionRepository.session.collectAsStateWithLifecycle()
+    val linkState by BoomioSessionRepository.linkState.collectAsStateWithLifecycle()
+    val linkError by BoomioSessionRepository.error.collectAsStateWithLifecycle()
     val showOverlaySection =
         localServerStatus !is LocalServerStatus.Idle ||
-            overlayEndpointStatus !is OverlayEndpointStatus.Idle
+            overlayEndpointStatus !is OverlayEndpointStatus.Idle ||
+            // ⚠️ The third disjunct is the never-linked case, and it is not there for symmetry.
+            // A TV that has never linked reports `Idle` on BOTH statuses until the foreground
+            // browse runs, and it is exactly that TV whose owner needs the one control this
+            // section offers. Gating the link row behind the discovery symptom is how "there is
+            // no way to link this TV" happens.
+            boomioSession == null
 
     // Stream Speed Test States
     var streamTestState by remember { mutableStateOf("Idle") }
@@ -548,6 +563,63 @@ fun AdvancedSettingsContent(
                     color = NuvioTheme.colors.TextTertiary,
                     modifier = Modifier.padding(top = NuvioTheme.spacing.xs)
                 )
+            }
+
+            // The gate itself, above the status. The status row says where boomio traffic is
+            // going; this row is the only thing here a person can *act* on, and on a TV that has
+            // never linked it is the reason they opened this screen at all.
+            item(key = "overlay_link") {
+                SettingsGroupCard(modifier = Modifier.fillMaxWidth()) {
+                    when (val link = linkState) {
+                        is BoomioLinkState.AwaitingApproval -> SettingsActionRow(
+                            title = stringResource(R.string.overlay_link_code_title),
+                            subtitle = stringResource(
+                                R.string.overlay_link_code_subtitle,
+                                link.userCode,
+                                link.verificationUri
+                                    ?: stringResource(R.string.overlay_link_code_no_uri)
+                            ),
+                            value = stringResource(R.string.overlay_link_cancel),
+                            onClick = { BoomioSessionRepository.cancelLink() },
+                            trailingIcon = Icons.Default.Close
+                        )
+
+                        // ⚠️ Cancel, never "try again". A second exchange would mint a second
+                        // code, and the approver is looking at the first one.
+                        is BoomioLinkState.Starting -> SettingsActionRow(
+                            title = stringResource(R.string.overlay_link_title),
+                            subtitle = stringResource(R.string.overlay_link_working),
+                            value = stringResource(R.string.overlay_link_cancel),
+                            onClick = { BoomioSessionRepository.cancelLink() },
+                            trailingIcon = Icons.Default.Close
+                        )
+
+                        is BoomioLinkState.Failed -> SettingsActionRow(
+                            title = stringResource(R.string.overlay_link_title),
+                            subtitle = overlayLinkFailureText(link.reason, linkError),
+                            value = stringResource(R.string.overlay_link_retry),
+                            onClick = { BoomioSessionRepository.startLink() },
+                            trailingIcon = Icons.Default.Refresh
+                        )
+
+                        is BoomioLinkState.Idle -> if (boomioSession == null) {
+                            SettingsActionRow(
+                                title = stringResource(R.string.overlay_link_title),
+                                subtitle = stringResource(R.string.overlay_link_subtitle),
+                                value = stringResource(R.string.overlay_link_action),
+                                onClick = { BoomioSessionRepository.startLink() }
+                            )
+                        } else {
+                            SettingsActionRow(
+                                title = stringResource(R.string.overlay_link_title),
+                                subtitle = stringResource(R.string.overlay_link_linked),
+                                value = stringResource(R.string.overlay_link_unlink),
+                                onClick = { BoomioSessionRepository.unlink() },
+                                trailingIcon = Icons.Default.Close
+                            )
+                        }
+                    }
+                }
             }
 
             item(key = "overlay_status") {
@@ -1000,6 +1072,27 @@ private fun overlayStatusText(
     // Unreachable behind the gate -- the gate is `not (Idle and Idle)`. Present so the `when`
     // is exhaustive without an `else` that would silently swallow a future state.
     else -> stringResource(R.string.overlay_status_idle)
+}
+
+/**
+ * Why the link attempt failed, in the terms of the thing a person can do about it.
+ *
+ * ⚠️ **[BoomioLinkFailure.Unreachable] does not share a line with the others.** It is the
+ * *expected* answer on a TV that is off the home network with no forward to the provisioning
+ * port — a deployment fact, not a defect in the exchange — and its next action (check the
+ * connection) is different from an exchange that ran and went wrong. Collapsing them into one
+ * generic failure would tell someone to retry a thing that cannot succeed where they are.
+ */
+@Composable
+private fun overlayLinkFailureText(reason: BoomioLinkFailure, detail: String?): String = when (reason) {
+    BoomioLinkFailure.Unreachable -> stringResource(R.string.overlay_link_failed_unreachable)
+
+    BoomioLinkFailure.Unsupported -> stringResource(R.string.overlay_link_failed_unsupported)
+
+    // The exchange's own message when it has one -- it is more specific than any wording here.
+    BoomioLinkFailure.Start -> detail?.takeIf { it.isNotBlank() }
+        ?.let { stringResource(R.string.overlay_link_failed_detail, it) }
+        ?: stringResource(R.string.overlay_link_failed_start)
 }
 
 @Composable

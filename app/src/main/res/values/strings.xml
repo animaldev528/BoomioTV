@@ -510,6 +510,25 @@
     <string name="overlay_status_recheck">Check again</string>
     <string name="overlay_status_searching">Looking for the server\u2026</string>
     <string name="overlay_status_idle">Not started</string>
+
+    <!-- The link gate. `overlay_link_title` names the thing the row is about rather than the
+         action, because the row is also the linked state's parent: the action lives in `value`,
+         and the subtitle carries what is true right now. -->
+    <string name="overlay_link_title">This TV</string>
+    <string name="overlay_link_subtitle">Not linked to your Boomio account</string>
+    <string name="overlay_link_action">Link</string>
+    <string name="overlay_link_working">Starting\u2026</string>
+    <string name="overlay_link_linked">Linked to your Boomio account</string>
+    <string name="overlay_link_unlink">Unlink</string>
+    <string name="overlay_link_cancel">Cancel</string>
+    <string name="overlay_link_retry">Try again</string>
+    <string name="overlay_link_code_title">Approve this TV</string>
+    <string name="overlay_link_code_subtitle">Code %1$s \u2014 approve at %2$s</string>
+    <string name="overlay_link_code_no_uri">the Boomio portal</string>
+    <string name="overlay_link_failed_start">Linking failed</string>
+    <string name="overlay_link_failed_detail">Linking failed: %1$s</string>
+    <string name="overlay_link_failed_unreachable">Couldn\'t reach the server to start pairing. Check this TV\'s connection and try again.</string>
+    <string name="overlay_link_failed_unsupported">This build has no pairing channel. Update the app.</string>
     <string name="overlay_status_found_lan">On your network at %1$s</string>
     <string name="overlay_status_found_tunnel">Through the private tunnel at %1$s</string>
     <string name="overlay_status_endpoint_found">Endpoint found at %1$s</string>
