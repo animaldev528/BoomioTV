@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SignalWifiOff
 import androidx.compose.material.icons.filled.Speed
@@ -66,6 +67,17 @@ import androidx.tv.material3.Text
 import com.nuvio.tv.R
 import com.nuvio.tv.data.local.Dv7HandlingMode
 import com.nuvio.tv.data.local.InternalPlayerEngine
+import com.nuvio.app.core.overlay.LocalServerSource
+import com.nuvio.app.core.overlay.LocalServerState
+import com.nuvio.app.core.overlay.LocalServerStatus
+import com.nuvio.app.core.overlay.OverlayEndpointDiscovery
+import com.nuvio.app.core.overlay.OverlayEndpointState
+import com.nuvio.app.core.overlay.OverlayEndpointStatus
+import com.nuvio.app.core.overlay.OverlayLocalDiscovery
+import com.nuvio.app.core.overlay.OverlayTunnel
+import com.nuvio.app.features.boomio.BoomioLinkFailure
+import com.nuvio.app.features.boomio.BoomioLinkState
+import com.nuvio.app.features.boomio.BoomioSessionRepository
 import com.nuvio.tv.domain.model.ExperienceMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -193,6 +205,25 @@ fun AdvancedSettingsContent(
     val dvDiagnostics by playbackVm.lastPlaybackDiagnostics.collectAsStateWithLifecycle(
         initialValue = com.nuvio.tv.core.player.LastPlaybackDiagnostics.EMPTY
     )
+
+    // Server connection (the VPN overlay). Both statuses are read, and the section below is
+    // gated on the PAIR rather than on either one -- see the comment at the item.
+    val localServerStatus by LocalServerState.status.collectAsStateWithLifecycle()
+    val overlayEndpointStatus by OverlayEndpointState.status.collectAsStateWithLifecycle()
+    // The link gate's own state, read here rather than inside the item so that the section's
+    // visibility can depend on it -- see the third disjunct.
+    val boomioSession by BoomioSessionRepository.session.collectAsStateWithLifecycle()
+    val linkState by BoomioSessionRepository.linkState.collectAsStateWithLifecycle()
+    val linkError by BoomioSessionRepository.error.collectAsStateWithLifecycle()
+    val showOverlaySection =
+        localServerStatus !is LocalServerStatus.Idle ||
+            overlayEndpointStatus !is OverlayEndpointStatus.Idle ||
+            // ⚠️ The third disjunct is the never-linked case, and it is not there for symmetry.
+            // A TV that has never linked reports `Idle` on BOTH statuses until the foreground
+            // browse runs, and it is exactly that TV whose owner needs the one control this
+            // section offers. Gating the link row behind the discovery symptom is how "there is
+            // no way to link this TV" happens.
+            boomioSession == null
 
     // Stream Speed Test States
     var streamTestState by remember { mutableStateOf("Idle") }
@@ -513,6 +544,57 @@ fun AdvancedSettingsContent(
                         }
                     }
                 )
+            }
+        }
+
+        // ---- Server connection (VPN overlay) ------------------------------------------
+        // Gated on a PAIR of statuses, not on one. `LocalServerStatus` says where boomio traffic
+        // is going; `OverlayEndpointStatus` says how the app went looking for the tunnel. They
+        // answer different questions and can disagree -- and the failure that matters is exactly
+        // the one where they do: a ladder that has exhausted every automatic rung leaves
+        // `LocalServerStatus` at `Idle` while the endpoint status holds the only message that
+        // carries the user's next action. Gating on the server status alone would hide that line,
+        // which is the same reasoning that keeps the endpoint row ungated on mobile.
+        if (showOverlaySection) {
+            item(key = "overlay_header") {
+                Text(
+                    text = stringResource(R.string.overlay_section_title),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = NuvioTheme.colors.TextTertiary,
+                    modifier = Modifier.padding(top = NuvioTheme.spacing.xs)
+                )
+            }
+
+            // The gate itself, above the status. The status row says where boomio traffic is
+            // going; this row is the only thing here a person can *act* on, and on a TV that has
+            // never linked it is the reason they opened this screen at all.
+            item(key = "overlay_link") {
+                // The state machine lives in exactly one place -- see BoomioLinkPanel, which the
+                // first-run setup gate renders too. Two copies would disagree the first time a
+                // state is added, and the copy that disagreed would be the one nobody was reading.
+                BoomioLinkPanel(
+                    linkState = linkState,
+                    linkError = linkError,
+                    linked = boomioSession != null
+                )
+            }
+
+            item(key = "overlay_status") {
+                SettingsGroupCard(modifier = Modifier.fillMaxWidth()) {
+                    SettingsActionRow(
+                        title = stringResource(R.string.overlay_status_title),
+                        subtitle = overlayStatusText(localServerStatus, overlayEndpointStatus),
+                        value = stringResource(R.string.overlay_status_recheck),
+                        onClick = {
+                            // The same three seams the ladder walks, re-run on demand. Each is
+                            // fire-and-forget and takes its own mutex, so a press during a walk
+                            // that is already in flight is a no-op rather than a second walk.
+                            OverlayLocalDiscovery.refreshAsync()
+                            OverlayEndpointDiscovery.refreshAsync()
+                            OverlayTunnel.refreshAsync()
+                        }
+                    )
+                }
             }
         }
 
@@ -902,6 +984,72 @@ private fun NetworkMetricCard(
             color = if (value != null && !loading) NuvioTheme.colors.TextPrimary else NuvioTheme.colors.TextTertiary
         )
     }
+}
+
+/**
+ * The one line this screen shows about the overlay.
+ *
+ * The ordering is the specification, not a preference.
+ *
+ * [OverlayEndpointStatus.NeedsManual] is checked first because it is the only state with an
+ * action attached -- every automatic rung has missed and the ladder is waiting on a person.
+ * A line that buries it under a passing "found" is a dead end dressed up as progress.
+ *
+ * [LocalServerStatus.Found] comes next because it names the address traffic is *actually*
+ * taking, which outranks any statement about how an address was found.
+ *
+ * The two "found" cases are worded apart on purpose: the tunnel is not "local", and calling it
+ * so would send someone looking on their own network for a machine that is somewhere else.
+ */
+@Composable
+internal fun overlayStatusText(
+    local: LocalServerStatus,
+    endpoint: OverlayEndpointStatus
+): String = when {
+    endpoint is OverlayEndpointStatus.NeedsManual ->
+        stringResource(R.string.overlay_status_needs_manual, endpoint.reason)
+
+    local is LocalServerStatus.Found -> when (local.source) {
+        LocalServerSource.LAN -> stringResource(R.string.overlay_status_found_lan, local.address)
+        LocalServerSource.TUNNEL -> stringResource(R.string.overlay_status_found_tunnel, local.address)
+    }
+
+    endpoint is OverlayEndpointStatus.Found ->
+        stringResource(R.string.overlay_status_endpoint_found, endpoint.endpoint.authority)
+
+    endpoint is OverlayEndpointStatus.Unavailable ->
+        stringResource(R.string.overlay_status_unavailable, endpoint.reason)
+
+    local is LocalServerStatus.Unavailable ->
+        stringResource(R.string.overlay_status_unavailable, local.reason)
+
+    endpoint is OverlayEndpointStatus.Searching || local is LocalServerStatus.Searching ->
+        stringResource(R.string.overlay_status_searching)
+
+    // Unreachable behind the gate -- the gate is `not (Idle and Idle)`. Present so the `when`
+    // is exhaustive without an `else` that would silently swallow a future state.
+    else -> stringResource(R.string.overlay_status_idle)
+}
+
+/**
+ * Why the link attempt failed, in the terms of the thing a person can do about it.
+ *
+ * ⚠️ **[BoomioLinkFailure.Unreachable] does not share a line with the others.** It is the
+ * *expected* answer on a TV that is off the home network with no forward to the provisioning
+ * port — a deployment fact, not a defect in the exchange — and its next action (check the
+ * connection) is different from an exchange that ran and went wrong. Collapsing them into one
+ * generic failure would tell someone to retry a thing that cannot succeed where they are.
+ */
+@Composable
+internal fun overlayLinkFailureText(reason: BoomioLinkFailure, detail: String?): String = when (reason) {
+    BoomioLinkFailure.Unreachable -> stringResource(R.string.overlay_link_failed_unreachable)
+
+    BoomioLinkFailure.Unsupported -> stringResource(R.string.overlay_link_failed_unsupported)
+
+    // The exchange's own message when it has one -- it is more specific than any wording here.
+    BoomioLinkFailure.Start -> detail?.takeIf { it.isNotBlank() }
+        ?.let { stringResource(R.string.overlay_link_failed_detail, it) }
+        ?: stringResource(R.string.overlay_link_failed_start)
 }
 
 @Composable

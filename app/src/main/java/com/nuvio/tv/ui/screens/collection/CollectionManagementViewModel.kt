@@ -3,6 +3,7 @@ package com.nuvio.tv.ui.screens.collection
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.nuvio.app.core.overlay.withOverlayProxy
 import com.nuvio.tv.R
 import com.nuvio.tv.core.sync.CollectionSyncService
 import com.nuvio.tv.data.local.CollectionsDataStore
@@ -190,7 +191,7 @@ class CollectionManagementViewModel @Inject constructor(
         _uiState.update { it.copy(isLoadingImport = true, importError = null) }
         viewModelScope.launch {
             try {
-                val client = okhttp3.OkHttpClient.Builder()
+                val client = okhttp3.OkHttpClient.Builder().withOverlayProxy()
                     .dns(com.nuvio.tv.core.network.IPv4FirstDns())
                     .build()
                 val request = okhttp3.Request.Builder().url(url).build()

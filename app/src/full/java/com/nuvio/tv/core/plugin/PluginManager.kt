@@ -1,6 +1,7 @@
 package com.nuvio.tv.core.plugin
 
 import android.util.Log
+import com.nuvio.app.core.overlay.withOverlayProxy
 import com.nuvio.tv.core.plugin.cloudstream.toNuvioType
 import com.nuvio.tv.core.plugin.cloudstream.tvTypeFromString
 import com.nuvio.tv.core.plugin.cloudstream.ExternalExtensionLoader
@@ -75,7 +76,7 @@ class PluginManager @Inject constructor(
     
     private val manifestAdapter = moshi.adapter(PluginManifest::class.java)
     
-    private val httpClient = OkHttpClient.Builder()
+    private val httpClient = OkHttpClient.Builder().withOverlayProxy()
         .dns(com.nuvio.tv.core.network.IPv4FirstDns())
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)

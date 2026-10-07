@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.AttributeSet
 import android.util.Log
 import android.view.SurfaceHolder
+import com.nuvio.app.core.overlay.OverlayProxy
 import com.nuvio.tv.data.local.MpvHardwareDecodeMode
 import com.nuvio.tv.data.local.SubtitleStyleSettings
 import `is`.xyz.mpv.BaseMPVView
@@ -29,6 +30,9 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
     private var appliedHi10pGnextSoftwareFallback: Boolean? = null
     private var currentAspectMode: AspectMode = AspectMode.ORIGINAL
     private var pendingAspectRetryCount = 0
+
+    /** The `http-proxy` value currently applied to mpv, so a re-apply is a no-op. */
+    private var appliedOverlayProxy: String? = null
     private val aspectReapplyRunnable = Runnable {
         applyAspectModeInternal(currentAspectMode, allowRetry = true)
     }
@@ -95,6 +99,9 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
     override fun surfaceCreated(holder: SurfaceHolder) {
         super.surfaceCreated(holder)
         val url = pendingInitialMediaUrl ?: return
+        // The deferred first load does not come through applyHeaders, so it needs its own
+        // call: this is the earliest a pending URL is actually handed to mpv.
+        applyOverlayProxyNow()
         val startOption = pendingInitialStartOption
         pendingInitialMediaUrl = null
         pendingInitialStartOption = null
@@ -663,6 +670,9 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
         mpv.setOptionString("input-default-bindings", "yes")
         mpv.setOptionString("demuxer-max-bytes", "${64 * 1024 * 1024}")
         mpv.setOptionString("demuxer-max-back-bytes", "${64 * 1024 * 1024}")
+        // `http-proxy` is deliberately NOT set here -- see [applyOverlayProxyNow], which runs
+        // before every load. The relay can come up long after this view is constructed, and
+        // an option pinned once here would hold "direct" for the rest of the process.
         mpv.setOptionString("keep-open", "yes")
         mpv.setOptionString("softvol", "yes")
         mpv.setOptionString("volume-max", MPV_MAX_VOLUME_PERCENT.toInt().toString())
@@ -676,7 +686,37 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
         // Progress is polled by PlayerRuntimeController.
     }
 
+    /**
+     * Points libmpv at the overlay relay, or back at nothing.
+     *
+     * libmpv is the one engine the app's own DNS seam cannot reach: it resolves inside
+     * libcurl's `getaddrinfo`, which no application can hook, and the shipped AAR carries no
+     * libcurl of its own to swap. A proxy is the only way it joins the overlay.
+     *
+     * Called before every load, never once at construction. The relay only exists after the
+     * discovery ladder publishes an endpoint, so a view built before that would otherwise
+     * hold "direct" for the life of the process -- the same per-use rule as the OkHttp seam.
+     *
+     * `http-proxy` is a blanket property rather than a per-URL one: it applies to whatever is
+     * loaded next. That is why setting it here is both sufficient and necessary, and why it
+     * deliberately does not belong in [initOptions].
+     *
+     * The empty string is mpv's "no proxy" -- the value an unconfigured build leaves behind.
+     */
+    private fun applyOverlayProxyNow() {
+        val proxy = OverlayProxy.mpvProxyUrl() ?: ""
+        if (proxy == appliedOverlayProxy) return
+        mpv.setOptionString("http-proxy", proxy)
+        appliedOverlayProxy = proxy
+        // Never the whole URL for a live relay: it carries the per-process secret as
+        // `user:secret@`. Everything after the `@` is the part worth having in a log.
+        if (proxy.isNotEmpty()) Log.i(TAG, "libmpv http-proxy -> ${proxy.substringAfter('@', proxy)}")
+    }
+
     private fun applyHeaders(headers: Map<String, String>) {
+        // Both setMedia and setMediaUsingLoadfile funnel through here, which makes it the
+        // seam for the two normal load paths. surfaceCreated covers the deferred third.
+        applyOverlayProxyNow()
         if (headers.isEmpty()) {
             mpv.setPropertyString("http-header-fields", "")
             return

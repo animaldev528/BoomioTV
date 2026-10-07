@@ -11,6 +11,7 @@ import com.lagradost.cloudstream3.plugins.Plugin
 import com.lagradost.cloudstream3.plugins.CloudstreamPlugin
 import com.lagradost.cloudstream3.utils.ExtractorApi
 import com.lagradost.cloudstream3.utils.extractorApis
+import com.nuvio.app.core.overlay.withOverlayProxy
 import com.nuvio.tv.core.plugin.TestDiagnostics
 import dalvik.system.DexClassLoader
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -172,7 +173,7 @@ class ExternalExtensionLoader @Inject constructor(
     @ApplicationContext private val context: Context,
     private val extractorRegistry: ExternalExtractorRegistry
 ) {
-    private val httpClient = OkHttpClient.Builder()
+    private val httpClient = OkHttpClient.Builder().withOverlayProxy()
         .dns(IPv4FirstDns())
         .connectTimeout(60, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)

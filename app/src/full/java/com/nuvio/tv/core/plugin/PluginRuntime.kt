@@ -6,6 +6,7 @@ import com.dokar.quickjs.binding.function
 import com.dokar.quickjs.quickJs
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
+import com.nuvio.app.core.overlay.withOverlayProxy
 import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.domain.model.LocalScraperResult
 import com.nuvio.tv.domain.model.Subtitle
@@ -46,7 +47,7 @@ class PluginRuntime @Inject constructor() {
 
     private val gson: Gson = GsonBuilder().create()
 
-    private val httpClient = OkHttpClient.Builder()
+    private val httpClient = OkHttpClient.Builder().withOverlayProxy()
         .dns(com.nuvio.tv.core.network.IPv4FirstDns())
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)

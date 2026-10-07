@@ -147,3 +147,14 @@
 
 -dontwarn java.beans.ConstructorProperties
 -dontwarn java.beans.Transient
+
+# In-app VPN overlay (libs/lib-overlaywg-release.aar).
+#
+# These are the AAR's own consumer proguard.txt rules, restated here on purpose.
+# The mobile boomio flavor never enabled minification, so the AAR's consumer rules
+# have never actually run. This release build DOES minify, and the inert-port
+# commit deliberately leaves the overlay unreachable -- so R8 would strip the whole
+# package, JNI binding included, and the failure would surface only on a device as
+# a release-only UnsatisfiedLinkError. Kept explicit rather than inherited.
+-keep class go.** { *; }
+-keep class overlaywg.** { *; }

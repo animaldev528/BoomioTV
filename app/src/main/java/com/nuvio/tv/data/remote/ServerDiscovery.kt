@@ -1,5 +1,6 @@
 package com.nuvio.tv.data.remote
 
+import com.nuvio.app.core.overlay.withOverlayProxy
 import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.domain.model.ServerCapabilities
 import com.nuvio.tv.domain.model.ServerConfiguration
@@ -136,7 +137,7 @@ internal object ServerDiscoveryPolicy {
 
 @Singleton
 class ServerDiscoveryService @Inject constructor() {
-    private val client = OkHttpClient.Builder()
+    private val client = OkHttpClient.Builder().withOverlayProxy()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .callTimeout(15, TimeUnit.SECONDS)

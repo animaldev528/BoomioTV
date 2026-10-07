@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Tier 1 LAN discovery browses mDNS, which the Wi-Fi stack drops unless a
+         MulticastLock is held. Scoped to this flavor rather than `main` so the
+         playstore build never claims it. `ACCESS_WIFI_STATE` (in `main`) is not
+         sufficient on its own. Denial degrades to "browse without the lock":
+         OverlayLocalDiscovery.acquireMulticastLock() returns null and the browse
+         proceeds more slowly, never broken. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
+
+</manifest>

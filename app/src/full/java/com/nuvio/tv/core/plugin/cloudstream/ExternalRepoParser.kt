@@ -1,6 +1,7 @@
 package com.nuvio.tv.core.plugin.cloudstream
 
 import android.util.Log
+import com.nuvio.app.core.overlay.withOverlayProxy
 import com.nuvio.tv.domain.model.ExternalPluginEntry
 import com.nuvio.tv.domain.model.ExternalRepoManifest
 import com.squareup.moshi.Moshi
@@ -38,7 +39,7 @@ data class ExternalRepoParseResult(
 class ExternalRepoParser @Inject constructor(
     private val moshi: Moshi
 ) {
-    private val httpClient = OkHttpClient.Builder()
+    private val httpClient = OkHttpClient.Builder().withOverlayProxy()
         .dns(IPv4FirstDns())
         .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
         .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)

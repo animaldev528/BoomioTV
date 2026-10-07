@@ -503,6 +503,44 @@
     <string name="settings_network_subtitle">Latency and download diagnostics</string>
     <string name="settings_advanced">Advanced</string>
     <string name="settings_advanced_subtitle">Performance, navigation, cache, and diagnostics</string>
+    <!-- Server connection (the VPN overlay). Shown in Advanced; the section is gated on both
+         discovery statuses at once, so a device with no server on its network sees nothing. -->
+    <string name="overlay_section_title">Server connection</string>
+    <string name="overlay_status_title">Boomio server</string>
+    <string name="overlay_status_recheck">Check again</string>
+    <string name="overlay_status_searching">Looking for the server\u2026</string>
+    <string name="overlay_status_idle">Not started</string>
+
+    <!-- The link gate. `overlay_link_title` names the thing the row is about rather than the
+         action, because the row is also the linked state's parent: the action lives in `value`,
+         and the subtitle carries what is true right now. -->
+    <string name="overlay_link_title">This TV</string>
+    <string name="overlay_link_subtitle">Not linked to your Boomio account</string>
+    <string name="overlay_link_action">Link</string>
+    <string name="overlay_link_working">Starting\u2026</string>
+    <string name="overlay_link_linked">Linked to your Boomio account</string>
+    <string name="overlay_link_unlink">Unlink</string>
+    <string name="overlay_link_cancel">Cancel</string>
+    <string name="overlay_link_retry">Try again</string>
+    <string name="overlay_link_code_title">Approve this TV</string>
+    <string name="overlay_link_code_subtitle">Code %1$s \u2014 approve at %2$s</string>
+    <string name="overlay_link_code_no_uri">the Boomio portal</string>
+    <string name="overlay_link_failed_start">Linking failed</string>
+    <string name="overlay_link_failed_detail">Linking failed: %1$s</string>
+    <string name="overlay_link_failed_unreachable">Couldn\'t reach the server to start pairing. Check this TV\'s connection and try again.</string>
+    <string name="overlay_link_failed_unsupported">This build has no pairing channel. Update the app.</string>
+
+    <!-- The first-run setup gate. It has its own heading, but the card under it is
+         `BoomioLinkPanel`: the same rows the settings entry renders, so the two cannot drift. -->
+    <string name="overlay_setup_title">Set up this TV</string>
+    <string name="overlay_setup_description">This TV isn\'t linked to your Boomio account yet. Linking comes first, because the app reaches your server through the tunnel it sets up, and signing in needs that server.</string>
+    <string name="overlay_setup_skip">Skip for now</string>
+    <string name="overlay_setup_skip_subtitle">Continue without linking. You can link later under Settings, Advanced, Server connection.</string>
+    <string name="overlay_status_found_lan">On your network at %1$s</string>
+    <string name="overlay_status_found_tunnel">Through the private tunnel at %1$s</string>
+    <string name="overlay_status_endpoint_found">Endpoint found at %1$s</string>
+    <string name="overlay_status_needs_manual">No server found automatically \u2014 %1$s</string>
+    <string name="overlay_status_unavailable">Unavailable \u2014 %1$s</string>
     <string name="experience_mode_essential">Essential</string>
     <string name="experience_mode_advanced">Advanced</string>
     <string name="experience_mode_choose_title">Choose your Nuvio experience</string>
@@ -1380,6 +1418,7 @@
     <string name="qr_login_pending">Waiting for approval on your phone…</string>
     <string name="qr_login_expired">QR login expired. Generate a new code.</string>
     <string name="qr_login_preparing">Preparing QR login...</string>
+    <string name="qr_login_waiting_for_server">Waiting for the server connection...</string>
     <string name="qr_login_device_auth_failed">Failed to authenticate device</string>
     <string name="qr_login_scan_prompt">Scan QR and sign in on your phone</string>
     <string name="qr_login_start_failed">Failed to start QR login</string>

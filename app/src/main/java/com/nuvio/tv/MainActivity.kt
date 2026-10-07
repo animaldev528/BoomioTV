@@ -104,6 +104,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import com.nuvio.app.core.sync.AppForegroundMonitor
+import com.nuvio.app.core.sync.AppVisibility
 import com.nuvio.tv.ui.components.LocalStartupLoadingState
 import com.nuvio.tv.ui.components.LocalStartupSplashEnabled
 import com.nuvio.tv.ui.components.StartupLoadingState
@@ -149,6 +151,8 @@ import com.nuvio.tv.core.sync.StartupSyncService
 import com.nuvio.tv.core.tracking.TrackingProgressRefreshCoordinator
 import com.nuvio.tv.core.tracking.TrackingRefreshIntent
 import com.nuvio.tv.data.local.AppOnboardingDataStore
+import com.nuvio.tv.ui.screens.setup.BoomioSetupGate
+import com.nuvio.app.features.boomio.BoomioSessionRepository
 import com.nuvio.tv.data.local.AuthSessionNoticeDataStore
 import com.nuvio.tv.data.local.ExperienceModeDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
@@ -755,10 +759,26 @@ open class MainActivity : ComponentActivity() {
                     Box(modifier = Modifier.fillMaxSize()) {
 
                     var startupDestination = StartupDestination.Loading
+
+                    // Read off the session store, which `NuvioApplication` hydrates during
+                    // `onCreate`, so this is already the truth on the first composition and there
+                    // is no window in which a linked TV looks unlinked. That is also why the gate
+                    // is asked BEFORE `surfaceContentReady`: a TV with no session has nowhere to
+                    // sign in to, and waiting for auth to settle first would hold it on a blank
+                    // screen for as long as an unreachable server takes to give up.
+                    val boomioSession by BoomioSessionRepository.session.collectAsState()
+                    var boomioSetupSkipped by rememberSaveable { mutableStateOf(false) }
+                    val needsBoomioSetup = boomioSession == null && !boomioSetupSkipped
                     val surfaceContentReady = hasSeenAuthQrOnFirstLaunch != null &&
                         authState !is AuthState.Loading
 
-                    if (!surfaceContentReady) {
+                    if (needsBoomioSetup) {
+                        // Before the sign-in screen, never after it: this app's auth talks to the
+                        // self-hosted server, which is reached through the tunnel that pairing sets
+                        // up, so sign-in-first is the loop this exists to break.
+                        startupDestination = StartupDestination.Setup
+                        BoomioSetupGate(onSkip = { boomioSetupSkipped = true })
+                    } else if (!surfaceContentReady) {
                         // Still loading auth state; nothing to show yet.
                     } else if (
                         hasSeenAuthQrOnFirstLaunch == false &&
@@ -1519,6 +1539,10 @@ open class MainActivity : ComponentActivity() {
         super.onStart()
         startupSyncService.startPeriodicSurfacePulls()
         androidTvChannelSyncService.onForegroundChanged(true)
+        // The overlay's discovery ladder is foreground-scoped: the mDNS browse and the
+        // endpoint walk only run while something is visible, and the multicast lock is held
+        // for one browse at a time. Without this the ladder never walks at all.
+        AppForegroundMonitor.notify(AppVisibility.Foreground)
     }
 
     override fun onStop() {
@@ -1528,6 +1552,7 @@ open class MainActivity : ComponentActivity() {
         // App going to background (e.g. user returning to the launcher): reconcile the
         // Continue Watching channel once so Projectivy repaints it with fresh progress.
         androidTvChannelSyncService.onForegroundChanged(false)
+        AppForegroundMonitor.notify(AppVisibility.Background)
     }
 
     override fun onDestroy() {

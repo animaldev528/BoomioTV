@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.nuvio.app.core.overlay.withOverlayProxy
 import com.nuvio.tv.R
 import com.nuvio.tv.core.boomio.BoomioStreamResolver
 import com.nuvio.tv.core.debrid.DebridStreamPresentation
@@ -1612,7 +1613,7 @@ class StreamScreenViewModel @Inject constructor(
                 playUrl = localUrl
                 isTorrentStreamStarted = true
 
-                val client = okhttp3.OkHttpClient.Builder()
+                val client = okhttp3.OkHttpClient.Builder().withOverlayProxy()
                     .dns(com.nuvio.tv.core.network.IPv4FirstDns())
                     .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
                     .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
