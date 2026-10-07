@@ -1418,6 +1418,7 @@
     <string name="qr_login_pending">Waiting for approval on your phone…</string>
     <string name="qr_login_expired">QR login expired. Generate a new code.</string>
     <string name="qr_login_preparing">Preparing QR login...</string>
+    <string name="qr_login_waiting_for_server">Waiting for the server connection...</string>
     <string name="qr_login_device_auth_failed">Failed to authenticate device</string>
     <string name="qr_login_scan_prompt">Scan QR and sign in on your phone</string>
     <string name="qr_login_start_failed">Failed to start QR login</string>

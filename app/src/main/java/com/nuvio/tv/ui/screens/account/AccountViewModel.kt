@@ -7,6 +7,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.R
+import com.nuvio.app.features.boomio.BoomioConfig
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.auth.diagnostics.AuthDiagnosticsSession
 import com.nuvio.tv.core.logging.bodySnippetForLog
@@ -31,6 +32,7 @@ import com.nuvio.tv.data.repository.AddonRepositoryImpl
 import com.nuvio.tv.data.repository.AuthDiagnosticReportRepository
 import com.nuvio.tv.data.repository.LibraryRepositoryImpl
 import com.nuvio.tv.data.repository.WatchProgressRepositoryImpl
+import com.nuvio.tv.data.remote.supabase.DeviceLoginStartResult
 import com.nuvio.tv.domain.model.AuthState
 import com.nuvio.tv.domain.model.ServerConfiguration
 import com.nuvio.tv.domain.repository.SyncRepository
@@ -58,6 +60,41 @@ private const val QR_ENDPOINT_START = "/rest/v1/rpc/start_device_login_session"
 private const val QR_ENDPOINT_POLL = "/rest/v1/rpc/poll_tv_login_session"
 private const val QR_ENDPOINT_EXCHANGE = "/functions/v1/tv-logins-exchange"
 private val qrLoginTraceCounter = AtomicLong(0L)
+
+/**
+ * How long [AccountViewModel.startDeviceLoginSessionAwaitingOverlay] keeps retrying a QR start
+ * that cannot connect.
+ *
+ * Generous on purpose. Off the home network the overlay has to enrol, bind its relay and finish
+ * a handshake, and each of those carries its own timeout; a measured cold bring-up on the Shield
+ * was 14s, and this is the margin around it. Bounded all the same, because a server that is
+ * genuinely absent has to produce an error eventually.
+ */
+private const val QR_START_CONNECT_WINDOW_MS = 60_000L
+
+/** Between attempts. Shorter than a failed attempt's own connect timeout, so it never pads. */
+private const val QR_START_CONNECT_RETRY_DELAY_MS = 3_000L
+
+/**
+ * Whether this failure is "could not reach the host" rather than "the host answered, and said no".
+ *
+ * ⚠️ **The cause chain is walked, because the failure that motivated this is a wrapper
+ * around a bare `ErrnoException`.** `ConnectException` and `NoRouteToHostException` both extend
+ * `SocketException`, so the `SocketException` arm is what actually catches `ECONNREFUSED`;
+ * `SocketTimeoutException` extends `InterruptedIOException` and so needs its own arm.
+ */
+private fun Throwable?.isConnectionFailure(): Boolean {
+    val seen = mutableSetOf<Throwable>()
+    var current = this
+    while (current != null && seen.add(current)) {
+        if (current is java.net.SocketException ||
+            current is java.net.SocketTimeoutException ||
+            current is java.net.UnknownHostException
+        ) return true
+        current = current.cause
+    }
+    return false
+}
 
 @HiltViewModel
 class AccountViewModel @Inject constructor(
@@ -318,15 +355,17 @@ class AccountViewModel @Inject constructor(
                 )
             }
             Log.d(TAG, "QR_LOGIN[$traceId] start_device_login_session call begin")
-            authManager.startDeviceLoginSession(
-                deviceNonce = nonce,
-                deviceName = Build.MODEL,
-                deviceType = "tv",
-                redirectBaseUrl = serverConfiguration.deviceLoginWebBaseUrl.orEmpty(),
-                legacyRedirectBaseUrl = serverConfiguration.tvLoginWebBaseUrl.orEmpty(),
-                traceId = traceId,
-                diagnostics = diagnostics
-            ).fold(
+            startDeviceLoginSessionAwaitingOverlay(traceId = traceId) {
+                authManager.startDeviceLoginSession(
+                    deviceNonce = nonce,
+                    deviceName = Build.MODEL,
+                    deviceType = "tv",
+                    redirectBaseUrl = serverConfiguration.deviceLoginWebBaseUrl.orEmpty(),
+                    legacyRedirectBaseUrl = serverConfiguration.tvLoginWebBaseUrl.orEmpty(),
+                    traceId = traceId,
+                    diagnostics = diagnostics
+                )
+            }.fold(
                 onSuccess = { result ->
                     val expiresAtMillis = parseTimestampMillis(result.expiresAt)
                     if (result.deviceCode.isBlank() || result.userCode.isBlank() || result.verificationUriComplete.isBlank()) {
@@ -371,6 +410,72 @@ class AccountViewModel @Inject constructor(
                 }
             )
         }
+    }
+
+    /**
+     * Runs the QR start call, retrying while it cannot **connect**.
+     *
+     * **Why this exists.** On a wiped install that is off the home network, the overlay is the
+     * only route to the server, and it is not up yet when this screen composes. Measured on the
+     * Shield, 2026-10-07: `pm clear` at 16:15:35, this call issued at 16:15:57, the relay up at
+     * 16:16:04, the tunnel up at 16:16:11 — and the call dead at 16:16:09 with `ECONNREFUSED`
+     * from `/10.151.14.131`, the device's **own hotspot address**. `OverlayProxy` fails open while
+     * the relay is down, so the request was dialled *direct* to the house WAN, where nothing
+     * listens on 443. Nothing retried, so the screen never showed a QR code at all.
+     *
+     * ⚠️ **Only connection failures are retried.** A 4xx from the server is an *answer*,
+     * and repeating it only delays the error the person needs to read. This is not a general
+     * retry, and it is not a substitute for fixing whatever else is wrong.
+     *
+     * ⚠️ **Gated on the overlay being configured**, so a build with a blank
+     * `BOOMIO_OVERLAY_ADDR` behaves exactly as it did before this existed: one attempt, one error.
+     *
+     * ⚠️ **It cannot wait on "the tunnel is up" instead.** No published state fires early
+     * enough — the ladder reaches `Found` around the time pairing finishes, tens of seconds
+     * before the handshake completes — so the connection attempt itself is the only honest
+     * readiness probe available here.
+     */
+    private suspend fun startDeviceLoginSessionAwaitingOverlay(
+        traceId: Long,
+        call: suspend () -> Result<DeviceLoginStartResult>
+    ): Result<DeviceLoginStartResult> {
+        val first = call()
+        if (first.isSuccess) return first
+        if (BoomioConfig.overlayServerAddress.isBlank()) return first
+        if (!first.exceptionOrNull().isConnectionFailure()) return first
+
+        val windowStartedAtMs = SystemClock.elapsedRealtime()
+        val deadline = windowStartedAtMs + QR_START_CONNECT_WINDOW_MS
+        var result = first
+        var attempt = 1
+        while (SystemClock.elapsedRealtime() < deadline) {
+            delay(QR_START_CONNECT_RETRY_DELAY_MS)
+            attempt++
+            // Shown, because this can take most of a minute and a still screen reads as a hang.
+            // The first attempt's own error is deliberately not surfaced yet: it is the expected
+            // outcome of asking before the tunnel exists, not something the person can act on.
+            _uiState.update {
+                it.copy(qrLoginStatus = context.getString(R.string.qr_login_waiting_for_server))
+            }
+            Log.w(
+                TAG,
+                "QR_LOGIN[$traceId] start_device_login_session retry attempt=$attempt after ${SystemClock.elapsedRealtime() - windowStartedAtMs}ms; the overlay is not carrying yet"
+            )
+            result = call()
+            if (result.isSuccess) {
+                Log.d(
+                    TAG,
+                    "QR_LOGIN[$traceId] start_device_login_session recovered on attempt=$attempt after ${SystemClock.elapsedRealtime() - windowStartedAtMs}ms"
+                )
+                return result
+            }
+            if (!result.exceptionOrNull().isConnectionFailure()) return result
+        }
+        Log.e(
+            TAG,
+            "QR_LOGIN[$traceId] start_device_login_session gave up after attempt=$attempt; the overlay never carried within ${QR_START_CONNECT_WINDOW_MS}ms"
+        )
+        return result
     }
 
     fun pollQrLogin() {
