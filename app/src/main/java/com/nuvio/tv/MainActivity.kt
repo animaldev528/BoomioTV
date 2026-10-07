@@ -151,6 +151,8 @@ import com.nuvio.tv.core.sync.StartupSyncService
 import com.nuvio.tv.core.tracking.TrackingProgressRefreshCoordinator
 import com.nuvio.tv.core.tracking.TrackingRefreshIntent
 import com.nuvio.tv.data.local.AppOnboardingDataStore
+import com.nuvio.tv.ui.screens.setup.BoomioSetupGate
+import com.nuvio.app.features.boomio.BoomioSessionRepository
 import com.nuvio.tv.data.local.AuthSessionNoticeDataStore
 import com.nuvio.tv.data.local.ExperienceModeDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
@@ -757,10 +759,26 @@ open class MainActivity : ComponentActivity() {
                     Box(modifier = Modifier.fillMaxSize()) {
 
                     var startupDestination = StartupDestination.Loading
+
+                    // Read off the session store, which `NuvioApplication` hydrates during
+                    // `onCreate`, so this is already the truth on the first composition and there
+                    // is no window in which a linked TV looks unlinked. That is also why the gate
+                    // is asked BEFORE `surfaceContentReady`: a TV with no session has nowhere to
+                    // sign in to, and waiting for auth to settle first would hold it on a blank
+                    // screen for as long as an unreachable server takes to give up.
+                    val boomioSession by BoomioSessionRepository.session.collectAsState()
+                    var boomioSetupSkipped by rememberSaveable { mutableStateOf(false) }
+                    val needsBoomioSetup = boomioSession == null && !boomioSetupSkipped
                     val surfaceContentReady = hasSeenAuthQrOnFirstLaunch != null &&
                         authState !is AuthState.Loading
 
-                    if (!surfaceContentReady) {
+                    if (needsBoomioSetup) {
+                        // Before the sign-in screen, never after it: this app's auth talks to the
+                        // self-hosted server, which is reached through the tunnel that pairing sets
+                        // up, so sign-in-first is the loop this exists to break.
+                        startupDestination = StartupDestination.Setup
+                        BoomioSetupGate(onSkip = { boomioSetupSkipped = true })
+                    } else if (!surfaceContentReady) {
                         // Still loading auth state; nothing to show yet.
                     } else if (
                         hasSeenAuthQrOnFirstLaunch == false &&

@@ -529,6 +529,13 @@
     <string name="overlay_link_failed_detail">Linking failed: %1$s</string>
     <string name="overlay_link_failed_unreachable">Couldn\'t reach the server to start pairing. Check this TV\'s connection and try again.</string>
     <string name="overlay_link_failed_unsupported">This build has no pairing channel. Update the app.</string>
+
+    <!-- The first-run setup gate. It has its own heading, but the card under it is
+         `BoomioLinkPanel`: the same rows the settings entry renders, so the two cannot drift. -->
+    <string name="overlay_setup_title">Set up this TV</string>
+    <string name="overlay_setup_description">This TV isn\'t linked to your Boomio account yet. Linking comes first, because the app reaches your server through the tunnel it sets up, and signing in needs that server.</string>
+    <string name="overlay_setup_skip">Skip for now</string>
+    <string name="overlay_setup_skip_subtitle">Continue without linking. You can link later under Settings, Advanced, Server connection.</string>
     <string name="overlay_status_found_lan">On your network at %1$s</string>
     <string name="overlay_status_found_tunnel">Through the private tunnel at %1$s</string>
     <string name="overlay_status_endpoint_found">Endpoint found at %1$s</string>

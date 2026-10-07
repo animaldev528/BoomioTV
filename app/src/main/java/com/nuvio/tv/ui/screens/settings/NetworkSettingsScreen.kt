@@ -569,57 +569,14 @@ fun AdvancedSettingsContent(
             // going; this row is the only thing here a person can *act* on, and on a TV that has
             // never linked it is the reason they opened this screen at all.
             item(key = "overlay_link") {
-                SettingsGroupCard(modifier = Modifier.fillMaxWidth()) {
-                    when (val link = linkState) {
-                        is BoomioLinkState.AwaitingApproval -> SettingsActionRow(
-                            title = stringResource(R.string.overlay_link_code_title),
-                            subtitle = stringResource(
-                                R.string.overlay_link_code_subtitle,
-                                link.userCode,
-                                link.verificationUri
-                                    ?: stringResource(R.string.overlay_link_code_no_uri)
-                            ),
-                            value = stringResource(R.string.overlay_link_cancel),
-                            onClick = { BoomioSessionRepository.cancelLink() },
-                            trailingIcon = Icons.Default.Close
-                        )
-
-                        // ⚠️ Cancel, never "try again". A second exchange would mint a second
-                        // code, and the approver is looking at the first one.
-                        is BoomioLinkState.Starting -> SettingsActionRow(
-                            title = stringResource(R.string.overlay_link_title),
-                            subtitle = stringResource(R.string.overlay_link_working),
-                            value = stringResource(R.string.overlay_link_cancel),
-                            onClick = { BoomioSessionRepository.cancelLink() },
-                            trailingIcon = Icons.Default.Close
-                        )
-
-                        is BoomioLinkState.Failed -> SettingsActionRow(
-                            title = stringResource(R.string.overlay_link_title),
-                            subtitle = overlayLinkFailureText(link.reason, linkError),
-                            value = stringResource(R.string.overlay_link_retry),
-                            onClick = { BoomioSessionRepository.startLink() },
-                            trailingIcon = Icons.Default.Refresh
-                        )
-
-                        is BoomioLinkState.Idle -> if (boomioSession == null) {
-                            SettingsActionRow(
-                                title = stringResource(R.string.overlay_link_title),
-                                subtitle = stringResource(R.string.overlay_link_subtitle),
-                                value = stringResource(R.string.overlay_link_action),
-                                onClick = { BoomioSessionRepository.startLink() }
-                            )
-                        } else {
-                            SettingsActionRow(
-                                title = stringResource(R.string.overlay_link_title),
-                                subtitle = stringResource(R.string.overlay_link_linked),
-                                value = stringResource(R.string.overlay_link_unlink),
-                                onClick = { BoomioSessionRepository.unlink() },
-                                trailingIcon = Icons.Default.Close
-                            )
-                        }
-                    }
-                }
+                // The state machine lives in exactly one place -- see BoomioLinkPanel, which the
+                // first-run setup gate renders too. Two copies would disagree the first time a
+                // state is added, and the copy that disagreed would be the one nobody was reading.
+                BoomioLinkPanel(
+                    linkState = linkState,
+                    linkError = linkError,
+                    linked = boomioSession != null
+                )
             }
 
             item(key = "overlay_status") {
@@ -1045,7 +1002,7 @@ private fun NetworkMetricCard(
  * so would send someone looking on their own network for a machine that is somewhere else.
  */
 @Composable
-private fun overlayStatusText(
+internal fun overlayStatusText(
     local: LocalServerStatus,
     endpoint: OverlayEndpointStatus
 ): String = when {
@@ -1084,7 +1041,7 @@ private fun overlayStatusText(
  * generic failure would tell someone to retry a thing that cannot succeed where they are.
  */
 @Composable
-private fun overlayLinkFailureText(reason: BoomioLinkFailure, detail: String?): String = when (reason) {
+internal fun overlayLinkFailureText(reason: BoomioLinkFailure, detail: String?): String = when (reason) {
     BoomioLinkFailure.Unreachable -> stringResource(R.string.overlay_link_failed_unreachable)
 
     BoomioLinkFailure.Unsupported -> stringResource(R.string.overlay_link_failed_unsupported)
