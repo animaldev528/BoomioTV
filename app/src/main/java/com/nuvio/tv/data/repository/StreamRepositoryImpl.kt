@@ -591,14 +591,18 @@ class StreamRepositoryImpl @Inject constructor(
             append(encodedVideoId)
             append(".json")
             append(baseQuery)
-            // boomio-only cap params — bsf is the only endpoint that reads these, so attach them only
-            // when this request targets the boomio media plane. (Also guards the latent startsWith("")
-            // hazard when BOOMIO_BASE_URL is unset: without isNotEmpty() below, a configured
-            // BOOMIO_MAX_RESOLUTION would previously leak onto every addon request.)
+            // isBoomioEndpoint gates the params that ONLY bsf reads -- today that is the
+            // measured link cap below. isNotEmpty() also retires the latent startsWith("")
+            // hazard: an unset BOOMIO_BASE_URL used to match every addon.
             val boomioBase = BuildConfig.BOOMIO_BASE_URL.trim().trimEnd('/')
             val isBoomioEndpoint = boomioBase.isNotEmpty() && basePath.startsWith(boomioBase)
+            // max_resolution is NOT one of those params. It describes what this DEVICE can
+            // play (the 1080p demo Pi, a capped Shield), so it goes on every addon request
+            // -- matching BoomioStreamResolver, which has never gated on the addon base.
+            // Gating it on isBoomioEndpoint would also silently drop the cap entirely
+            // whenever BOOMIO_BASE_URL is blank, which is how the media-host tree ships.
             val maxResolution = BuildConfig.BOOMIO_MAX_RESOLUTION.trim()
-                .takeIf { it.isNotBlank() && isBoomioEndpoint }
+                .takeIf { it.isNotBlank() }
             if (maxResolution != null) {
                 append(if (baseQuery.isEmpty()) '?' else '&')
                 // snake_case: bsf's GET parser reads maxres|max_resolution, not camelCase maxResolution.
