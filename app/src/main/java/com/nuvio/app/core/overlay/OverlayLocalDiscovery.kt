@@ -139,6 +139,29 @@ internal object OverlayLocalDiscovery {
     /** The most recent advert a completed browse verified, or null when nothing is known. */
     fun lastVerifiedAdvert(): OverlayMdnsAdvert? = lastVerifiedAdvert
 
+    /**
+     * The discovery names the last advert this browse **saw** carried, whether or not its address
+     * was usable.
+     *
+     * ⚠️ **Distinct from [lastVerifiedAdvert], and the difference is the whole reason this
+     * exists.** That field means "an advert whose SRV target resolved to something this device can
+     * dial"; this one means "an advert arrived and named its server". The two come apart in exactly
+     * the case that matters: a platform whose NSD hands back a link-local IPv6 and no `A` leaves the
+     * address unusable while the names remain perfectly good, and a client that throws the names
+     * away with the address has discarded them in the one case that needs them.
+     *
+     * The names are the part of an advert that does not depend on the network it arrived over --
+     * see [OverlayDiscoveryNames] -- so they are kept separately from the address that does.
+     *
+     * Cleared by [clear] with the pin, and for the same reason: a name learned from the network the
+     * device has just left is the stale-discovery failure this whole subsystem exists to prevent.
+     */
+    @Volatile
+    private var advertNames: OverlayDiscoveryNames? = null
+
+    /** The names from the last advert *seen*, usable address or not. See [advertNames]. */
+    fun advertNames(): OverlayDiscoveryNames? = advertNames
+
     fun initialize(context: Context) {
         appContext = context.applicationContext
         // Idempotent: onCreate can run again after a configuration-forced restart, and
@@ -277,6 +300,7 @@ internal object OverlayLocalDiscovery {
         // The advert goes with the pin. The endpoint ladder reads this, and an advert resolved
         // on the network the phone has just left names a host that is not on this one.
         lastVerifiedAdvert = null
+        advertNames = null
         OverlayPinRegistry.clear(LocalServerSource.LAN)
         LocalServerState.update(LocalServerSource.LAN, LocalServerStatus.Idle)
     }
@@ -578,12 +602,20 @@ internal object OverlayLocalDiscovery {
     private fun candidateOf(info: NsdServiceInfo): Candidate? {
         val addresses = addressesOf(info)
         Log.d(TAG, "Resolved '${info.serviceName}': ${addresses.map { it.hostAddress }}")
+        // ⚠️ **Parsed *before* the address is judged, and the order is the point.** This used
+        // to sit below the `address == null` return, so an advert whose SRV target resolved to
+        // nothing usable threw its own TXT away with it. The names are the one part of an advert
+        // that does not depend on the network it arrived over, and discarding them when the address
+        // is unusable is discarding them in the only case that needs them -- [rung1Mdns] already
+        // reads an unusable *key* this way ("an advert whose key is unusable is still a server whose
+        // name is worth knowing"), and an unusable *address* is the same kind of fact.
+        val tuple = parseMdnsAdvertTxt(attributesOf(info))
+        rememberAdvertNames(tuple.lanName, tuple.wanName)
         val address = addresses.firstOrNull { it is Inet4Address && it.isUsableLanAddress() }
         if (address == null) {
             Log.d(TAG, "No usable IPv4 address for '${info.serviceName}'")
             return null
         }
-        val tuple = parseMdnsAdvertTxt(attributesOf(info))
         if (tuple.serverPublicKeyBase64 == null) {
             // Not fatal to the *pin* — the address is what Tier 1 pins, and it is valid
             // regardless. It is fatal to the *ladder* rung, which needs the whole tuple, so it
@@ -601,6 +633,18 @@ internal object OverlayLocalDiscovery {
             lanName = tuple.lanName,
             wanName = tuple.wanName,
         )
+    }
+
+    /**
+     * Records the names an advert carried, for the endpoint ladder.
+     *
+     * Replaced wholesale rather than merged, for the reason [OverlayDiscoveryNames] gives: both
+     * fields are one server's current truth, so a record carrying only one has withdrawn the other.
+     */
+    private fun rememberAdvertNames(lan: String?, wan: String?) {
+        val names = OverlayDiscoveryNames(lan = lan, wan = wan)
+        if (names.isEmpty) return
+        advertNames = names
     }
 
     /** `attributes` throws on some platform builds when the record was never resolved. */

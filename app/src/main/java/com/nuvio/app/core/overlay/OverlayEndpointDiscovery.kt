@@ -440,7 +440,7 @@ internal object OverlayEndpointDiscovery {
         // It is deliberately *not* guarded on `candidates.isEmpty()`. A remembered name can be the
         // only thing that works when the address rung 3 is still holding has gone dead — and a
         // name that is already known costs nothing to try when there was nothing else to try.
-        namedFallback()?.let { return@withLock accept(it) }
+        namedFallback(current ?: candidates.firstOrNull())?.let { return@withLock accept(it) }
 
         if (candidates.isEmpty()) {
             // A walk that found nothing is the one that must not be sticky. Two seconds ago the
@@ -497,6 +497,12 @@ internal object OverlayEndpointDiscovery {
         // it is still passed explicitly — the two answer to different owners, and the ladder's
         // bound should not silently follow the pin's if the pin's ever moves.
         OverlayLocalDiscovery.refresh(windowMs = RUNG1_BUDGET_MS)
+        // ⚠️ **Read from the browse directly, because [lastVerifiedAdvert] is not enough
+        // here.** That advert is only published when the browse resolved a *usable* address, so a
+        // platform whose NSD answers with a link-local IPv6 and no `A` produces none at all -- and
+        // that is precisely the device this tier has to rescue. The names survived the browse; they
+        // are read here.
+        OverlayLocalDiscovery.advertNames()?.let { rememberNames(it.lan, it.wan) }
         val advert = OverlayLocalDiscovery.lastVerifiedAdvert() ?: return null
         // Recorded before the key is judged. The names are a fact about the *server*, published
         // by the same advert, and an advert whose key is unusable is still a server whose name is
@@ -608,16 +614,24 @@ internal object OverlayEndpointDiscovery {
      * the one case the rungs cannot cover: the phone has left the network whose advert taught it
      * where the server was.
      *
-     * ⚠️ **A name supplies only the host; the key and the port are reused from the endpoint already
-     * in force.** That is not a shortcut but the correct reading — `lan=`/`wan=` are names, and the
-     * tuple published beside them belongs to the same server. If that server's key had changed, the
-     * handshake would fail and the next publication would correct it, which is the honest outcome;
-     * inventing a key here would hide it.
+     * ⚠️ **A name supplies only the host; the key and the port are reused from [seed].** That is
+     * not a shortcut but the correct reading — `lan=`/`wan=` are names, and the tuple published
+     * beside them belongs to the same server. If that server's key had changed, the handshake would
+     * fail and the next publication would correct it, which is the honest outcome; inventing a key
+     * here would hide it.
      *
-     * ⚠️ **A null `current` makes this a no-op, deliberately.** With no endpoint in force there is
-     * no key to dial with, so there is nothing to try — and a first-ever launch away from home has
-     * no name to climb *from* either, since names are only ever learned from a publication. That
-     * launch belongs to rung 3, and [OverlayEndpointStatus.NeedsManual] is the right answer to it.
+     * ⚠️ **A null [seed] makes this a no-op, deliberately.** With no endpoint anywhere there is no
+     * key to dial with, so there is nothing to try — and a first-ever launch away from home has no
+     * name to climb *from* either, since names are only ever learned from a publication. That launch
+     * belongs to rung 3, and [OverlayEndpointStatus.NeedsManual] is the right answer to it.
+     *
+     * ⚠️ **The seed is `current ?: candidates.firstOrNull()`, and the candidate half is a bug
+     * fix.** It used to be `current` alone, which is process-scoped and therefore null until
+     * something has been accepted — so on a **cold launch** the tier could not run at all. That is
+     * the walk it is most needed on: rung 3 is holding an address learned on some earlier network,
+     * the gate is about to reject it, and the names are the only thing that can still find the
+     * server. Seeding from the candidate costs nothing (it is the same server's key and port, and it
+     * is the endpoint the old fallback would have taken anyway) and closes that window.
      *
      * ⚠️ **Which name is preferred depends on where the client is standing, and the gate is a
      * preference rather than a veto — both are changes.** [OverlayDiscoveryNames.inOrder] is
@@ -639,9 +653,9 @@ internal object OverlayEndpointDiscovery {
      * over a silent fallback (see `onNetworkChanged`). The cost is the one ordering can never
      * remove: the gate proves the *name* is plausible, never that the forward is open.
      */
-    private suspend fun namedFallback(): OverlayEndpoint? {
+    private suspend fun namedFallback(seed: OverlayEndpoint?): OverlayEndpoint? {
         val names = discoveryNames ?: return null
-        val known = current ?: return null
+        val known = seed ?: return null
         val key = validServerKeyOrNull(known.serverPublicKeyBase64) ?: return null
         // ⚠️ **Ordered for the network in force, because the rungs that would have corrected a
         // wrong guess are exactly the ones that just failed.**
