@@ -224,26 +224,37 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
     }
 
     override fun newImageLoader(context: android.content.Context): ImageLoader {
+        // Poster art comes from third-party CDNs (image.tmdb.org,
+        // images.metahub.space, api.ratingposterdb.com, ...) that the house does
+        // not control, so this client is tuned to be PATIENT rather than quick:
+        // a poster that arrives in eight seconds is still a poster, while one
+        // aborted at five is a blank card the viewer cannot tell apart from a
+        // title that has no artwork. These budgets are sized for a slow CDN, not
+        // for a slow LAN. Nothing here is on the playback path.
         val imageOkHttpClient by lazy {
             val imageDispatcher = okhttp3.Dispatcher().apply {
-                maxRequests = 32
-                maxRequestsPerHost = 16
+                // A poster wall can ask for 30+ images at once and most of them
+                // resolve to the SAME CDN host, so maxRequestsPerHost is the
+                // number that actually binds. Keep it polite but not queued.
+                maxRequests = 48
+                maxRequestsPerHost = 24
             }
             OkHttpClient.Builder().withOverlayProxy()
                 .dispatcher(imageDispatcher)
                 .dns(IPv4FirstDns())
-                .connectTimeout(4, TimeUnit.SECONDS)
-                .readTimeout(5, TimeUnit.SECONDS)
-                .callTimeout(12, TimeUnit.SECONDS)
-                .addInterceptor { chain ->
-                    try {
-                        chain.proceed(chain.request())
-                    } catch (e: java.net.SocketTimeoutException) {
-                        chain.withConnectTimeout(3, TimeUnit.SECONDS)
-                            .withReadTimeout(4, TimeUnit.SECONDS)
-                            .proceed(chain.request())
-                    }
-                }
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(20, TimeUnit.SECONDS)
+                .callTimeout(45, TimeUnit.SECONDS)
+                // There is deliberately NO retry interceptor here. One used to
+                // sit at this spot: on SocketTimeoutException it re-ran the SAME
+                // request with SHORTER timeouts (connect 4s -> 3s, read 5s ->
+                // 4s) inside a callTimeout that already covered the first
+                // attempt, so it was strictly worse than nothing -- it could
+                // only spend budget the first attempt had already burned, and a
+                // slow origin is not a flaky one, so the second try met the same
+                // wall. Re-fetching a stale image is already handled correctly,
+                // and with something on screen meanwhile, by
+                // StaleWhileRevalidateCacheStrategy below.
                 .followRedirects(true)
                 .followSslRedirects(true)
                 .build()
@@ -301,6 +312,13 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
             .allowHardware(false)
             .allowRgb565(imagePerformancePreferences.rgb565Enabled)
             .bitmapFactoryMaxParallelism(4)
+            // Coil installs NO logger unless one is given, so an image that
+            // failed to load left no trace at all -- not in logcat, not in the
+            // cache, nowhere. Failures are logged at Level.Error, so a Warn
+            // floor surfaces every one of them on a RELEASE build (which is the
+            // build under test) while staying silent for the request-by-request
+            // chatter that defaults to Level.Debug. The tag is "coil3".
+            .logger(coil3.util.DebugLogger(coil3.util.Logger.Level.Warn))
             .build()
     }
 }
