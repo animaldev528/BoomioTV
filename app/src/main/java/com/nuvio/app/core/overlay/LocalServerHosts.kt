@@ -58,8 +58,23 @@ internal fun localServerHostCandidates(): List<String> = listOf(
  *
  * A heuristic, and a deliberately conservative one: it is anchored on hosts the user's
  * own configuration already named, so it can only widen the pin to hosts on the **same
- * domain as the server**. A multi-label public suffix (`co.uk`) would over-match; the
- * pin is pin-first, so the cost of an over-match is one failed connect, not a break.
+ * domain as the server**.
+ *
+ * ⚠️ **`labels.takeLast(2)` alone is not enough, and the two cases are not symmetric.**
+ * For `bsc.tracemonkey.org` those labels are a domain the owner controls, so widening is
+ * exactly what reaches `tmdb.tracemonkey.org` and the rest of the media plane — the point
+ * of the function. For `boomio-tls.duckdns.org` they are **`duckdns.org`**, which the owner
+ * does not control and which anyone can sign up under: the suffix would then match *every*
+ * `*.duckdns.org` host this app contacts and resolve it to the tunnel address instead of
+ * its real one. That is not "one failed connect" — it is every such request in the session
+ * answered by the wrong server. [SHARED_SUFFIXES] is what separates the two cases, and the
+ * fallback for a match is the **host itself**, so the device's own name stays pinned.
+ *
+ * ⚠️ **A short list rather than the Public Suffix List, deliberately.** The full PSL is
+ * ~240 KB with its own update cadence, and this deployment has exactly one shared suffix in
+ * it. Adding one is a one-line change, and the bias is chosen so that being *wrong* is
+ * cheap: a name listed here that did not need to be is pinned by exact host instead of by
+ * domain, which loses coverage rather than gaining a wrong one.
  *
  * [OverlayPinRegistry] reuses this at *lookup* time, not only to filter addon hosts.
  * That is what covers the media-plane hosts (`bss-dav`, `bss-tor`, `nzbdav`, …), which
@@ -69,9 +84,47 @@ internal fun localServerHostCandidates(): List<String> = listOf(
 internal fun serverDomainSuffixes(serverHosts: Set<String>): Set<String> = serverHosts
     .mapNotNull { host ->
         val labels = host.split('.').filter { it.isNotBlank() }
-        if (labels.size < 2) null else labels.takeLast(2).joinToString(".")
+        if (labels.size < 2) return@mapNotNull null
+        val lastTwo = labels.takeLast(2).joinToString(".")
+        // Not a name the owner registered: pin this host, never its shared parent.
+        if (lastTwo in SHARED_SUFFIXES) host else lastTwo
     }
     .toSet()
+
+/**
+ * The two-label suffixes that are **shared** — the registrable name is the whole host, so the
+ * label above them belongs to whoever signed up, not to the user.
+ *
+ * `duckdns.org` is the measured entry: `boomio-tls.duckdns.org` is a companion host in the
+ * reference deployment, and `docs/mtls-plan.md` §13 records the over-match it would otherwise
+ * cause. The rest are the same *shape* — free dynamic-DNS names and shared app hosting, where
+ * `anything.<suffix>` is a stranger — included because the cost of a missing entry is the
+ * over-match above, while the cost of a spare one is only a narrower pin.
+ *
+ * Only ever compared against the last **two** labels, so a longer suffix (the PSL's
+ * `foo.bar.ck` style) cannot appear here: it would be dead weight that never matches.
+ */
+private val SHARED_SUFFIXES = setOf(
+    // Dynamic DNS: `boomio-tls.duckdns.org` is the case this exists for.
+    "duckdns.org",
+    "ddns.net",
+    "dynu.net",
+    "no-ip.org",
+    "hopto.org",
+    "myftp.org",
+    "sytes.net",
+    "zapto.org",
+    "afraid.org",
+    // Shared app hosting and tunnels, where `foo.<suffix>` is somebody else's deployment.
+    "github.io",
+    "pages.dev",
+    "vercel.app",
+    "netlify.app",
+    "herokuapp.com",
+    "trycloudflare.com",
+    "ngrok.io",
+    "ngrok-free.app",
+)
 
 /**
  * The addon manifest hosts served by the *same server* as [serverHosts].

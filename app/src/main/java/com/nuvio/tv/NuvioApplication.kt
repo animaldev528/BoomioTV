@@ -25,6 +25,8 @@ import com.nuvio.app.core.overlay.OverlayProvisioning
 import com.nuvio.app.core.overlay.OverlayRelay
 import com.nuvio.app.core.overlay.OverlaySession
 import com.nuvio.app.core.overlay.OverlayTunnel
+import com.nuvio.app.core.overlay.SecurityPolicyRefresh
+import com.nuvio.app.core.mtls.MtlsRegistration
 import com.nuvio.app.core.overlay.withOverlayProxy
 import com.nuvio.app.core.network.ServerConfigurationRepository
 import com.nuvio.app.features.addons.AddonRef
@@ -187,6 +189,33 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
         OverlaySession.initialize(this)
         OverlayEnrollment.initialize(this)
         OverlayProvisioning.initialize(this)
+
+        // ---- the security policy and the client certificate --------------------------
+        // The last two, and the relative order matches mobile's MainActivity.onCreate.
+        //
+        // `SecurityPolicyRefresh` applies the cached policy synchronously, then pulls the current
+        // one on app-foreground and at enrollment. It is placed with the overlay group because the
+        // policy it carries decides *routing* between the planes those objects build -- see
+        // `OverlayPinRegistry` (the LAN pin stands down) and `OverlayRelay` (the WAN fallback is
+        // withdrawn) -- rather than because it depends on them. Its position is not load-bearing.
+        SecurityPolicyRefresh.initialize(this)
+
+        // ⚠️ **This call is the whole of P2.3, and without it mTLS is silently off.** It is what
+        // installs `MtlsRegistration.registrar`; with the field null, `ensureRegistered` answers
+        // `Skipped` and the device never posts a certificate, while every seam that would have
+        // carried one (`MtlsSsl`, the `withClientCertificate()` call sites) looks healthy because
+        // each of them reads the certificate lazily and finds none.
+        //
+        // It is last for the same reason mobile puts it last: its api factory asks
+        // `OverlayProvisioning` which transport linked this device (§13.2) -- a *read*, made per
+        // registration rather than captured here, so the order against the line above is tidy
+        // rather than load-bearing.
+        //
+        // Note that `initialize` itself registers nothing. The first attempt comes from the
+        // enrollment refresh on its own coroutine, which is the right trigger: a device already
+        // registered needs no second POST (the plan short-circuits), and one that was not is
+        // re-triggered the moment a refresh succeeds.
+        MtlsRegistration.initialize(this)
         // Load locale synchronously so it's available before Activity.attachBaseContext.
         // SharedPreferences reads are fast (cached in memory after first access).
         val tag = getSharedPreferences("app_locale", Context.MODE_PRIVATE)

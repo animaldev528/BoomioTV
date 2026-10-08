@@ -138,6 +138,47 @@ class LocalServerHostsTest {
     }
 
     @Test
+    fun `a shared public suffix yields the host itself, not the shared parent`() {
+        // The DuckDNS shape. The owner registered `boomio-tls`; nobody registered `duckdns.org`.
+        // Taking the last two labels here would hand the pin a suffix that every free signup in
+        // the world sits under, so the suffix is the host and the host is all it can cover.
+        assertEquals(
+            setOf("boomio-tls.duckdns.org"),
+            serverDomainSuffixes(setOf("boomio-tls.duckdns.org")),
+        )
+    }
+
+    @Test
+    fun `an ordinary domain still yields its registrable suffix`() {
+        // The regression guard for the fix, and the reason the shared list cannot simply be
+        // "everything with two labels": `tracemonkey.org` *is* the owner's, and widening to it is
+        // what covers `tmdb.`/`bsf.`/`usn.` and the media-plane hosts that appear in no
+        // configuration. Narrowing this case would empty the home screen.
+        assertEquals(
+            setOf("tracemonkey.org"),
+            serverDomainSuffixes(setOf("bsc.tracemonkey.org", "nuvioserver.tracemonkey.org")),
+        )
+    }
+
+    @Test
+    fun `never widens an addon host across a shared suffix`() {
+        // ⚠️ The over-match this whole fix exists to prevent, end to end: a host under the same
+        // *shared* suffix as the server is somebody else's box, and pinning it would resolve it to
+        // the tunnel address instead of its real one. Note the device's own name is still kept —
+        // the narrowing is to the exact host, not to nothing.
+        assertEquals(
+            setOf("boomio-tls.duckdns.org"),
+            derivePinnableAddonHosts(
+                setOf("boomio-tls.duckdns.org"),
+                listOf(
+                    "https://boomio-tls.duckdns.org/manifest.json",
+                    "https://someone-elses-box.duckdns.org/manifest.json",
+                ),
+            ),
+        )
+    }
+
+    @Test
     fun `never pins an addon host without a server host to anchor it`() {
         // With nothing discovered there is no domain to be "the same as", so a
         // third-party addon must not become pinnable by accident.

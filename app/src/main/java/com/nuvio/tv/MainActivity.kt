@@ -104,6 +104,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import com.nuvio.app.core.overlay.SecurityPolicyRefresh
 import com.nuvio.app.core.sync.AppForegroundMonitor
 import com.nuvio.app.core.sync.AppVisibility
 import com.nuvio.tv.ui.components.LocalStartupLoadingState
@@ -1543,6 +1544,13 @@ open class MainActivity : ComponentActivity() {
         // endpoint walk only run while something is visible, and the multicast lock is held
         // for one browse at a time. Without this the ladder never walks at all.
         AppForegroundMonitor.notify(AppVisibility.Foreground)
+        // Re-pull the security policy on every foreground. This is the only trigger that
+        // notices an operator changing a toggle in bsm while the TV is already running --
+        // enrollment refreshes it too, but a linked device does not re-enroll, so without
+        // this line a policy change would not land until the next cold start. Cheap and
+        // self-throttling: `SecurityPolicyRefresh` bounds its own rate and reads the token
+        // from the session store, so it is a no-op on a device that has never linked.
+        SecurityPolicyRefresh.onAppForegrounded()
     }
 
     override fun onStop() {

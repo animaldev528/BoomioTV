@@ -111,6 +111,47 @@ class OverlaySessionTest {
     }
 
     @Test
+    fun `a changed local address rebuilds the device onto the enrolled one`() {
+        // ⚠️ The defect this pins, measured on device. Enrollment assigns this device its /32
+        // *after* the ladder has already brought the tunnel up on the baked default, and the
+        // server registers this peer's key against the **assigned** address — so a device left
+        // on the old one completes its handshake and then has every inner packet dropped by
+        // cryptokey routing: connected, and carrying nothing.
+        //
+        // The endpoint authority does not change at any point here, which is the whole trap. A
+        // guard that compares only the authority calls this state "already configured", returns
+        // false, and leaves the device on an address the server has no route to.
+        var cidr = "10.77.0.2/32"
+        val driver = OverlaySessionDriver(tunnel = { device }, localCidr = { cidr })
+
+        driver.apply(foundEndpoint())
+        assertEquals("10.77.0.2/32", binding.lastUp?.localCidr)
+
+        cidr = "10.77.0.15/32"
+        val changed = driver.apply(foundEndpoint())
+
+        assertTrue(changed)
+        assertEquals("10.77.0.15/32", binding.lastUp?.localCidr)
+        assertEquals(2, binding.upCalls)
+        assertEquals(1, binding.downCalls)
+    }
+
+    @Test
+    fun `an unchanged local address is still a no-op`() {
+        // The other half of the decision: rebuilding on every ladder emission would be a
+        // handshake gap every few minutes, so the new comparison must not make the steady
+        // state churn. This is the existing no-op guarantee, restated against the widened guard.
+        val driver = OverlaySessionDriver(tunnel = { device }, localCidr = { "10.77.0.15/32" })
+
+        driver.apply(foundEndpoint())
+        val changed = driver.apply(foundEndpoint())
+
+        assertFalse(changed)
+        assertEquals(1, binding.upCalls)
+        assertEquals(0, binding.downCalls)
+    }
+
+    @Test
     fun `a moved endpoint takes the old device down before bringing the new one up`() {
         val driver = driverOn()
 

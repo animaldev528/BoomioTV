@@ -117,7 +117,18 @@ internal object OverlayPinRegistry {
             // LAN address here while our own tunnel carries the traffic would steer every
             // client back off the relay and onto a direct route, which is the one thing the
             // ranking above was reversed to stop.
-            if (source == LocalServerSource.LAN && ownTunnelCarriesTraffic()) continue
+            //
+            // ⚠️ **The policy's LAN toggle has the same shape and the same reason**, and it is
+            // checked on the LAN arm *only*: `directLanPlayback=false` forces LAN traffic through
+            // the tunnel, which means the LAN pin must stop answering — the exact mechanism the
+            // tunnel-carrying check already uses. A `true` (the default) adds nothing. The
+            // TUNNEL arm is never suppressed, because a tunnel pin names the overlay address and
+            // is not a direct route at all. Read live, per lookup, like everything else here.
+            if (source == LocalServerSource.LAN &&
+                (ownTunnelCarriesTraffic() || !mayDialDirectly(DirectPlane.LAN))
+            ) {
+                continue
+            }
             val pin = current[source] ?: continue
             if (host in pin.hosts) return pin.address
             // The domain match is what covers the hosts the app only ever learns at runtime.

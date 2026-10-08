@@ -87,6 +87,35 @@ object BoomioConfig {
      * DuckDNS TXT record publish the identical value as `pk=…`.
      */
     var overlayServerPubKey: String = BuildConfig.BOOMIO_OVERLAY_PUBKEY
+
+    /**
+     * The name the **server** gave this device, e.g. `device-pixel-7-pro-430f9ca3`. Blank until
+     * a device has enrolled, and blank means "we have not learned it yet" — never a placeholder.
+     *
+     * ⚠️ **This is not a label, and it is not [overlayLocalCidr].** It is the *identity* half of an
+     * enrollment: the server derives it from the device id (`peerNameFor` in `bsc/lib/overlay-store.js`)
+     * and files everything it later learns about this device — its WireGuard peer record, its entry
+     * in the edge's mTLS allow-list — under exactly this string. A certificate minted for any other
+     * CN is refused `cn_mismatch` by `POST /api/overlay/cert` and by the channel alike, so a wrong
+     * value here does not degrade: it fails closed, and the device never gets a certificate.
+     *
+     * ⚠️ **The server is the only source, and it must stay that way.** A name this app invented for
+     * itself would be a name the allow-list has never heard of. It arrives on both enrollment
+     * transports — `GET /api/overlay/enroll/status`'s `name`, and the provisioning channel's
+     * `enroll.ready.name` — and [com.nuvio.app.core.overlay.OverlayEnrollment] writes it from
+     * whichever one answered, alongside the address, so the two can never disagree.
+     *
+     * It is emphatically **not** [overlayServerAddress] (the server's overlay address) and not the
+     * user's device name from Settings — the three coincide in neither shape nor origin.
+     *
+     * Blank-inert: `MtlsRegistrar.planCertificate` treats an unknown name as `Unavailable`, so a
+     * device that has not enrolled registers nothing rather than minting for a name it guessed.
+     *
+     * No `BOOMIO_*` build-time default, unlike its siblings above: every other overlay value here
+     * has a meaningful pre-enrollment fallback, and this one does not. There is no name a build
+     * could bake that the server would recognise.
+     */
+    var overlayDeviceName: String = ""
 }
 
 /** REST (`https://`) variant of [BoomioConfig.companionBaseUrl] for the bsc companion API. */

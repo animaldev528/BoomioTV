@@ -1,5 +1,6 @@
 package com.nuvio.tv.core.network
 
+import com.nuvio.app.core.mtls.withClientCertificate
 import com.nuvio.app.core.overlay.withOverlayProxy
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.okhttp.OkHttp
@@ -38,6 +39,20 @@ import io.ktor.client.engine.okhttp.OkHttp
  * supabase-kt exposes `httpEngine` on its builder, so covering this needs no upstream change.
  * The engine's own defaults are preserved: this is OkHttp on Android either way, and only the
  * DNS ordering and the proxy seam are added.
+ *
+ * ⚠️ **`withClientCertificate()` is the mTLS half, and this is the only pre-existing TV client
+ * that gets it.** Mobile attaches it in `SupabaseHttpPlatform.android.kt` for exactly this reason:
+ * auth is the one call that must work on the plane the edge gates, and it is the call a device
+ * makes before it has anything else. The certificate is resolved per *connection*
+ * (`MtlsSsl.DeferredClientCertSocketFactory`), so this engine needs no rebuild after registration
+ * and is inert until a certificate exists.
+ *
+ * **Deliberately not applied to the app's other OkHttp clients**, and the reason is a collision
+ * rather than an oversight: `withClientCertificate()` installs the *platform* trust manager
+ * (correctly — see `MtlsSsl.platformTrustManager`), and `NetworkModule`'s `addonPermissive` client
+ * plus `PlayerPlaybackNetworking`'s playback clients are trust-all. Attaching it there would
+ * silently replace their trust manager and break self-signed tolerance on the planes that need it.
+ * Widening mTLS to those planes is a separate decision, not a mechanical one.
  */
 internal fun createSupabaseHttpEngine(): HttpClientEngine =
-    OkHttp.create { config { dns(IPv4FirstDns()).withOverlayProxy() } }
+    OkHttp.create { config { dns(IPv4FirstDns()).withOverlayProxy().withClientCertificate() } }

@@ -135,6 +135,13 @@ internal object OverlaySession {
      */
     internal fun onServerAddressLearned() {
         startDriverIfConfigured()
+        // ⚠️ [startDriverIfConfigured] alone is a no-op here in every case this is called for:
+        // enrollment is the only writer, and by the time it writes, the driver already exists
+        // (the address gate sits on a baked non-blank default). So the thing that was learned
+        // would reach a config `var` that nothing re-reads. Re-applying the held endpoint is
+        // what rebuilds the device onto the assigned /32.
+        val held = OverlayEndpointState.status.value as? OverlayEndpointStatus.Found
+        if (held != null) driver?.apply(held)
     }
 
     /** Tears the device down and stops reacting to the ladder. Tests and the debug probe. */
@@ -185,6 +192,20 @@ internal class OverlaySessionDriver(
     @Volatile
     private var configuredFor: String? = null
 
+    /**
+     * The local address the device was last brought up with, or null when it is not up.
+     *
+     * ⚠️ **Part of the reconfigure decision, not a memo of [configuredFor].** The address is
+     * *learned* — enrollment assigns it — and it is written into [BoomioConfig] at a moment when
+     * the ladder may already have brought the device up on the baked default. The server
+     * registers this peer's key against the **assigned** /32, so a device left up on the old one
+     * completes its handshake and then has every inner packet dropped by cryptokey routing:
+     * connected, and carrying nothing. Deciding on the authority alone calls that state
+     * "already configured" and never rebuilds it.
+     */
+    @Volatile
+    private var configuredLocalCidr: String? = null
+
     /** True when this driver has a device up. Read by tests; production reads the tunnel. */
     val isUp: Boolean get() = configuredFor != null
 
@@ -207,7 +228,14 @@ internal class OverlaySessionDriver(
         }
 
         val authority = endpoint.authority
-        if (authority == configuredFor) return false
+        val cidr = localCidr()
+        if (authority == configuredFor && cidr == configuredLocalCidr) return false
+        if (authority == configuredFor) {
+            // Same server, different local address: this device has been assigned its /32 since
+            // the device came up, and it is still running on the old one. Rebuilding is the
+            // entire point — see [configuredLocalCidr].
+            Log.d(TAG, "Overlay local address changed to $cidr; rebuilding the device")
+        }
 
         val serverKey = endpoint.serverPublicKeyBase64 ?: return false
         val device = tunnel() ?: return false
@@ -224,7 +252,8 @@ internal class OverlaySessionDriver(
         )) {
             is TunnelState.Up -> {
                 configuredFor = authority
-                Log.d(TAG, "Overlay tunnel up against $authority")
+                configuredLocalCidr = cidr
+                Log.d(TAG, "Overlay tunnel up against $authority as $cidr")
                 true
             }
             is TunnelState.Failed -> {
@@ -232,11 +261,13 @@ internal class OverlaySessionDriver(
                 // this endpoint", or the next identical `Found` would be suppressed and the
                 // retry the ladder's cadence offers would never happen.
                 configuredFor = null
+                configuredLocalCidr = null
                 Log.w(TAG, "Overlay tunnel refused $authority: ${result.reason}")
                 true
             }
             TunnelState.Down -> {
                 configuredFor = null
+                configuredLocalCidr = null
                 true
             }
         }

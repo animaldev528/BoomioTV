@@ -457,11 +457,11 @@ internal object OverlayLocalDiscovery {
         val serverPublicKey: String? = null,
         val wgPort: Int? = null,
         /**
-         * The advert's `lan=`/`wan=` -- the two names that outlive the network this advert came
+         * The advert's `lan=`/`wan=` — the two names that outlive the network this advert came
          * from. Null when the advert did not carry them, which is the case for a server older
          * than `#66`.
          *
-         * ⚠️ **These are not part of the tuple.** The tuple is what a *tunnel* needs -- a key
+         * ⚠️ **These are not part of the tuple.** The tuple is what a *tunnel* needs — a key
          * and a port, both true wherever the client stands. These are what the *ladder* needs
          * once the address it pinned has stopped routing, in which case nothing about the tuple
          * is wrong and the endpoint is still useless. See [OverlayDiscoveryNames].

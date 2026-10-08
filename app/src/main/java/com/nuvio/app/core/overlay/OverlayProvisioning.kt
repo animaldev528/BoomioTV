@@ -133,6 +133,18 @@ internal object OverlayProvisioning {
     }
 
     /**
+     * Whether the channel is the transport this network needs — the read side of [markLinked].
+     *
+     * ⚠️ **Read by the mTLS half through `channelRegistrationApiOrNull`**, and the direction is the
+     * same one [enrollmentApi] follows: the fact is written here (only the pairing half can observe
+     * it) and every *decision* built on it lives with its own caller. This object deliberately
+     * returns a fact rather than an api, because `MtlsRegistrationApi` lives in `core.mtls` and
+     * constructing one here would make `core.overlay` depend on `core.mtls` — the reverse of the
+     * edge that already exists (`MtlsHandshakeWatch` reads `localServerHosts` from this package).
+     */
+    internal fun isLinkedOverChannel(): Boolean = linkedOverChannel
+
+    /**
      * ⚠️ `internal` rather than `private` so the transports below can take it as a **default
      * argument** — production passes nothing, and a host test passes a target aimed at a loopback
      * socket. Kotlin's `private` binds to the declaration's own body, so a `private` member here

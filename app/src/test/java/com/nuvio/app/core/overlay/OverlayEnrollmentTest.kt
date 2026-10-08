@@ -350,6 +350,34 @@ class OverlayEnrollmentTest {
                     endpoint = "boomio.duckdns.org:51820",
                     overlayCidr = "10.77.0.0/24",
                     mtu = 1420,
+                    // ⚠️ Part of "every field" now. `name` is the CN the certificate route will
+                    // demand, so dropping it at this boundary — which is what this client used to
+                    // do — leaves the device unable to register a certificate at all.
+                    deviceName = "device-x",
+                ),
+            ),
+            poll,
+        )
+    }
+
+    @Test
+    fun `a ready status without a name still decodes`() {
+        // Tolerated rather than refused: the name gates certificate registration, not the tunnel,
+        // so an older server that does not derive names must not stop a device getting an address.
+        // `planCertificate` reports the blank as an ordinary skip.
+        val poll = decodeEnrollStatus(
+            """{"status":"ready","address":"10.77.0.7","server_pubkey":"kqZZdZcbAA=","endpoint":"e:1"}""",
+        )
+
+        assertEquals(
+            EnrollPoll.Ready(
+                OverlayAssignment(
+                    address = "10.77.0.7",
+                    serverPublicKeyBase64 = "kqZZdZcbAA=",
+                    endpoint = "e:1",
+                    overlayCidr = "10.77.0.0/24",
+                    mtu = 1420,
+                    deviceName = "",
                 ),
             ),
             poll,
@@ -500,6 +528,7 @@ class OverlayEnrollmentTest {
                     endpoint = "boomio.duckdns.org:51820",
                     overlayCidr = "10.77.0.0/24",
                     mtu = 1420,
+                    deviceName = "device-x",
                 ),
             ),
             poll,

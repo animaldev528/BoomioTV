@@ -60,11 +60,34 @@ internal class OverlayWgDialer(private val binding: OverlayWgBinding) : OverlayD
 internal class PreferTunnelDialer(
     private val tunnel: OverlayDialer,
     private val direct: OverlayDialer,
+    /**
+     * Whether the direct fallback below the tunnel is permitted *right now*.
+     *
+     * ⚠️ **This is where the security policy's WAN toggle is consulted**, and it is the only WAN
+     * seam there is: a carried host that the tunnel cannot take is exactly the "direct WAN playback"
+     * the toggle forbids. The production relay passes
+     * `{ mayDialDirectly(DirectPlane.WAN) }`; the default here is permissive so a test of the
+     * *mechanism* (does a refusal fall back at all?) is not silently rewritten by whatever policy
+     * happens to be in force. Read per dial, so a policy that lands mid-session is honoured by the
+     * next connection — the same rule [DeferredTunnelDialer] follows for the tunnel itself.
+     *
+     * ⚠️ **A `false` here is a hard failure, not a torn-down tunnel.** It decides one dial; nothing
+     * in this file starts, stops, or reconfigures the tunnel, and a WebSocket already up is never
+     * dropped by it. The owner's toggles change *routing*, never tunnel lifecycle.
+     */
+    private val fallbackAllowed: () -> Boolean = { true },
 ) : OverlayDialer {
 
     override fun dial(host: String, port: Int): OverlayConnection = try {
         tunnel.dial(host, port)
     } catch (t: Throwable) {
+        if (!fallbackAllowed()) {
+            // The policy forbids a direct dial on this plane. Rethrow rather than reach the public
+            // edge: the relay turns this into a 502, which is honest — the route simply is not
+            // allowed right now, and the tunnel is what must come up.
+            Log.d(TAG, "Tunnel could not reach $host:$port and a direct dial is not permitted", t)
+            throw t
+        }
         Log.d(TAG, "Tunnel could not reach $host:$port; dialling direct", t)
         direct.dial(host, port)
     }

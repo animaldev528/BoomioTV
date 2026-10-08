@@ -57,8 +57,16 @@ object OverlayProbe {
     private const val PROBE_DNS_HOST = "10.77.0.1"
     private const val PROBE_DNS_PORT = 53
 
-    /** A name that must resolve inside the tunnel, so a correct answer means real carriage. */
-    private const val PROBE_DNS_NAME = "bsc.tracemonkey.org"
+    /**
+     * A name that must resolve inside the tunnel, so a correct answer means real carriage.
+     *
+     * ⚠️ **This is the name the app actually dials, not any one service's host.** The collapsed
+     * edge serves every service off `boomio.tracemonkey.org` behind a path prefix, so probing a
+     * per-service host (`bsc.tracemonkey.org`) would prove carriage of a name nothing dials any
+     * more — a green probe over a broken configuration. Keep this equal to the host the
+     * collapsed `BOOMIO_*` values point at.
+     */
+    private const val PROBE_DNS_NAME = "boomio.tracemonkey.org"
 
     /**
      * Wall-clock bound on the in-tunnel query.

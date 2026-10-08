@@ -3,6 +3,7 @@ package com.nuvio.app.core.overlay
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import com.nuvio.app.core.mtls.MtlsRegistration
 import com.nuvio.app.features.boomio.BoomioConfig
 import com.nuvio.app.features.boomio.BoomioSessionRepository
 import com.nuvio.app.features.boomio.companionRestBaseUrl
@@ -50,6 +51,24 @@ internal data class OverlayAssignment(
     val endpoint: String,
     val overlayCidr: String,
     val mtu: Int,
+    /**
+     * The name the **server** gave this device, and the `CN` its client certificate must carry.
+     *
+     * It rides along with the address because they are assigned together and are wrong together:
+     * re-enrolling is what renames a device, so a cached address and a cached name are either both
+     * current or both stale. That is also why [OverlayEnrollment.writeConfig] applies it in the same
+     * breath as the address rather than on a schedule of its own.
+     *
+     * ⚠️ Carried as one value with [address] on purpose, and that is a choice about failure. The
+     * edge's mTLS allow-list is keyed on this string, so anything that applies one without the other
+     * leaves a device holding a tunnel it may use and a certificate it may not.
+     *
+     * Defaulted to blank so this stays a source-compatible addition — but note the default is only
+     * ever reached by a *constructed* assignment, never by one decoded from the server, which
+     * always fills it (`decodeEnrollStatus`). A blank value here means "this server did not name the
+     * device", which is the pre-mTLS case and gates certificate registration off.
+     */
+    val deviceName: String = "",
 ) {
     /** The `Address =` line's form. */
     val localCidr: String get() = "$address/32"
@@ -355,6 +374,13 @@ internal fun decodeEnrollStatus(body: String): EnrollPoll {
                         endpoint = endpoint,
                         overlayCidr = dto.overlayCidr ?: OVERLAY_ENROLL_DEFAULT_CIDR,
                         mtu = dto.mtu ?: OVERLAY_ENROLL_DEFAULT_MTU,
+                        // Carried through rather than dropped. The route has always sent this —
+                        // `EnrollAckDto` and `EnrollStatusDto` both declared it — but nothing
+                        // downstream read it, so it was parsed and discarded here. It is the CN
+                        // the certificate route will demand, so it has to survive the boundary.
+                        // Blank (an older server, or one that does not derive names) is tolerated
+                        // and registers nothing: see `planCertificate`.
+                        deviceName = dto.name.orEmpty(),
                     ),
                 )
             }
@@ -399,6 +425,7 @@ internal object OverlayEnrollment {
     private const val KEY_ENDPOINT = "endpoint"
     private const val KEY_OVERLAY_CIDR = "overlay_cidr"
     private const val KEY_MTU = "mtu"
+    private const val KEY_DEVICE_NAME = "device_name"
     private const val KEY_ISSUED_FOR = "issued_for_public_key"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -475,6 +502,11 @@ internal object OverlayEnrollment {
                 .collect { token ->
                     if (token == null) return@collect
                     refresh()
+                    // ⚠️ The policy is refreshed on the same trigger, and here rather than only on
+                    // app-foreground so a freshly enrolled device has a policy *before* it has a
+                    // tunnel — the moment the server's answer matters most. Best effort: a failure
+                    // leaves the cached policy in force (see SecurityPolicyRefresh).
+                    SecurityPolicyRefresh.refresh()
                 }
         }
     }
@@ -514,7 +546,17 @@ internal object OverlayEnrollment {
         // away with a session and no tunnel. `OverlayProvisioning` answers null wherever the
         // channel is not the right transport (the ingress is off, or the device is on the home
         // L2 where the base URL works), and that null *is* the fallback.
-        OverlayProvisioning.enrollmentApi(token)?.let { return it }
+        //
+        // ⚠️ **The plain-HTTPS bootstrap arm sits around that, and it is the owner's *"freeze the
+        // enrolment if it is not possible or desired"* requirement.** "Not desired" is the
+        // client-side switch, which skips the channel entirely; "not possible" is the channel
+        // answering null, which is already the fall-through below. When the fallback is switched
+        // off *and* the channel does not apply, this returns null — the pre-existing behaviour.
+        // See `BootstrapFallback` for why the base URL is the public edge without a pin.
+        if (!BootstrapFallback.plainHttpsPreferred) {
+            OverlayProvisioning.enrollmentApi(token)?.let { return it }
+        }
+        if (!BootstrapFallback.shouldUsePlainHttps(overlayAvailable = false)) return null
 
         val base = BoomioConfig.companionRestBaseUrl.takeIf { it.isNotBlank() } ?: return null
         return BscOverlayEnrollmentApi(baseUrl = base, token = token)
@@ -527,6 +569,11 @@ internal object OverlayEnrollment {
      * Points the app at the assigned server. Synchronous on purpose: these are read live by the
      * ladder ([OverlayEndpointDiscovery.rung3Manual]), by [OverlaySessionDriver] and by the DNS
      * seam, so writing them is what "the assignment took effect" means.
+     *
+     * The certificate registration at the end belongs here for the same reason. The device's name
+     * arrives *with* its address, so "the assignment took effect" and "this device now has a name to
+     * be certified under" are the same event — and this is the only place that can fire for both
+     * paths, the cached one at startup and the fresh one from the server.
      */
     private fun writeConfig(assignment: OverlayAssignment) {
         BoomioConfig.overlayLocalCidr = assignment.localCidr
@@ -545,6 +592,22 @@ internal object OverlayEnrollment {
             BoomioConfig.overlayServerAddress = it
         }
 
+        // ⚠️ **The device's own name, and it is the one field here the app cannot derive.** Every
+        // other line above is about reaching the server; this one is what the server calls *us*,
+        // and it is the CN the edge's mTLS allow-list is keyed on. `bsc` computes it from the
+        // device id, so a build has no way to know it in advance — and a name this app invented
+        // for itself would be a name the allow-list has never heard of.
+        //
+        // ⚠️ Blank must NOT clobber a learned value, and the condition is not an optimisation. A
+        // cache written before this field existed reads back blank, and assigning that would
+        // *erase* a name learned earlier in the same process — the enrolled-then-refresh-failed
+        // path re-applies the cache, so a blank could land on top of a good value and silently
+        // disable registration. Same reason as the address above: a reply that omits the name is
+        // not an instruction to forget the one we have.
+        if (assignment.deviceName.isNotBlank()) {
+            BoomioConfig.overlayDeviceName = assignment.deviceName
+        }
+
         // ⚠️ **The assignment taking effect has to be announced, not merely written.** The two
         // components that gate on the address check it at their own start-up, and start-up is
         // long over by the time this runs: `MainActivity` initializes `OverlaySession` and
@@ -556,6 +619,17 @@ internal object OverlayEnrollment {
         // is every run after the first.
         OverlaySession.onServerAddressLearned()
         OverlayRelay.onServerAddressLearned()
+
+        // ⚠️ **The second half of that same event, and the two triggers are deliberately both
+        // kept.** This one fires on every `writeConfig` — including the cached assignment applied
+        // at startup — while `MtlsRegistration`'s own collector fires when the enrollment state
+        // *emits* a `Ready`. Neither subsumes the other: the collector cannot see a state value
+        // that was already `Ready` before it subscribed, and this call cannot see a refresh that
+        // changed nothing. Firing twice is free — `planCertificate` answers `AlreadyRegistered`
+        // and `register` returns without touching the network.
+        //
+        // No-op until `MtlsRegistration.initialize` has run, and free afterwards.
+        MtlsRegistration.requestRegistration()
     }
 
     private fun read(store: SharedPreferences): CachedAssignment? {
@@ -570,6 +644,12 @@ internal object OverlayEnrollment {
                 endpoint = endpoint,
                 overlayCidr = store.getString(KEY_OVERLAY_CIDR, null) ?: "10.77.0.0/24",
                 mtu = store.getInt(KEY_MTU, 1420),
+                // Absent on a record written before this field existed, and that reads as
+                // "unknown" rather than as an error: the next `refresh()` fills it in. Reading it
+                // back matters for the cold start — without it a device that enrolled last week
+                // and has no network this morning would know its address and not its own name,
+                // and the mTLS half would sit at `Unavailable` until something else woke it.
+                deviceName = store.getString(KEY_DEVICE_NAME, null).orEmpty(),
             ),
             issuedForPublicKeyBase64 = issuedFor,
         )
@@ -583,6 +663,7 @@ internal object OverlayEnrollment {
             .putString(KEY_OVERLAY_CIDR, cached.assignment.overlayCidr)
             .putInt(KEY_MTU, cached.assignment.mtu)
             .putString(KEY_ISSUED_FOR, cached.issuedForPublicKeyBase64)
+            .putString(KEY_DEVICE_NAME, cached.assignment.deviceName)
             .apply()
     }
 }

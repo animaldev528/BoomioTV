@@ -6,6 +6,7 @@ import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 
 /**
  * The pre-tunnel provisioning protocol's wire format: framing, opcodes, and the message
@@ -230,6 +231,41 @@ internal sealed interface ProvisionMessage {
         val wanEndpoint: String?,
     ) : ProvisionMessage
 
+    /**
+     * The edge's allow-list now holds this device's certificate — `docs/mtls-plan.md` §13.2.
+     *
+     * The dates are informational and nothing consults them: the edge's verifier compares raw DER
+     * and never checks validity (§11.2), so refusing an expired certificate here would invent a rule
+     * the edge does not enforce.
+     */
+    data class CertRegistered(
+        val name: String?,
+        val fingerprintSha256: String?,
+        val notBefore: String?,
+        val notAfter: String?,
+    ) : ProvisionMessage
+
+    /**
+     * The registration was understood and refused. [code] is the machine-readable half and is what a
+     * log reader greps — `cn_mismatch`, `eku`, `revoked`, `write_failed`, …
+     *
+     * ⚠️ **Deliberately not [Error].** [OverlayProvisionConnection.request] raises
+     * [OverlayProvisionException.ServerError] for `{t:'error'}`, which would flatten every refusal
+     * into one exception — and the distinction that matters here is not success/failure but
+     * **whether re-sending the identical bytes can ever help**. `write_failed` can; `cn_mismatch`
+     * and `revoked` cannot. A bare error would lose exactly that.
+     */
+    data class CertRefused(val code: String, val message: String) : ProvisionMessage
+
+    /**
+     * The security policy the server currently records — a reply to `policy.get`.
+     *
+     * ⚠️ **Named `Policy` and not `SecurityPolicy` deliberately.** The payload type is the top-level
+     * [SecurityPolicy], and a nested member of the same name would shadow it inside this sealed
+     * interface, so the field here would silently refer to the wrong type.
+     */
+    data class Policy(val policy: SecurityPolicy) : ProvisionMessage
+
     data class Error(val code: String, val message: String) : ProvisionMessage
 }
 
@@ -274,7 +310,16 @@ internal data class ProvisionMessageDto(
     @SerialName("wan_endpoint") val wanEndpoint: String? = null,
     @SerialName("overlay_cidr") val overlayCidr: String? = null,
     val mtu: Int? = null,
-    // error
+    // cert.registered — the same three spellings `POST /api/overlay/cert` returns, so a device that
+    // reached its certificate over this channel and one that re-registered over HTTPS parse the
+    // same reply body.
+    @SerialName("fingerprint_sha256") val fingerprintSha256: String? = null,
+    @SerialName("not_before") val notBefore: String? = null,
+    @SerialName("not_after") val notAfter: String? = null,
+    // policy — the four booleans as one nested object, exactly the shape bsm stores under
+    // `security_policy` in system_kv (routes/security.js), so the two halves cannot drift.
+    @SerialName("security_policy") val securityPolicy: JsonObject? = null,
+    // error / cert.refused
     val code: String? = null,
     val message: String? = null,
 )
@@ -349,6 +394,31 @@ internal fun decodeProvisionMessage(plaintext: ByteArray): ProvisionMessage {
             wanEndpoint = dto.wanEndpoint,
         )
 
+        "cert.registered" -> ProvisionMessage.CertRegistered(
+            name = dto.name,
+            fingerprintSha256 = dto.fingerprintSha256,
+            notBefore = dto.notBefore,
+            notAfter = dto.notAfter,
+        )
+
+        // ⚠️ Answered as a MESSAGE, not as the `error` that [OverlayProvisionConnection.request]
+        // turns into an exception. See [ProvisionMessage.CertRefused] for why the code has to
+        // survive to the caller.
+        "cert.refused" -> ProvisionMessage.CertRefused(
+            code = dto.code.orEmpty(),
+            message = dto.message ?: "The server refused the certificate.",
+        )
+
+        // ⚠️ A `policy` message with no parseable policy is a ProtocolFault rather than a null: the
+        // server answered the question, so silently leaving the caller on the cached policy would
+        // make a server-side regression look like a network miss.
+        "policy" -> ProvisionMessage.Policy(
+            securityPolicyFrom(dto.securityPolicy)
+                ?: throw OverlayProvisionException.ProtocolFault(
+                    "the server's policy message carried no policy"
+                ),
+        )
+
         // The message is `ProvisionMessage.Error`; the *exception* raised for it by the
         // connection is `OverlayProvisionException.ServerError`. Two names for two things.
         "error" -> ProvisionMessage.Error(
@@ -383,5 +453,12 @@ private fun assignmentOf(dto: ProvisionMessageDto): OverlayAssignment {
         endpoint = endpoint,
         overlayCidr = dto.overlayCidr ?: OVERLAY_ENROLL_DEFAULT_CIDR,
         mtu = dto.mtu ?: OVERLAY_ENROLL_DEFAULT_MTU,
+        // ⚠️ **Not part of "does this assignment work", and carried anyway.** A name the server
+        // omitted is a name we do not have, not a reason to refuse an otherwise complete
+        // assignment — the tunnel is usable without it and the mTLS half reads blank as
+        // "nothing to mint against". Deliberately outside the blank-check above for exactly
+        // that reason: refusing here would cost a device its tunnel over a field it does not
+        // need in order to route packets.
+        deviceName = dto.name.orEmpty(),
     )
 }

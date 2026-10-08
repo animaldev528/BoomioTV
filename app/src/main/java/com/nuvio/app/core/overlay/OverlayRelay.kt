@@ -160,6 +160,11 @@ internal object OverlayRelay {
         carried = PreferTunnelDialer(
             tunnel = DeferredTunnelDialer { OverlaySession.dialerOrNull() },
             direct = DirectDialer,
+            // ⚠️ The policy's WAN toggle, at the only place a direct WAN dial can happen. Read per
+            // dial (a lambda, not a captured boolean) so a policy that lands mid-session takes
+            // effect on the next connection. A `false` here must never stop the tunnel — see
+            // PreferTunnelDialer.
+            fallbackAllowed = { mayDialDirectly(DirectPlane.WAN) },
         ),
         direct = DirectDialer,
     )

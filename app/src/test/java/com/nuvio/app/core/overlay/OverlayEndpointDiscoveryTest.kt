@@ -813,11 +813,12 @@ class OverlayEndpointDiscoveryTest {
         const val PROVISIONING_KEY_B64 = "ERERERERERERERERERERERERERERERERERERERERERE="
 
         /**
-         * The two names the publisher writes into both channels -- see
+         * The two names the publisher writes into both channels — see
          * `overlay/overlay-duckdns.py`, where `DUCKDNS_NAME_LAN` names the first.
          */
         const val LAN_NAME = "boomio-lan.duckdns.org"
         const val WAN_NAME = "boomio.duckdns.org"
+
         const val TYPE_A = 1
         const val TYPE_CNAME = 5
         const val TYPE_TXT = 16
