@@ -105,6 +105,37 @@ internal object SecurityPolicyState {
 internal fun mayDialDirectly(plane: DirectPlane): Boolean =
     SecurityPolicyState.current.mayDialDirectly(plane)
 
+/**
+ * The fallback rule for a **carried** host: may the relay reach it directly when the tunnel could
+ * not take it?
+ *
+ * This is [mayDialDirectly] with one addition, and the addition is the whole point: **while the
+ * tunnel is still climbing, the policy is not yet enforced.** Nothing is bypassed in that window,
+ * because there is nothing to bypass — the direct dial is the exact route the app would have taken
+ * with no overlay at all, so refusing it makes a cold launch *worse* than having no overlay: every
+ * boomio host answers `502` until the tunnel converges. Measured on the demo Pi 2026-10-08 — the
+ * first ~10 s of every launch logged
+ * `Tunnel could not reach boomio.tracemonkey.org:443 and a direct dial is not permitted`.
+ *
+ * Once the tunnel is up it has proven it can carry, and the toggle becomes final. A tunnel that
+ * comes up and *then* cannot reach a host is exactly the case `directWanPlayback=false` exists to
+ * refuse, so the relay answers `502` rather than quietly putting boomio traffic on the public edge.
+ *
+ * ⚠️ **[tunnelIsUp] is passed in rather than read here.** Liveness is a property of the tunnel and
+ * this file may not import `android.*`; the decisive reason is that a predicate reading it directly
+ * could not be tested without a running Go device. [OverlayRelay] supplies it from
+ * `TunnelState.Up`, the same signal [OverlayPinRegistry.ownTunnelCarriesTraffic] uses.
+ *
+ * ⚠️ **`TunnelState.Up` means the device came up, not that a handshake has completed** — see
+ * [OverlayWgTunnel.up]. A dial landing in the seconds between the device coming up and the peer
+ * answering is therefore still refused. That is deliberate: it is a window of one handshake, and
+ * reaching it at all takes a tunnel that is genuinely broken, whereas the alternative — treating
+ * "not yet proven" as a state a client can sit in — is a rule that keeps falling back forever and
+ * never enforces the toggle.
+ */
+internal fun mayFallBackToDirect(plane: DirectPlane, tunnelIsUp: Boolean): Boolean =
+    !tunnelIsUp || mayDialDirectly(plane)
+
 private val policyJson = Json { ignoreUnknownKeys = true }
 
 /**

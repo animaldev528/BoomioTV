@@ -25,6 +25,11 @@ import org.robolectric.annotation.Config
  * `directWanPlayback=false` does the same for the WAN plane; and the tunnel's lifecycle is never a
  * function of the policy. A fifth covers the fetch-failure contract.
  *
+ * ⚠️ **`directWanPlayback=false` is enforced only once the tunnel is up**, which is the whole of
+ * [mayFallBackToDirect] and the cold-launch fix it carries. The WAN section's first two tests bracket
+ * the rule from both sides — a climbing tunnel falls through, an up tunnel does not — so the
+ * exception cannot be quietly widened or removed without reddening one of them.
+ *
  * ⚠️ Robolectric because two of the seams under test — `OverlayPinRegistry` and
  * `SecurityPolicyRefresh` — log through `android.util.Log`, which throws unmocked in a plain JVM
  * host test. The pure decode tests would run without it; keeping one runner for the file is simpler
@@ -86,7 +91,7 @@ class SecurityPolicyTest {
         PreferTunnelDialer(
             tunnel = tunnel,
             direct = direct,
-            fallbackAllowed = { mayDialDirectly(DirectPlane.WAN) },
+            fallbackAllowed = { mayFallBackToDirect(DirectPlane.WAN, tunnelIsUp = true) },
         ).dial("bss-tor.tracemonkey.org", 443)
 
         assertEquals(listOf("bss-tor.tracemonkey.org" to 443), tunnel.dialled)
@@ -135,25 +140,66 @@ class SecurityPolicyTest {
         assertEquals(pinned, OverlayPinRegistry.lookup("bsc.tracemonkey.org"))
     }
 
-    // ── directWanPlayback = false forces the WAN plane through the tunnel ─────────────────────
+    // ── directWanPlayback = false forces the WAN plane through the tunnel — once it is up ─────
 
     @Test
-    fun `directWanPlayback false forbids the direct fallback when the tunnel cannot carry`() {
-        // A carried host the tunnel cannot take is exactly "direct WAN playback": the only place a
-        // direct WAN dial happens. Forbidding it is a hard failure (the relay answers 502) rather
-        // than a quiet reach for the public edge.
+    fun `while the tunnel is still climbing, directWanPlayback false does NOT forbid the direct fallback`() {
+        // ⚠️ The cold-launch fix, and the reason the relay does not consult the raw toggle. For the
+        // first seconds of every process the tunnel is `Down`, so every boomio host would answer 502
+        // — an app *worse* than having no overlay at all, since the direct dial is the exact route it
+        // would have taken anyway. Nothing is bypassed: there is no tunnel to bypass yet.
         SecurityPolicyState.apply(SecurityPolicy(directWanPlayback = false))
-        val tunnel = RecordingDialer(failure = IOException("tunnel is not up"))
+        val tunnel = RecordingDialer(failure = IOException("The overlay tunnel is not up"))
+        val direct = RecordingDialer()
+
+        PreferTunnelDialer(
+            tunnel = tunnel,
+            direct = direct,
+            fallbackAllowed = { mayFallBackToDirect(DirectPlane.WAN, tunnelIsUp = false) },
+        ).dial("boomio.tracemonkey.org", 443)
+
+        assertEquals(listOf("boomio.tracemonkey.org" to 443), tunnel.dialled, "the tunnel is still tried first")
+        assertEquals(
+            listOf("boomio.tracemonkey.org" to 443),
+            direct.dialled,
+            "a climbing tunnel must fall through to the route the app would have used without an overlay",
+        )
+    }
+
+    @Test
+    fun `once the tunnel is up, directWanPlayback false forbids the direct fallback`() {
+        // A carried host the tunnel cannot take is exactly "direct WAN playback": the only place a
+        // direct WAN dial happens. Once the tunnel is up it has proven it can carry, so the toggle is
+        // final — and forbidding it is a hard failure (the relay answers 502) rather than a quiet
+        // reach for the public edge.
+        SecurityPolicyState.apply(SecurityPolicy(directWanPlayback = false))
+        val tunnel = RecordingDialer(failure = IOException("tunnel is up but cannot reach the host"))
         val direct = RecordingDialer()
 
         assertFailsWith<IOException> {
             PreferTunnelDialer(
                 tunnel = tunnel,
                 direct = direct,
-                fallbackAllowed = { mayDialDirectly(DirectPlane.WAN) },
+                fallbackAllowed = { mayFallBackToDirect(DirectPlane.WAN, tunnelIsUp = true) },
             ).dial("bss-tor.tracemonkey.org", 443)
         }
         assertTrue(direct.dialled.isEmpty(), "a forbidden WAN direct dial must not reach the network")
+    }
+
+    @Test
+    fun `the fallback rule holds the toggle back only while the tunnel is down`() {
+        // The whole rule, in four assertions: a climbing tunnel permits the direct dial on either
+        // plane whatever the policy says, and an up tunnel defers entirely to the toggle.
+        for (plane in DirectPlane.entries) {
+            SecurityPolicyState.apply(SecurityPolicy(directLanPlayback = false, directWanPlayback = false))
+            assertTrue(mayFallBackToDirect(plane, tunnelIsUp = false), "$plane: climbing must not be blocked")
+
+            SecurityPolicyState.apply(SecurityPolicy(directLanPlayback = true, directWanPlayback = true))
+            assertTrue(mayFallBackToDirect(plane, tunnelIsUp = true), "$plane: a permissive toggle still permits")
+
+            SecurityPolicyState.apply(SecurityPolicy(directLanPlayback = false, directWanPlayback = false))
+            assertFalse(mayFallBackToDirect(plane, tunnelIsUp = true), "$plane: an up tunnel enforces the toggle")
+        }
     }
 
     @Test
@@ -165,7 +211,7 @@ class SecurityPolicyTest {
         PreferTunnelDialer(
             tunnel = tunnel,
             direct = direct,
-            fallbackAllowed = { mayDialDirectly(DirectPlane.WAN) },
+            fallbackAllowed = { mayFallBackToDirect(DirectPlane.WAN, tunnelIsUp = true) },
         ).dial("bss-tor.tracemonkey.org", 443)
 
         assertEquals(listOf("bss-tor.tracemonkey.org" to 443), direct.dialled)
@@ -200,7 +246,7 @@ class SecurityPolicyTest {
         PreferTunnelDialer(
             tunnel = tunnel,
             direct = direct,
-            fallbackAllowed = { mayDialDirectly(DirectPlane.WAN) },
+            fallbackAllowed = { mayFallBackToDirect(DirectPlane.WAN, tunnelIsUp = true) },
         ).dial("bsf.tracemonkey.org", 443)
 
         assertEquals(listOf("bsf.tracemonkey.org" to 443), tunnel.dialled)
