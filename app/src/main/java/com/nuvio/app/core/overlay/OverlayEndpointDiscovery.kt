@@ -7,6 +7,7 @@ import android.os.SystemClock
 import android.util.Log
 import com.nuvio.app.core.sync.AppForegroundMonitor
 import com.nuvio.app.core.sync.AppVisibility
+import com.nuvio.app.features.boomio.BOOMIO_SERVICE_HOST
 import com.nuvio.app.features.boomio.BoomioConfig
 import java.net.InetAddress
 import java.net.InetSocketAddress
@@ -43,7 +44,7 @@ private const val TAG = "OverlayEndpointDiscovery"
 private const val GATE_TIMEOUT_MS = 900
 
 /**
- * The endpoint ladder: mDNS → `boomio-local` DNS → a person.
+ * The endpoint ladder: mDNS → [PROV_RECORD] → a person.
  *
  * ### Why this is not a convenience
  *
@@ -58,7 +59,7 @@ private const val GATE_TIMEOUT_MS = 900
  * | # | Rung | Yields |
  * |---|---|---|
  * | 1 | the mDNS advert `_boomio-overlay._udp` | TXT `pubkey`/`port` + the SRV target's `A` |
- * | 2 | the `boomio-local` record | an `A` + the same TXT tuple |
+ * | 2 | the [PROV_RECORD] record | an `A` + the same TXT tuple |
  * | 3 | a person | whatever they typed, plus the server's public key |
  *
  * ⚠️ **"Working" means it passed the gate, not that it resolved.** A rung that returns a record
@@ -84,38 +85,43 @@ private const val GATE_TIMEOUT_MS = 900
 internal object OverlayEndpointDiscovery {
 
     /**
-     * The **discovery name** — the one record a cold client can find from anywhere, and the only
-     * name this ladder ever hands to a resolver.
+     * The **one name** — the discovery record, and the service FQDN every URL, SNI and certificate
+     * check stays on. It is [BOOMIO_SERVICE_HOST] and nothing else, declared there so this ladder
+     * and the client's URL floor cannot drift apart.
      *
-     * ⚠️ **It carries the whole tuple, which is what makes "no LAN DNS" survivable.** The
-     * deployment publishes `boomio-prov.duckdns.org` with an `A` record that follows the server's
-     * *public* address and a `TXT` record holding the v2 tuple: `svc` — the service FQDN every URL,
-     * SNI and certificate check stays on — plus the `lan` and `wan` **literals**, their per-plane
-     * ports, and the two keys. A client on a stranger's network therefore learns where the server
-     * is, where it is at home, and who it is, from one public lookup with no resolver of the
-     * deployment's own involved. That is the whole point of the split: the *service* name is for
-     * certificates and URLs, and this one is for finding the box.
+     * ⚠️ **One name, because the split it replaced bought nothing.** `boomio-prov` (carrying the
+     * tuple) and `boomio.duckdns.org` (the origin) were two DuckDNS names spending two `TXT` slots
+     * on one job, and a deployment that renamed one and not the other failed rung 2 for a reason
+     * that had nothing to do with DNS. DuckDNS gives a name exactly one `TXT` slot, so the publisher
+     * borrows it for about a minute at each certificate renewal; the read-before-write arbitration
+     * in `overlay/overlay-duckdns.py` is what makes the sharing safe.
      *
-     * ⚠️ **The client does not resolve the service name.** `boomio.duckdns.org`'s public `A`
-     * deliberately points at the server's **private** address so a browser on the LAN can reach the
-     * management surface by a name a certificate can be issued for; off the property that address
-     * is undialable, and the record's `wan` literal is what the client dials instead — with SNI and
-     * the certificate check still naming `svc`. Resolving the service name here would therefore be
-     * worse than useless: it would answer with the one address that cannot work.
+     * ⚠️ **It carries the whole tuple, which is what makes "no LAN DNS" survivable.** The `TXT`
+     * record holds the v2 tuple: `svc` — the service FQDN, which equals this name — plus the `lan`
+     * and `wan` **literals**, their per-plane ports, and the two keys. A client on a stranger's
+     * network therefore learns where the server is, where it is at home, and who it is, from one
+     * public lookup with no resolver of the deployment's own involved.
+     *
+     * ⚠️ **The `A` record is the server's private address, so the client must not resolve this
+     * name.** It is written explicitly as the LAN literal so a browser on the LAN can reach the
+     * management surface by a name a certificate can be issued for. Off the property that address is
+     * undialable, and the record's `wan` literal is what the client dials instead — with SNI and the
+     * certificate check still naming `svc`. Resolving the name here would answer with the one
+     * address that cannot work, which is also why it is never baked as a tunnel *endpoint*: it is an
+     * origin and a lookup, never a dial target off-LAN.
      *
      * ⚠️ **This is a bootstrap constant, and it has to be compiled in.** A client that has never
      * reached the server has never read a publication to learn a name from, so there is nothing to
      * discover it *from*; it is also what a person types by hand in the absence of anything else,
      * which is why rung 3 accepts it too.
      *
-     * ⚠️ **`boomio-local.tracemonkey.org` used to sit here and is retired.** It was a placeholder
-     * for §10.8's open question — published publicly, or only in the house dnsmasq — and it was
-     * never published in either form; measured 2026-10-07 as NXDOMAIN from the house dnsmasq, the
-     * router and `1.1.1.1` alike. `boomio-lan.duckdns.org` and `boomio-tls.duckdns.org`, which
-     * replaced it, are retired by the same cut: three names with overlapping jobs became one
-     * discovery name and one service name.
+     * ⚠️ **`boomio-local.tracemonkey.org` and `boomio-lan.duckdns.org` used to sit in this ladder
+     * and are retired.** `boomio-local` was never published in any form — measured 2026-10-07 as
+     * NXDOMAIN from the house dnsmasq, the router and `1.1.1.1` alike — and `boomio-lan` existed
+     * only to hold the private address this name now holds itself. `boomio-tls.duckdns.org` is
+     * *not* part of that cut: it is still the mTLS plane.
      */
-    internal const val PROV_RECORD = "boomio-prov.duckdns.org"
+    internal const val PROV_RECORD = BOOMIO_SERVICE_HOST
 
     /** The WireGuard port, when nothing published one. */
     private const val DEFAULT_WG_PORT = OverlayAdvertTuple.DEFAULT_PORT

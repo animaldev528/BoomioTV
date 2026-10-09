@@ -20,7 +20,7 @@ enum class OverlayEndpointSource {
     /** Rung 1 — the mDNS advert `_boomio-overlay._udp`, on the server's own network. */
     MDNS,
 
-    /** Rung 2 — the `boomio-prov.duckdns.org` TXT record, when mDNS is blocked or unavailable. */
+    /** Rung 2 — the `boomio.duckdns.org` TXT record, when mDNS is blocked or unavailable. */
     LOCAL_DNS,
 
     /**

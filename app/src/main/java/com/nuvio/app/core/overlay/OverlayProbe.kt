@@ -2,6 +2,7 @@ package com.nuvio.app.core.overlay
 
 import android.content.Context
 import android.util.Log
+import com.nuvio.app.features.boomio.BOOMIO_SERVICE_HOST
 import com.nuvio.app.features.boomio.BoomioConfig
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
@@ -15,8 +16,11 @@ private const val TAG = "OverlayProbe"
  * only fires if a caller has written something unparseable into that field. Naming a host anyway
  * is better than probing the empty string, which would report a DNS failure and be read as a
  * broken tunnel.
+ *
+ * It is [BOOMIO_SERVICE_HOST] rather than a fourth copy of the literal: the probe and the ladder
+ * must agree about the name, or a debug run would report a failure that is really a typo.
  */
-private const val DEFAULT_PROBE_DNS_NAME = "boomio.duckdns.org"
+private const val DEFAULT_PROBE_DNS_NAME = BOOMIO_SERVICE_HOST
 
 /**
  * Debug-only: proves the userspace tunnel works **inside an installed APK**.

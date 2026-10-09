@@ -1,6 +1,8 @@
 package com.nuvio.app.core.overlay
 
 import android.app.Application
+import com.nuvio.app.features.boomio.BOOMIO_SERVICE_HOST
+import com.nuvio.app.features.boomio.BoomioConfig
 import java.io.ByteArrayOutputStream
 import java.time.Duration
 import java.util.concurrent.atomic.AtomicInteger
@@ -188,7 +190,7 @@ class OverlayEndpointDiscoveryTest {
         val half = PUBLISHED_SERVER_KEY_B64.length / 2
         val response = dnsResponse(
             id = 1,
-            question = "boomio-prov.duckdns.org",
+            question = SERVICE_NAME,
             questionType = TYPE_TXT,
             answers = listOf(
                 Answer(
@@ -449,7 +451,7 @@ class OverlayEndpointDiscoveryTest {
             mapOf(
                 "v" to "2".toByteArray(),
                 "svc" to SERVICE_NAME.toByteArray(),
-                "lan" to "boomio-lan.duckdns.org".toByteArray(),
+                "lan" to "boomio.example.net".toByteArray(),
                 "wan" to "https://$SERVICE_NAME/".toByteArray(),
             ),
         )
@@ -471,10 +473,10 @@ class OverlayEndpointDiscoveryTest {
         assertNull(validDiscoveryNameOrNull("   "))
         assertNull(validDiscoveryNameOrNull("."))
         // A name is not an authority: each of these is a publisher bug, not a name to salvage.
-        assertNull(validDiscoveryNameOrNull("boomio.duckdns.org:51820"))
+        assertNull(validDiscoveryNameOrNull("$SERVICE_NAME:51820"))
         assertNull(validDiscoveryNameOrNull("boomio/duckdns.org"))
         assertNull(validDiscoveryNameOrNull("boomio duckdns.org"))
-        assertNull(validDiscoveryNameOrNull("lan=boomio.duckdns.org"))
+        assertNull(validDiscoveryNameOrNull("lan=$SERVICE_NAME"))
     }
 
     @Test
@@ -483,7 +485,7 @@ class OverlayEndpointDiscoveryTest {
         assertEquals(WAN_ADDR, validDottedQuadOrNull(WAN_ADDR))
         // ⚠️ Every shape a v1 record carried in these fields -- each must read as *absent*, which
         // is the whole safety property of the v1→v2 change.
-        assertNull(validDottedQuadOrNull("boomio-lan.duckdns.org"))
+        assertNull(validDottedQuadOrNull("boomio.example.net"))
         assertNull(validDottedQuadOrNull("192.168.68.65:51820"))
         assertNull(validDottedQuadOrNull("192.168.68"))
         assertNull(validDottedQuadOrNull("192.168.68.65.7"))
@@ -525,7 +527,7 @@ class OverlayEndpointDiscoveryTest {
     fun `a response carrying a TXT and an A record parses both`() {
         val response = dnsResponse(
             id = 0x1234,
-            question = "boomio-prov.duckdns.org",
+            question = SERVICE_NAME,
             questionType = TYPE_TXT,
             answers = listOf(
                 // The name is a compression pointer to offset 12 (the question's name) — which
@@ -551,27 +553,30 @@ class OverlayEndpointDiscoveryTest {
     fun `a response for a different query id is rejected`() {
         // ⚠️ The id check is the entire integrity story of a UDP lookup — anything on the path
         // can inject a datagram, and a mismatched id is the one thing that says it is not ours.
-        val response = dnsResponse(0x1234, "boomio-prov.duckdns.org", TYPE_A, listOf(Answer(TYPE_A, IPV4)))
+        val response = dnsResponse(0x1234, SERVICE_NAME, TYPE_A, listOf(Answer(TYPE_A, IPV4)))
         assertNull(OverlayDnsClient.parseResponse(response, 0x9999))
     }
 
     @Test
     fun `a query is not accepted as its own answer`() {
-        val query = OverlayDnsClient.buildQuery("boomio-prov.duckdns.org", TYPE_A, 7)
+        val query = OverlayDnsClient.buildQuery(SERVICE_NAME, TYPE_A, 7)
         // The QR bit is clear, so this is a question, not a response.
         assertNull(OverlayDnsClient.parseResponse(query, 7))
     }
 
     @Test
     fun `a CNAME answer is reported so the caller can follow it`() {
+        // ⚠️ The alias target is deliberately a *different* name. A CNAME from a name to itself is
+        // not something a resolver emits, and writing one here to keep a literal short would have
+        // made this test quietly about nothing.
         val response = dnsResponse(
             1,
-            "boomio-prov.duckdns.org",
+            SERVICE_NAME,
             TYPE_TXT,
-            listOf(Answer(TYPE_CNAME, nameRdata("boomio.duckdns.org"))),
+            listOf(Answer(TYPE_CNAME, nameRdata("edge.duckdns.org"))),
         )
         val message = OverlayDnsClient.parseResponse(response, 1)
-        assertEquals("boomio.duckdns.org", message?.cname)
+        assertEquals("edge.duckdns.org", message?.cname)
         assertTrue(message!!.txt.isEmpty())
     }
 
@@ -581,7 +586,7 @@ class OverlayEndpointDiscoveryTest {
         // walk that simply follows pointers hangs forever on a packet like this one.
         val response = dnsResponse(
             1,
-            "boomio-prov.duckdns.org",
+            SERVICE_NAME,
             TYPE_A,
             listOf(Answer(TYPE_A, IPV4)),
         )
@@ -598,7 +603,7 @@ class OverlayEndpointDiscoveryTest {
 
     @Test
     fun `a truncated response is flagged rather than parsed as whole`() {
-        val response = dnsResponse(1, "boomio-prov.duckdns.org", TYPE_A, listOf(Answer(TYPE_A, IPV4)))
+        val response = dnsResponse(1, SERVICE_NAME, TYPE_A, listOf(Answer(TYPE_A, IPV4)))
         response[2] = (response[2].toInt() or 0x02).toByte() // set TC
         assertTrue(OverlayDnsClient.parseResponse(response, 1)!!.truncated)
     }
@@ -813,6 +818,56 @@ class OverlayEndpointDiscoveryTest {
     /** A plain class, not a data class: a `data class` holding a `ByteArray` warns for no gain. */
     private class Answer(val type: Int, val rdata: ByteArray)
 
+    // -----------------------------------------------------------------------------------------
+    // The one name — the record and the origin cannot drift apart
+    // -----------------------------------------------------------------------------------------
+
+    @Test
+    fun `the discovery record and the client's service origin are the same name`() {
+        // ⚠️ This is the whole point of the collapse, and the test that would have caught the state
+        // it replaced. The tuple used to live on `boomio-prov.duckdns.org` while the certificate and
+        // every URL lived on `boomio.duckdns.org` — two names, declared in two files, doing one job.
+        // A deployment that renamed one and not the other failed rung 2 for a reason that had
+        // nothing to do with DNS, and nothing in either file could notice.
+        //
+        // ⚠️ **The literal is pinned as well as the equality, deliberately.** An equality alone
+        // still holds if a later edit moves *both* to a third name while meaning to move only one.
+        assertEquals("boomio.duckdns.org", BOOMIO_SERVICE_HOST)
+        assertEquals(BOOMIO_SERVICE_HOST, OverlayEndpointDiscovery.PROV_RECORD)
+        // And the origin the four base URLs are derived from is that same name, so a client that
+        // has read no publication still aims at the server the ladder is looking for.
+        assertEquals(BOOMIO_SERVICE_HOST, hostOf(BoomioConfig.serviceOrigin))
+    }
+
+    @Test
+    fun `assigning the origin derives all four prefixes from the one name`() {
+        // The collapse's other half: four services behind one Caddy are told apart by *path*, so the
+        // prefixes are part of the address and a derivation that dropped one would 404 a seam into
+        // silence. Every value is saved and restored -- the assignment below is the same one
+        // discovery performs, and it deliberately overwrites all four, so a test that restored only
+        // `serviceOrigin` would leave this JVM's `BoomioConfig` holding derived values it never had.
+        val origin = BoomioConfig.serviceOrigin
+        val companion = BoomioConfig.companionBaseUrl
+        val iptv = BoomioConfig.iptvBaseUrl
+        val bsf = BoomioConfig.boomioBaseUrl
+        val bsm = BoomioConfig.bsmBaseUrl
+        try {
+            BoomioConfig.serviceOrigin = "https://example.test/"
+            // `wss://` is not cosmetic: the companion bridge is a WebSocket and Ktor refuses an
+            // `https://` scheme for it, while the REST accessor converts back from this one value.
+            assertEquals("wss://example.test/bsc", BoomioConfig.companionBaseUrl)
+            assertEquals("https://example.test/bss-iptv", BoomioConfig.iptvBaseUrl)
+            assertEquals("https://example.test/bsf", BoomioConfig.boomioBaseUrl)
+            assertEquals("https://example.test/bsm", BoomioConfig.bsmBaseUrl)
+        } finally {
+            BoomioConfig.serviceOrigin = origin
+            BoomioConfig.companionBaseUrl = companion
+            BoomioConfig.iptvBaseUrl = iptv
+            BoomioConfig.boomioBaseUrl = bsf
+            BoomioConfig.bsmBaseUrl = bsm
+        }
+    }
+
     /** One `TXT` rdata: a sequence of length-prefixed strings, as the wire carries it. */
     private fun txtRdata(vararg strings: String): ByteArray {
         val out = ByteArrayOutputStream()
@@ -905,9 +960,14 @@ class OverlayEndpointDiscoveryTest {
 
         /**
          * The one name the publisher writes into both channels — the service FQDN every URL, SNI
-         * and certificate check stays on. See `overlay/overlay-duckdns.py`, `DUCKDNS_NAME_SVC`.
+         * and certificate check stays on. See `overlay/overlay-duckdns.py`.
+         *
+         * ⚠️ **Read from the production constant rather than spelled again.** This fixture used to
+         * be a fourth copy of the literal, which meant a test could agree with itself about a name
+         * the ladder no longer resolved. Taking it from [OverlayEndpointDiscovery.PROV_RECORD] makes
+         * these fixtures fail if that constant is ever pointed somewhere else — which is the point.
          */
-        const val SERVICE_NAME = "boomio.duckdns.org"
+        const val SERVICE_NAME = OverlayEndpointDiscovery.PROV_RECORD
 
         /** The server's address at home, as the record publishes it: a literal, never a name. */
         const val LAN_ADDR = "192.168.68.65"
