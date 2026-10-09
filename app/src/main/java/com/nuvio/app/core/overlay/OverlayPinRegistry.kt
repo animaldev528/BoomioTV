@@ -39,15 +39,19 @@ import java.net.InetAddress
  * third-party host — `image.tmdb.org`, `catalog.nuvio.tv`, `opensubtitles-v3.strem.io`,
  * the Supabase cloud — can never match and keeps resolving publicly.
  *
- * ⚠️ **One pin per source, and the sources are ranked.** The two tiers pin the same
- * host set to different addresses — the LAN address on the server's own network, the
- * overlay address everywhere else — and they are driven by independent triggers that
- * know nothing about each other. A single slot would let the last writer win, so a
- * tunnel probe landing a second after a browse would silently replace a working LAN
- * pin. Sources are held separately and consulted in [LocalServerSource] order instead.
+ * ⚠️ **One pin per source, and the sources are ranked.** The three sources pin the same host set
+ * to different addresses — the overlay address, the server's address on its own network, and its
+ * public address — and they are driven by independent triggers that know nothing about each
+ * other. A single slot would let the last writer win, so a tunnel probe landing a second after a
+ * browse would silently replace a working LAN pin. Sources are held separately and consulted in
+ * [LocalServerSource] order instead.
  *
- * ⚠️ **Ranking decides the order; [ownTunnelCarriesTraffic] decides whether the LAN arm of
- * it is consulted at all.** Both are load-bearing and neither replaces the other.
+ * ⚠️ **Ranking decides the order; [ownTunnelCarriesTraffic] decides whether the two direct arms
+ * of it are consulted at all.** Both are load-bearing and neither replaces the other.
+ *
+ * ⚠️ **A reader gets the whole chain, not just the winner** — see [lookupChain]. The two direct
+ * arms are the same server seen from two places, and the client has no way to know which place
+ * it is in, so it is handed both and lets the connect decide.
  *
  * Held as one immutable map behind `@Volatile` and replaced copy-on-write rather than
  * guarded by a lock: a `lookup` runs on a network thread for *every* connect and must
@@ -107,34 +111,69 @@ internal object OverlayPinRegistry {
     }
 
     /** The pinned address for [host], or null when no source covers [host]. */
-    fun lookup(host: String?): InetAddress? {
-        if (host.isNullOrBlank()) return null
+    fun lookup(host: String?): InetAddress? = lookupChain(host).firstOrNull()
+
+    /**
+     * Every pinned address for [host], in **rank order** — the highest-ranked source first.
+     *
+     * ⚠️ **A chain, not a winner, because the two direct sources are alternatives rather than
+     * overrides.** The LAN and WAN arms name the *same server* at two addresses, each reachable
+     * from a different place, and nothing in the client knows which one it is standing on.
+     * Picking one would be committing to a guess; returning both lets the dialler try the LAN
+     * literal, be refused immediately on a foreign network, and fall through to the WAN one.
+     * This is the owner's "tries the lan ip first, then the wan", and it costs nothing at home
+     * because a refused connect is `ECONNREFUSED` or `EHOSTUNREACH` rather than a timeout.
+     *
+     * ⚠️ **The fall-through to public DNS is not here; it is in the caller.** [IPv4FirstDns]
+     * appends the delegate resolver's own answers after this list, so the order a socket actually
+     * tries is TUNNEL, LAN, WAN, then whatever DNS said — the pin first, the public edge last.
+     */
+    fun lookupChain(host: String?): List<InetAddress> {
+        if (host.isNullOrBlank()) return emptyList()
         val current = pins
-        if (current.isEmpty()) return null
+        if (current.isEmpty()) return emptyList()
+        val answers = mutableListOf<InetAddress>()
         // Walks the sources in rank order, so the highest-ranked pin answers first.
         for (source in LocalServerSource.entries) {
-            // ⚠️ Retained, not followed — see [ownTunnelCarriesTraffic]. Answering with the
-            // LAN address here while our own tunnel carries the traffic would steer every
-            // client back off the relay and onto a direct route, which is the one thing the
-            // ranking above was reversed to stop.
-            //
-            // ⚠️ **The policy's LAN toggle has the same shape and the same reason**, and it is
-            // checked on the LAN arm *only*: `directLanPlayback=false` forces LAN traffic through
-            // the tunnel, which means the LAN pin must stop answering — the exact mechanism the
-            // tunnel-carrying check already uses. A `true` (the default) adds nothing. The
-            // TUNNEL arm is never suppressed, because a tunnel pin names the overlay address and
-            // is not a direct route at all. Read live, per lookup, like everything else here.
-            if (source == LocalServerSource.LAN &&
-                (ownTunnelCarriesTraffic() || !mayDialDirectly(DirectPlane.LAN))
-            ) {
-                continue
-            }
+            if (isSuppressed(source)) continue
             val pin = current[source] ?: continue
-            if (host in pin.hosts) return pin.address
             // The domain match is what covers the hosts the app only ever learns at runtime.
-            if (pin.suffixes.any { suffix -> host.endsWith(".$suffix") }) return pin.address
+            if (host in pin.hosts || pin.suffixes.any { suffix -> host.endsWith(".$suffix") }) {
+                answers += pin.address
+            }
         }
-        return null
+        return answers
+    }
+
+    /**
+     * Whether [source]'s arm must stand down and let a higher-ranked one answer.
+     *
+     * ⚠️ **Both direct arms are suppressed, by the same two conditions, and the symmetry is the
+     * point.** The tunnel-carrying check (see [ownTunnelCarriesTraffic]) and the policy's
+     * per-plane toggle both say the same thing about a *direct* route — do not take one — and
+     * neither of them cares whether that route crosses the LAN or the WAN. Suppressing only the
+     * LAN arm would leave a `directWanPlayback=false` policy silently routing every request
+     * straight out to the public address, which is precisely the bypass the toggle exists to
+     * close.
+     *
+     * The TUNNEL arm is never suppressed: it names the overlay address and is not a direct
+     * route at all. Read live, per lookup, like everything else here — so both transitions
+     * follow in either direction with no bookkeeping.
+     *
+     * ⚠️ **`directWanPlayback` defaults to `false`, so by default the WAN pin never answers.**
+     * That is the toggle working as designed — it is a permission about a *direct WAN route*, and a
+     * WAN pin is exactly that. It does mean the off-LAN, tunnel-down client falls to system DNS
+     * (and, on this deployment, to the service name's own `A` record) rather than to the `wan=`
+     * literal the discovery record published, until an operator sets `directWanPlayback: true` in
+     * bsm. The server's own default was written as "a WAN caller gets `404` at today's edge, so
+     * deny it"; the v2 origin is served to the WAN with no source-IP gate, so that premise no longer
+     * holds for this name and the toggle is worth revisiting. Deliberately NOT worked around here:
+     * the client may not quietly promote a direct route the server's policy forbids.
+     */
+    private fun isSuppressed(source: LocalServerSource): Boolean = when (source) {
+        LocalServerSource.TUNNEL -> false
+        LocalServerSource.LAN -> ownTunnelCarriesTraffic() || !mayDialDirectly(DirectPlane.LAN)
+        LocalServerSource.WAN -> ownTunnelCarriesTraffic() || !mayDialDirectly(DirectPlane.WAN)
     }
 
     /**

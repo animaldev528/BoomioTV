@@ -84,59 +84,38 @@ private const val GATE_TIMEOUT_MS = 900
 internal object OverlayEndpointDiscovery {
 
     /**
-     * Rung 2's name — what the house resolver was meant to answer with, and what this ladder
-     * still climbs.
+     * The **discovery name** — the one record a cold client can find from anywhere, and the only
+     * name this ladder ever hands to a resolver.
      *
-     * ⚠️ **Deliberately *not* [LAN_RECORD], even though that is the name the deployment actually
-     * publishes.** This rung hands whatever it finds to the reachability gate and then, when
-     * nothing passes, lets the ladder take the first candidate anyway. Pointing it at [LAN_RECORD]
-     * would be a *regression* away from home: that name is a public record holding a **private**
-     * address, so it resolves everywhere, the gate rejects it, and the fallback would then publish
-     * an unroutable LAN address in place of the manual prompt. Teaching rung 2 to climb two names
-     * is the names tier's job (`namedFallback`), not this constant's.
+     * ⚠️ **It carries the whole tuple, which is what makes "no LAN DNS" survivable.** The
+     * deployment publishes `boomio-prov.duckdns.org` with an `A` record that follows the server's
+     * *public* address and a `TXT` record holding the v2 tuple: `svc` — the service FQDN every URL,
+     * SNI and certificate check stays on — plus the `lan` and `wan` **literals**, their per-plane
+     * ports, and the two keys. A client on a stranger's network therefore learns where the server
+     * is, where it is at home, and who it is, from one public lookup with no resolver of the
+     * deployment's own involved. That is the whole point of the split: the *service* name is for
+     * certificates and URLs, and this one is for finding the box.
      *
-     * The owner has not yet chosen whether `boomio-local` is published publicly or only in the
-     * house dnsmasq; today it is NXDOMAIN from the house dnsmasq, the router and `1.1.1.1` alike.
+     * ⚠️ **The client does not resolve the service name.** `boomio.duckdns.org`'s public `A`
+     * deliberately points at the server's **private** address so a browser on the LAN can reach the
+     * management surface by a name a certificate can be issued for; off the property that address
+     * is undialable, and the record's `wan` literal is what the client dials instead — with SNI and
+     * the certificate check still naming `svc`. Resolving the service name here would therefore be
+     * worse than useless: it would answer with the one address that cannot work.
+     *
+     * ⚠️ **This is a bootstrap constant, and it has to be compiled in.** A client that has never
+     * reached the server has never read a publication to learn a name from, so there is nothing to
+     * discover it *from*; it is also what a person types by hand in the absence of anything else,
+     * which is why rung 3 accepts it too.
+     *
+     * ⚠️ **`boomio-local.tracemonkey.org` used to sit here and is retired.** It was a placeholder
+     * for §10.8's open question — published publicly, or only in the house dnsmasq — and it was
+     * never published in either form; measured 2026-10-07 as NXDOMAIN from the house dnsmasq, the
+     * router and `1.1.1.1` alike. `boomio-lan.duckdns.org` and `boomio-tls.duckdns.org`, which
+     * replaced it, are retired by the same cut: three names with overlapping jobs became one
+     * discovery name and one service name.
      */
-    internal const val LOCAL_RECORD = "boomio-local.tracemonkey.org"
-
-    /**
-     * The two names the server **actually publishes** its `A` + TXT tuple on, in the order a
-     * dialler should try them: the one that routes at home, then the one that routes away.
-     *
-     * ⚠️ **Neither of these was reachable from the client before this.** `LOCAL_RECORD` above is
-     * `boomio-local.tracemonkey.org`, a placeholder from §10.8's open question ("published
-     * publicly, or only in the house dnsmasq") that was never published in either form: it is
-     * NXDOMAIN against the house dnsmasq, against the router and against `1.1.1.1` alike
-     * (measured 2026-10-07). These two are what the deployment does publish — the same pair the
-     * tuple names in its own `lan=`/`wan=` fields — and each carries the full TXT (`pk`, `port`,
-     * `prov`, `ppk`) beside its `A`.
-     *
-     * ⚠️ **They exist for callers that *dial*, and deliberately not for [rung2LocalRecord].**
-     * That rung is gated on reachability and hands whatever it finds to the gate, so pointing it
-     * at [LAN_RECORD] would be a *regression* away from home: the name resolves everywhere (it is
-     * a public record holding a private address), the gate rejects it, and the ladder's "take the
-     * first candidate anyway" rule would then publish an unroutable LAN address in place of the
-     * manual prompt. Climbing two names in rung order is the names tier's job — see
-     * `namedFallback` — and it is not done here.
-     *
-     * A dialler walks both because it gets **one** attempt, not two: `ChannelPairingTransport`
-     * dials the address it is handed once and falls back to HTTPS rather than retrying. Ordering
-     * alone could not carry that, which is why the dialler also gates each candidate on a real
-     * connect — see `OverlayProvisioning.target`. With the gate in place the order is a
-     * preference: at home the LAN address answers and is taken, away from home it does not and
-     * the walk moves on, and the pair costs one bounded probe that only ever runs off-LAN.
-     *
-     * Compiled in, and it has to be: this is the **cold-start** bootstrap, and a client that has
-     * never reached the server has never read a publication to learn a name from.
-     */
-    internal const val LAN_RECORD = "boomio-lan.duckdns.org"
-
-    /** The WAN half of [LAN_RECORD]'s pair. See that constant for why the order matters. */
-    internal const val WAN_RECORD = "boomio.duckdns.org"
-
-    /** Both published names, in the order to try them. See [LAN_RECORD]. */
-    internal val PUBLISHED_NAMES = listOf(LAN_RECORD, WAN_RECORD)
+    internal const val PROV_RECORD = "boomio-prov.duckdns.org"
 
     /** The WireGuard port, when nothing published one. */
     private const val DEFAULT_WG_PORT = OverlayAdvertTuple.DEFAULT_PORT
@@ -187,24 +166,16 @@ internal object OverlayEndpointDiscovery {
     private const val MANUAL_RESOLVE_BUDGET_MS = 1_500L
 
     /**
-     * How long one published name gets to resolve, in the names tier.
+     * The literal tier, in and out — the last thing tried before the ladder asks for an address.
      *
-     * The same shape as rung 2's budget and for the same reason — a miss has to stay cheap. It is
-     * a separate constant rather than a shared one because the two bound different things: rung 2
-     * bounds *one* name the ladder always climbs, this bounds *each* of up to two names it climbs
-     * only after everything else has already failed.
+     * ⚠️ **Cheaper than the tier it replaces, because there is no DNS left in it.** The published
+     * addresses are literals, so this walk is at most two blocking gate probes ([GATE_TIMEOUT_MS]
+     * each) and no resolution at all. The ceiling is kept anyway because this runs on the path
+     * where someone is already waiting for an answer, and unlike a rung it has nothing to do
+     * afterwards but tell them to type an address — so it is what stops that message arriving
+     * seconds late.
      */
-    private const val NAME_RESOLVE_BUDGET_MS = 1_200L
-
-    /**
-     * The whole names tier, in and out.
-     *
-     * ⚠️ **This exists because the tier runs on the path where someone is already waiting for
-     * an answer.** Two names, each with a resolve and a gate probe, is four bounded waits that add
-     * up — and unlike a rung, this one has nothing to do afterwards but tell the person to type an
-     * address. The ceiling is what stops that message arriving seconds late.
-     */
-    private const val NAME_TIER_BUDGET_MS = 4_000L
+    private const val TARGET_TIER_BUDGET_MS = 2_500L
 
     /**
      * The reachability gate's port.
@@ -274,20 +245,20 @@ internal object OverlayEndpointDiscovery {
     private var current: OverlayEndpoint? = null
 
     /**
-     * The two discovery names the last publication carried, or null when none ever did.
+     * The dial targets the last publication carried, or null when none ever did.
      *
      * ⚠️ **Process-scoped, like everything else in this ladder — a known limit, not a decision.**
      * `BoomioConfig.overlayEndpoint`, which rung 3 reads, is runtime state too, so an address does
-     * not survive a process death either. The consequence is specific: the names rescue a roam
+     * not survive a process death either. The consequence is specific: the targets rescue a roam
      * that happens *while the app is alive*, which is the case they were added for, but a cold
      * launch on a foreign network still lands on [OverlayEndpointStatus.NeedsManual].
      *
-     * Persisting them is the obvious next increment — unlike the address, a name is stable server
-     * identity rather than a property of the network — and it is deliberately not done here, where
-     * it would be the only persisted thing in the discovery subsystem.
+     * Persisting them is the obvious next increment — unlike the address, the two literals are
+     * stable server identity rather than a property of the network — and it is deliberately not
+     * done here, where it would be the only persisted thing in the discovery subsystem.
      */
     @Volatile
-    private var discoveryNames: OverlayDiscoveryNames? = null
+    private var discoveryTargets: OverlayDiscoveryTargets? = null
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
@@ -418,9 +389,9 @@ internal object OverlayEndpointDiscovery {
         // TTL is only ever armed over an answer worth keeping.
         val candidates = raceRungs(
             { rung1Mdns() },
-            { rung2LocalRecord(context) },
+            { rung2DiscoveryRecord(context) },
         ).toMutableList()
-        rung3Manual()?.let(candidates::add)
+        rung3Manual(context)?.let(candidates::add)
 
         // ⚠️ **The gate is a blocking connect, so it is pinned to IO explicitly.** `resolve()` is
         // reachable from `offerManual`, which a settings screen calls from the main thread — and
@@ -431,16 +402,16 @@ internal object OverlayEndpointDiscovery {
         }
         working?.let { return@withLock accept(it) }
 
-        // ⚠️ **The published names are tried here — after the gate, before giving up — and not as
-        // a fourth rung.** A rung answers "where is the server"; this answers "the answer I had has
-        // gone stale", which is a state only the gate can detect. Putting it here is what lets the
-        // rungs above stay cheap (§4.4) while still covering the one transition none of them
+        // ⚠️ **The published addresses are tried here — after the gate, before giving up — and not
+        // as a fourth rung.** A rung answers "where is the server"; this answers "the answer I had
+        // has gone stale", which is a state only the gate can detect. Putting it here is what lets
+        // the rungs above stay cheap (§4.4) while still covering the one transition none of them
         // survives: the phone leaving the network whose advert it learned the server on.
         //
-        // It is deliberately *not* guarded on `candidates.isEmpty()`. A remembered name can be the
-        // only thing that works when the address rung 3 is still holding has gone dead — and a
-        // name that is already known costs nothing to try when there was nothing else to try.
-        namedFallback(current ?: candidates.firstOrNull())?.let { return@withLock accept(it) }
+        // It is deliberately *not* guarded on `candidates.isEmpty()`. A remembered literal can be
+        // the only thing that works when the address rung 3 is still holding has gone dead — and a
+        // literal that is already known costs nothing to try when there was nothing else to try.
+        targetsFallback(current ?: candidates.firstOrNull())?.let { return@withLock accept(it) }
 
         if (candidates.isEmpty()) {
             // A walk that found nothing is the one that must not be sticky. Two seconds ago the
@@ -455,7 +426,7 @@ internal object OverlayEndpointDiscovery {
             scheduleMissRetry()
             return@withLock publish(
                 OverlayEndpointStatus.NeedsManual(
-                    "No boomio server was found — tried mDNS, $LOCAL_RECORD and any saved " +
+                    "No boomio server was found — tried mDNS, $PROV_RECORD and any saved " +
                         "address. Enter the server's address to continue.",
                 ),
             )
@@ -500,44 +471,52 @@ internal object OverlayEndpointDiscovery {
         // ⚠️ **Read from the browse directly, because [lastVerifiedAdvert] is not enough
         // here.** That advert is only published when the browse resolved a *usable* address, so a
         // platform whose NSD answers with a link-local IPv6 and no `A` produces none at all -- and
-        // that is precisely the device this tier has to rescue. The names survived the browse; they
-        // are read here.
-        OverlayLocalDiscovery.advertNames()?.let { rememberNames(it.lan, it.wan) }
+        // that is precisely the device this tier has to rescue. The targets survived the browse;
+        // they are read here.
+        OverlayLocalDiscovery.advertTargets()?.let { rememberTargets(it) }
         val advert = OverlayLocalDiscovery.lastVerifiedAdvert() ?: return null
-        // Recorded before the key is judged. The names are a fact about the *server*, published
-        // by the same advert, and an advert whose key is unusable is still a server whose name is
-        // worth knowing -- the ladder may yet have to find it by name on another network.
-        rememberNames(advert.lanName, advert.wanName)
-        val key = validServerKeyOrNull(advert.serverPublicKeyBase64)
+        // Recorded before the key is judged. The targets are a fact about the *server*, published
+        // by the same advert, and an advert whose key is unusable is still a server whose
+        // addresses are worth knowing -- the ladder may yet have to find it on another network.
+        rememberTargets(advert.tuple.targets)
+        val key = validServerKeyOrNull(advert.tuple.serverPublicKeyBase64)
         if (key == null) {
             Log.d(TAG, "Rung 1: advert has no usable pubkey; falling through")
             return null
         }
         return endpointOf(
             address = advert.address,
-            port = advert.port ?: DEFAULT_WG_PORT,
+            port = advert.tuple.port ?: DEFAULT_WG_PORT,
             key = key,
             source = OverlayEndpointSource.MDNS,
         )
     }
 
     /**
-     * Rung 2 — the `boomio-local` record.
+     * Rung 2 — the discovery record, [PROV_RECORD].
      *
      * ⚠️ **A record with no `TXT` is not an endpoint, and is not treated as one.** An address
      * without the server's public key cannot produce a handshake, so accepting it would stop the
      * ladder one rung early on something that cannot work — the precise failure §4.4 warns about
      * ("the third record needs the tuple, not just the address"). Falling through to rung 3 is
      * both safer and more honest: rung 3 carries a key by construction.
+     *
+     * ⚠️ **This is the rung that matters off the property, and it is why the record exists.** Its
+     * `A` follows the server's *public* address, so away from home it answers with something
+     * dialable — which the service name deliberately does not, since that one points at the
+     * private address so a LAN browser can reach management. On the LAN the `A` resolves to the
+     * public address and the gate rejects it, which is correct and costs one probe: rung 1 has
+     * usually already answered there, and the targets this record carries give the literal tier
+     * the private address to fall back to.
      */
-    private suspend fun rung2LocalRecord(context: Context): OverlayEndpoint? {
-        val resolved = OverlayDnsClient.resolve(context, LOCAL_RECORD, RUNG2_BUDGET_MS) ?: return null
+    private suspend fun rung2DiscoveryRecord(context: Context): OverlayEndpoint? {
+        val resolved = OverlayDnsClient.resolve(context, PROV_RECORD, RUNG2_BUDGET_MS) ?: return null
         // Same reasoning as rung 1: recorded whether or not this record's key is usable, because
-        // the names are a fact about the server rather than about this particular answer.
-        rememberNames(resolved.tuple.lanName, resolved.tuple.wanName)
+        // the targets are a fact about the server rather than about this particular answer.
+        rememberTargets(resolved.tuple.targets)
         val key = validServerKeyOrNull(resolved.tuple.serverPublicKeyBase64)
         if (key == null) {
-            Log.d(TAG, "Rung 2: '$LOCAL_RECORD' resolved but published no usable key")
+            Log.d(TAG, "Rung 2: '$PROV_RECORD' resolved but published no usable key")
             return null
         }
         return endpointOf(
@@ -561,8 +540,24 @@ internal object OverlayEndpointDiscovery {
      * an `/etc/resolv.conf` that does not exist there) is unverified. Resolving on this side
      * removes the question rather than betting on the answer, and it means the endpoint the
      * tunnel sees is the same one the gate just proved reachable.
+     *
+     * ⚠️ **A typed *name* is read for its `TXT`, not merely resolved, and that is what makes the
+     * typed discovery name enough on its own.** The case this rung exists for is a device that has
+     * never read a publication — a first-ever launch away from home, or a manual entry standing in
+     * for everything else — so the record is precisely what is missing. Resolving the name alone
+     * would supply the tunnel's endpoint and nothing else: the service name would still resolve
+     * publicly to the server's **private** address, so with the tunnel not yet up every HTTP
+     * request would fail, and with it up the pins would be the only thing missing from an
+     * otherwise working client. Reading the record here lands the targets through the same funnel
+     * rungs 1 and 2 use ([rememberTargets]), so where the server is and who it is arrive together
+     * however the client found out.
+     *
+     * ⚠️ **The record's own `port=` wins over the parsed default, deliberately, so this rung
+     * agrees with rung 2.** Rung 3 exists to reach the same place as the automatic rungs; a typed
+     * name carries no port of its own in the common case, and taking the record's here is what
+     * keeps the endpoint this rung hands the tunnel identical to the one rung 2 would have.
      */
-    private suspend fun rung3Manual(): OverlayEndpoint? {
+    private suspend fun rung3Manual(context: Context): OverlayEndpoint? {
         val raw = BoomioConfig.overlayEndpoint.trim()
         if (raw.isEmpty()) return null
         val key = validServerKeyOrNull(BoomioConfig.overlayServerPubKey)
@@ -571,123 +566,199 @@ internal object OverlayEndpointDiscovery {
             return null
         }
         val authority = parseEndpointAuthority(raw, DEFAULT_WG_PORT) ?: return null
-        val address = resolveHost(authority.first, MANUAL_RESOLVE_BUDGET_MS) ?: return null
+        val (typedHost, typedPort) = authority
+
+        // A *literal* never comes through here: it is dialled as written, which is the whole point
+        // of the no-LAN-DNS case, and asking a resolver about it would be the one DNS call this
+        // rung must not make. Only a name is worth a lookup, and only a name can carry a record.
+        if (literalOrNull(typedHost) == null) {
+            OverlayDnsClient.resolve(context, typedHost, MANUAL_RESOLVE_BUDGET_MS)?.let { resolved ->
+                rememberTargets(resolved.tuple.targets)
+                val literal = resolved.address.hostAddress ?: return@let
+                return OverlayEndpoint(
+                    host = literal,
+                    port = resolved.tuple.port ?: typedPort,
+                    serverPublicKeyBase64 = key,
+                    source = OverlayEndpointSource.MANUAL,
+                )
+            }
+        }
+
+        val address = resolveHost(typedHost, MANUAL_RESOLVE_BUDGET_MS) ?: return null
         return OverlayEndpoint(
             host = address.hostAddress ?: return null,
-            port = authority.second,
+            port = typedPort,
             serverPublicKeyBase64 = key,
             source = OverlayEndpointSource.MANUAL,
         )
     }
 
     // ---------------------------------------------------------------------------------------
-    // The published names -- the fallback that survives leaving the network
+    // The published addresses -- the fallback that survives leaving the network
     // ---------------------------------------------------------------------------------------
 
     /**
-     * Remembers the two names a publication carried, if it carried either.
+     * Remembers the dial targets a publication carried, if it carried any.
      *
-     * ⚠️ **The pair is replaced wholesale; a partial publication is not merged.** Both channels
-     * publish both names from one server at one instant, so a record carrying only `lan=` is the
-     * server's *current* truth — a `wan=` that has been withdrawn — rather than a half-heard
-     * message. Merging field by field would keep a withdrawn name alive for the life of the
+     * ⚠️ **The set is replaced wholesale; a partial publication is not merged.** Both channels
+     * publish the whole tuple from one server at one instant, so a record carrying only `lan=` is
+     * the server's *current* truth — a `wan=` that has been withdrawn — rather than a half-heard
+     * message. Merging field by field would keep a withdrawn address alive for the life of the
      * process, which is the stale-discovery failure this whole subsystem exists to prevent.
      *
-     * Values arrive already validated: both parsers run them through [validDiscoveryNameOrNull],
-     * so a blank or malformed field is `null` by the time it reaches here.
+     * Values arrive already validated: both parsers run them through [validDottedQuadOrNull], so a
+     * blank, malformed or *v1-style hostname* field is `null` by the time it reaches here — which
+     * is what makes a record from the previous era read as "no addresses published" rather than as
+     * two names to go and resolve.
+     *
+     * ⚠️ **This is also where the service pin is placed, and this is the only place it can be.**
+     * The tuple arrives on *both* channels — mDNS from the browse, the TXT from a public lookup —
+     * and this method is the one funnel they share. See [applyServicePins] for what it does with
+     * them and why the pin is load-bearing rather than a nicety.
      */
-    private fun rememberNames(lan: String?, wan: String?) {
-        val names = OverlayDiscoveryNames(lan = lan, wan = wan)
-        if (names.isEmpty) return
-        if (names == discoveryNames) return
-        Log.i(TAG, "Discovery names learned: lan=${names.lan ?: "-"} wan=${names.wan ?: "-"}")
-        discoveryNames = names
+    private fun rememberTargets(targets: OverlayDiscoveryTargets) {
+        if (targets.isEmpty) return
+        if (targets == discoveryTargets) return
+        Log.i(TAG, "Discovery targets learned: svc=${targets.svcName ?: "-"} " +
+            targets.inOrder().joinToString { "${it.host}:${it.tunnelPort}" })
+        discoveryTargets = targets
+        applyServicePins(targets)
     }
 
     /**
-     * The last resort before the ladder gives up: climb the names the server published.
+     * Points the **service name** at the address this record says serves it from here.
+     *
+     * ⚠️ **The `wan` pin is what makes the whole design work off the property, and without it the
+     * app simply cannot reach the HTTP plane away from home.** The service name's public `A` record
+     * deliberately holds the server's **private** address — that is the owner's choice, and it is
+     * what lets a LAN browser reach the management surface under a name a certificate can be issued
+     * for. The cost is that off-LAN the name resolves to something undialable, and nothing in DNS
+     * will correct it. The record's `wan` literal is the correction, and a pin is the only
+     * mechanism that can apply one: a certificate is issued per *name*, so the address may change
+     * and the name must not.
+     *
+     * ⚠️ **The `lan` literal is pinned too, and it is not redundant.** At home the public `A`
+     * usually already answers with the same private address, so the pin changes nothing there —
+     * but "usually" is doing work: the publisher rewrites that record every five minutes, and a
+     * client mid-roam can hold a resolver answer from before a change. Pinning both literals means
+     * the two arms the record publishes are exactly the two the dialler tries, with nothing left to
+     * DNS in between. Both are suppressed together while the tunnel carries traffic — see
+     * [OverlayPinRegistry.isSuppressed].
+     *
+     * ⚠️ **Replacing the pin on every publication is the point, not a leak.** A record with a new
+     * `wan` means the public address moved; the old pin is then a stale address, and the whole
+     * reason the publisher runs on a timer is to have the client notice. Same-source replacement
+     * keeps exactly one `LAN` and one `WAN` pin, and [OverlayPinRegistry.pin] is copy-on-write so a
+     * concurrent lookup sees one snapshot or the other, never a half-updated pair.
+     */
+    private fun applyServicePins(targets: OverlayDiscoveryTargets) {
+        // The host set is re-derived rather than passed in: the addon catalogue — where most of the
+        // app's server hosts live — loads asynchronously, so this call returns a *larger* set later
+        // in the session. The service name is added explicitly because it is the one host the
+        // record itself names, and at a cold start it is the only one that matters.
+        val svc = targets.svcName
+        if (svc != null) BoomioConfig.serviceOrigin = "https://$svc"
+        val hosts = localServerHosts() + listOfNotNull(svc)
+        if (hosts.isEmpty()) return
+        for (plane in targets.inOrder()) {
+            // [literalOrNull] rather than `InetAddress.getByName` directly: same-package helper, and
+            // it is regex-gated so a malformed field can never become a resolver call on the
+            // discovery path. The parser already validated these, so this is belt and braces.
+            val address = literalOrNull(plane.host) ?: continue
+            OverlayPinRegistry.pin(
+                source = if (plane.isLan) LocalServerSource.LAN else LocalServerSource.WAN,
+                hosts = hosts,
+                address = address,
+            )
+        }
+    }
+
+    /**
+     * The last resort before the ladder gives up: dial the addresses the server published.
      *
      * ⚠️ **This runs only when every rung has missed the gate**, and that placement is the whole
-     * design. Resolving names eagerly would multiply the cold path's cost by the number of misses
-     * — the objection that keeps [LOCAL_RECORD] a single name (§4.4) — and it is not needed on the
-     * path where a rung already answered. Here it costs nothing when the ladder worked, and buys
-     * the one case the rungs cannot cover: the phone has left the network whose advert taught it
-     * where the server was.
+     * design. Reading the record eagerly would multiply the cold path's cost by the number of
+     * misses and it is not needed on the path where a rung already answered. Here it costs nothing
+     * when the ladder worked, and buys the one case the rungs cannot cover: the phone has left the
+     * network whose advert taught it where the server was.
      *
-     * ⚠️ **A name supplies only the host; the key and the port are reused from [seed].** That is
-     * not a shortcut but the correct reading — `lan=`/`wan=` are names, and the tuple published
-     * beside them belongs to the same server. If that server's key had changed, the handshake would
-     * fail and the next publication would correct it, which is the honest outcome; inventing a key
-     * here would hide it.
+     * ⚠️ **No DNS happens in this tier, and that is the point of the v2 record.** `lan=`/`wan=` are
+     * addresses now, so the walk is over literals: nothing resolves, nothing can be captured by a
+     * poisoned resolver, and the "no LAN DNS" constraint is satisfied by construction rather than
+     * by a fallback. The names this replaced needed one resolve each and could not work at all on a
+     * network without a resolver.
+     *
+     * ⚠️ **An address supplies only the host; the key and the port are reused from [seed].** That
+     * is not a shortcut but the correct reading — the tuple published beside `lan=`/`wan=` belongs
+     * to the same server. If that server's key had changed, the handshake would fail and the next
+     * publication would correct it, which is the honest outcome; inventing a key here would hide
+     * it. ⚠️ **The seed's port wins over the plane's `lanport=`/`wanport=` deliberately**: this
+     * tier hands back an [OverlayEndpoint], which is a *tunnel* endpoint, and the per-plane ports
+     * are the same number reached by a different route. Reading the plane's instead would make the
+     * tier's answer disagree with every other rung's for no benefit.
      *
      * ⚠️ **A null [seed] makes this a no-op, deliberately.** With no endpoint anywhere there is no
      * key to dial with, so there is nothing to try — and a first-ever launch away from home has no
-     * name to climb *from* either, since names are only ever learned from a publication. That launch
-     * belongs to rung 3, and [OverlayEndpointStatus.NeedsManual] is the right answer to it.
+     * publication to climb *from* either. That launch belongs to rung 3, and
+     * [OverlayEndpointStatus.NeedsManual] is the right answer to it.
      *
      * ⚠️ **The seed is `current ?: candidates.firstOrNull()`, and the candidate half is a bug
      * fix.** It used to be `current` alone, which is process-scoped and therefore null until
      * something has been accepted — so on a **cold launch** the tier could not run at all. That is
      * the walk it is most needed on: rung 3 is holding an address learned on some earlier network,
-     * the gate is about to reject it, and the names are the only thing that can still find the
-     * server. Seeding from the candidate costs nothing (it is the same server's key and port, and it
-     * is the endpoint the old fallback would have taken anyway) and closes that window.
+     * the gate is about to reject it, and the publication is the only thing that can still find the
+     * server. Seeding from the candidate costs nothing (it is the same server's key and port) and
+     * closes that window.
      *
-     * ⚠️ **Which name is preferred depends on where the client is standing, and the gate is a
-     * preference rather than a veto — both are changes.** [OverlayDiscoveryNames.inOrder] is
-     * LAN-first because at home `lan=` is the reachable one, and the reverse holds away from home;
-     * with every rung just failed there is nothing left to correct a wrong guess. So the walk is
-     * reordered for the network in force before it starts, by [preferLanFor] — which asks whether
-     * this device's traffic reaches the house, not what kind of link it is on. See that method for
-     * why the transport test it replaced was answering a different question.
-     *
-     * The gate still decides whenever it can: a name that answers on [EDGE_PORT] wins outright,
+     * The gate still decides whenever it can: a plane that answers on [EDGE_PORT] wins outright,
      * whatever its position. What it cannot decide is the case this tier now exists to survive —
      * with the WAN forward closed, which is the in-app tunnel's whole point since it needs nothing
-     * but UDP 51820, *no* name answers, and a tier that insisted would come back empty at exactly
-     * the moment it is the only thing left to try. So when no name proves itself the **first name
-     * that resolved** is taken, which after reordering is the one that suits the network in force.
+     * but UDP 51820, *no* plane answers, and a tier that insisted would come back empty at exactly
+     * the moment it is the only thing left to try. So when nothing proves itself the **first plane
+     * in order** is taken, which is the LAN literal — the owner's stated order ("tries the lan ip
+     * first, then the wan"), and a private address on a foreign network is refused immediately
+     * rather than after a timeout, so taking it there costs one fast failure and no delay.
      *
-     * The handshake remains the only real verdict, as the class doc says; a name that turns out to
-     * be wrong fails visibly and is corrected by the next walk, which is the trade §10.7 chose
-     * over a silent fallback (see `onNetworkChanged`). The cost is the one ordering can never
-     * remove: the gate proves the *name* is plausible, never that the forward is open.
+     * The handshake remains the only real verdict, as the class doc says; a plane that turns out to
+     * be wrong fails visibly and is corrected by the next walk, which is the trade §10.7 chose over
+     * a silent fallback (see `onNetworkChanged`). The cost is the one ordering can never remove:
+     * the gate proves the *address* is plausible, never that the forward is open.
      */
-    private suspend fun namedFallback(seed: OverlayEndpoint?): OverlayEndpoint? {
-        val names = discoveryNames ?: return null
+    private suspend fun targetsFallback(seed: OverlayEndpoint?): OverlayEndpoint? {
+        val targets = discoveryTargets ?: return null
         val known = seed ?: return null
         val key = validServerKeyOrNull(known.serverPublicKeyBase64) ?: return null
-        // ⚠️ **Ordered for the network in force, because the rungs that would have corrected a
-        // wrong guess are exactly the ones that just failed.**
-        val onLan = preferLanFor(names)
-        val attempt = names.inOrder(preferLan = onLan)
+        // Already in dial order — LAN then WAN. See [OverlayDiscoveryTargets.inOrder].
+        val attempt = targets.inOrder()
         if (attempt.isEmpty()) return null
 
         Log.i(
             TAG,
-            "Every rung missed the gate; climbing published names " +
-                "(${if (onLan) "LAN first" else "WAN first"}): ${attempt.joinToString()}",
+            "Every rung missed the gate; trying published addresses: " +
+                attempt.joinToString { "${it.host}:${it.tunnelPort}" },
         )
 
         val startedAt = SystemClock.elapsedRealtime()
 
-        // ⚠️ **The fallback is the *first* name that resolved, not the last.** Off-LAN the walk is
-        // WAN-first, so the first name to resolve is the public one; letting a later name overwrite
-        // it would swap the right answer for `lan=`'s private address — the exact failure this tier
-        // is being taught to avoid. First-wins is also what makes it race-free: it is set on the
-        // earliest iteration that reaches the gate, so a walk cut short by [NAME_TIER_BUDGET_MS]
-        // still leaves the preferred name behind rather than an empty tier.
+        // ⚠️ **The fallback is the *first* plane, not the last that answered.** The order is the
+        // owner's — LAN then WAN — and letting a later plane overwrite an earlier one would swap the
+        // LAN literal (correct at home, refused instantly away from home) for the public address
+        // whenever the WAN forward happened to be open, which is the opposite of the stated order.
+        // First-wins is also what makes it race-free: it is set on the earliest iteration, so a walk
+        // cut short by [TARGET_TIER_BUDGET_MS] still leaves a usable endpoint behind rather than an
+        // empty tier.
         var unproven: OverlayEndpoint? = null
 
         val proven = withContext(Dispatchers.IO) {
-            withTimeoutOrNull(NAME_TIER_BUDGET_MS) {
-                for (name in attempt) {
-                    val address = resolveHost(name, NAME_RESOLVE_BUDGET_MS) ?: continue
+            withTimeoutOrNull(TARGET_TIER_BUDGET_MS) {
+                for (plane in attempt) {
+                    // A validated dotted quad, so this constructs an InetAddress and never resolves.
+                    val address = literalOrNull(plane.host) ?: continue
                     val candidate = endpointOf(
                         address = address,
                         port = known.port,
                         key = key,
-                        source = OverlayEndpointSource.DISCOVERY_NAME,
+                        source = OverlayEndpointSource.DISCOVERY_RECORD,
                     ) ?: continue
                     if (isReachable(candidate.host, EDGE_PORT)) return@withTimeoutOrNull candidate
                     if (unproven == null) unproven = candidate
@@ -696,116 +767,23 @@ internal object OverlayEndpointDiscovery {
             }
         }
 
-        // Kept loud, and split by which thing failed: "the names did not resolve" and "the names
-        // resolved but nothing answered" are different faults, and the tier is quiet enough that
+        // Kept loud, and split by which thing failed: "nothing was published" and "addresses were
+        // published but nothing answered" are different faults, and the tier is quiet enough that
         // this line is the only place either one shows up.
         if (proven == null) {
             val elapsedMs = SystemClock.elapsedRealtime() - startedAt
-            val tried = attempt.joinToString()
+            val tried = attempt.joinToString { "${it.host}:${it.tunnelPort}" }
             if (unproven == null) {
-                Log.w(TAG, "No published name resolved ($tried) after ${elapsedMs}ms")
+                Log.w(TAG, "No usable published address ($tried) after ${elapsedMs}ms")
             } else {
                 Log.w(
                     TAG,
-                    "No published name answered the gate on $EDGE_PORT ($tried) after " +
+                    "No published address answered the gate on $EDGE_PORT ($tried) after " +
                         "${elapsedMs}ms; taking ${unproven!!.authority} anyway",
                 )
             }
         }
         return proven ?: unproven
-    }
-
-    /**
-     * Which of the two published names suits the network this client is standing on — the one bit
-     * of ordering this tier needs and the gate cannot supply.
-     *
-     * ⚠️ **The transport test is the last resort now, not the first question, and the reason is
-     * measurable.** Asking "is the active network Wi-Fi or Ethernet?" answers *true on a phone
-     * hotspot*, because a hotspot is a Wi-Fi transport. A device that roamed from the house to a
-     * hotspot therefore read as "at home", took `lan=`, found no 443 forward (the tunnel needs
-     * nothing but UDP 51820), and first-wins kept an unroutable private address. Measured on
-     * 2026-10-07, from a TV sitting on `10.151.14.131`:
-     *
-     * ```
-     * Every rung missed the gate; climbing published names (LAN first): boomio-lan.duckdns.org, ...
-     * No published name answered the gate on 443 (...) after 2000ms; taking 192.168.68.65:51820 anyway
-     * ```
-     *
-     * The transport test is not wrong so much as *unrelated*: it describes the link layer, and the
-     * question is whether this device's traffic reaches the house. Two things answer that directly,
-     * tried in order of how much they depend on the outside world:
-     *
-     * 1. **[egressMatchesPublishedWan] — the ground truth.** Fetch this device's own public address
-     *    and compare it with the one the server publishes. Equal means the device is behind the
-     *    house router whatever its transport is, and that settles both regimes at once with no
-     *    tiebreak: at home it matches, on a hotspot it does not. Costs one HTTP round trip.
-     * 2. **The on-link test — the half that needs no internet.** Resolve `lan=` and ask whether it
-     *    lands inside a subnet this device is attached to. `lan=` is a *public* record holding a
-     *    *private* address, so it resolves everywhere and is on-link in exactly one place. Costs one
-     *    resolve, and it is what catches the case the first test gets wrong: a stale DuckDNS `A`
-     *    record would make the egress comparison disagree while the device sits on the sofa.
-     *
-     * ⚠️ **Neither saying home is not the same as neither answering.** If either test returned a
-     * verdict and both said "not home", the answer is WAN-first and the transport test must not get
-     * a vote — that is the hotspot case above, and letting the transport test break the tie would
-     * reinstate the bug. It is consulted only when *nothing* could answer: no `wan=` published, no
-     * connectivity to ask, or an address-family mismatch that makes the comparison meaningless.
-     *
-     * ⚠️ **The fallback is untrustworthy by design under a third-party VPN.** A `VpnService`
-     * (NordVPN) makes the active network the VPN transport, and this overlay's own tunnel is
-     * userspace and registers none — so the fallback reads non-LAN under NordVPN even at home. That
-     * was already true before this change, and it is why the fallback is last: both tests above read
-     * the network *identity* rather than the link, and both are correct under a VPN. It only bites
-     * when every rung has already failed, which on the LAN means mDNS *and* [LOCAL_RECORD] missed.
-     */
-    private suspend fun preferLanFor(names: OverlayDiscoveryNames): Boolean {
-        // 1. Ground truth, when the server publishes a WAN name and something will answer it.
-        val egressHome = names.wan?.let { egressMatchesPublishedWan(it, EGRESS_BUDGET_MS) }
-        if (egressHome == true) {
-            Log.i(TAG, "This network's public address is the published WAN; preferring the LAN name")
-            return true
-        }
-
-        // 2. The offline backup: does `lan=` land on a subnet we are attached to?
-        val onLinkHome = names.lan?.let { lanNameIsOnLink(it) }
-        if (onLinkHome == true) {
-            Log.i(
-                TAG,
-                "'${names.lan}' is on a subnet this device is attached to; preferring the LAN name",
-            )
-            return true
-        }
-
-        // 3. Something answered, and neither answer was "home".
-        if (egressHome != null || onLinkHome != null) {
-            Log.i(
-                TAG,
-                "Egress match ${egressHome ?: "unknown"}, on-link ${onLinkHome ?: "unknown"}: " +
-                    "nothing says home, preferring the WAN name",
-            )
-            return false
-        }
-
-        // 4. Nothing could tell. The old signal, and only here.
-        val transport = appContext?.let { OverlayLocalDiscovery.isOnLocalNetwork(it) } ?: true
-        Log.i(TAG, "No test could read the network; falling back to the transport check ($transport)")
-        return transport
-    }
-
-    /**
-     * Whether the LAN name resolves onto a subnet this device currently holds — or null when there
-     * is nothing to compare against.
-     *
-     * Split out from [preferLanFor] because the three answers are genuinely different: `true` is
-     * evidence of home, `false` is evidence against it, and `null` is *no evidence at all*, which
-     * must not be allowed to outvote a test that did manage to speak.
-     */
-    private suspend fun lanNameIsOnLink(host: String): Boolean? {
-        val context = appContext ?: return null
-        val address = resolveHost(host, NAME_RESOLVE_BUDGET_MS) ?: return null
-        val links = localLinkAddresses(context)
-        if (links.isEmpty()) return null
-        return links.any { (link, prefixLength) -> isOnLink(link, prefixLength, address) }
     }
 
     // ---------------------------------------------------------------------------------------

@@ -179,6 +179,34 @@ class LocalServerHostsTest {
     }
 
     @Test
+    fun `the service origin pins that host, never the shared duckdns parent`() {
+        // ⚠️ **The v2 upgrade makes this the load-bearing case.** `boomio.duckdns.org` is now the
+        // origin every boomio URL is built from, so its suffix is what the pin matches every host
+        // against. Widening to `duckdns.org` would repoint every free DuckDNS signup in the world
+        // at this server's address — and it would look like it worked, because the pin matches.
+        assertEquals(
+            setOf("boomio.duckdns.org"),
+            serverDomainSuffixes(setOf("boomio.duckdns.org")),
+        )
+    }
+
+    @Test
+    fun `a sibling duckdns name is not covered by the service origin`() {
+        // The discovery name is a *different* record under the same shared suffix, and it is dialled
+        // as a literal from the tuple rather than resolved through the pin — so it must not be
+        // dragged in. Neither must anybody else's box.
+        assertTrue(
+            derivePinnableAddonHosts(
+                setOf("boomio.duckdns.org"),
+                listOf(
+                    "https://boomio-prov.duckdns.org/manifest.json",
+                    "https://someone-elses-box.duckdns.org/manifest.json",
+                ),
+            ).isEmpty(),
+        )
+    }
+
+    @Test
     fun `never pins an addon host without a server host to anchor it`() {
         // With nothing discovered there is no domain to be "the same as", so a
         // third-party addon must not become pinnable by accident.

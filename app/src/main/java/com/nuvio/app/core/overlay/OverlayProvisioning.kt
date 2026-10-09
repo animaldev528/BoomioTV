@@ -5,6 +5,7 @@ import android.util.Log
 import com.nuvio.app.features.boomio.BoomioPairingResult
 import com.nuvio.app.features.boomio.BoomioPairingTransport
 import com.nuvio.app.features.boomio.BoomioSessionRepository
+import com.nuvio.app.core.overlay.OverlayEndpointDiscovery.PROV_RECORD
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -77,11 +78,14 @@ internal object OverlayProvisioning {
      * How long the **pairing** connect may take — deliberately not
      * `OverlayProvisionConnection`'s ten seconds.
      *
-     * ⚠️ **The record publishes the server's WAN address, and the case where that address does
-     * not answer is a phone at home**: hairpin is off on this network, so a connect from inside
-     * the LAN to the public address times out rather than being refused. Ten seconds of a
-     * first-run screen before falling back to the transport that works at home is a regression
-     * against the flow this one sits beside; three seconds is a connect that has plainly failed.
+     * ⚠️ **A candidate that is not on this network is the case this bounds, and it has two
+     * shapes.** Off the property the record's `lan=` is a private address: the kernel usually
+     * refuses it outright, but on some networks it is instead routed to a default gateway that
+     * silently drops it, and a refused connect is the only fast one. At home the reverse can bite —
+     * the public `wan=` is unreachable because hairpin is off on this network, and a connect from
+     * inside the LAN to the public address times out rather than being refused. Ten seconds of a
+     * first-run screen before falling back to the transport that works is a regression against the
+     * flow this one sits beside; three seconds is a connect that has plainly failed.
      *
      * Enrollment keeps the default, because it dials an address the device has already proven
      * reachable — a long deadline costs nothing there and a short one would fail a slow network.
@@ -166,38 +170,28 @@ internal object OverlayProvisioning {
         // other client on the LAN; that one call cannot use it by design, which is exactly the
         // hole this channel exists to fill.
         //
-        // So being at home is not a reason to skip the walk. `LAN_RECORD` is a *public* record
-        // holding a **private** address, so it resolves from anywhere — including through
+        // So being at home is not a reason to skip the walk. `lan=` is a **private literal
+        // published in a public TXT**, so it is readable from anywhere — including through
         // `1.1.1.1` — and the gate below accepts it exactly when the box really is on this
         // segment. Nothing on this path needs system DNS at all.
         //
-        // ⚠️ **Both published names are tried, and off-LAN the second is the one that routes.**
-        // The LAN record's universal resolution is also why a single-name lookup would be wrong: it
-        // would hand the dialler an address nothing off-LAN can reach, which is precisely the
-        // failure this whole channel exists to remove. That is why a rejection below means "try the
-        // other name" and never "give up", and why only a pair that both fail ends the search.
+        // ⚠️ **One record, two addresses, and off-LAN the second is the one that routes.** The v2
+        // record names `lan=` and `wan=` itself, so a single lookup of [PROV_RECORD] supplies the
+        // whole walk. That is why a rejection below means "try the next address" and never "give
+        // up", and why only a set that all fails ends the search — the LAN literal is readable
+        // everywhere but routable in one place, and stopping at it would hand the dialler an
+        // address nothing off-LAN can reach, which is precisely the failure this channel exists to
+        // remove.
         //
-        // ⚠️ **"Resolves" is not the test — "answers" is.** Resolution alone would stop this walk
-        // on the first name from *any* network, because both records are public. The gate inside
-        // `provisioningTargetAt` is what makes the pairing below mean "the first reachable
-        // published name"; without it the WAN half is unreachable by construction, since the
+        // ⚠️ **"Resolves" is not the test — "answers" is.** The record is public, so it resolves
+        // from *any* network; only the socket probe distinguishes the segment the box is on from
+        // every other one. Without it the walk would stop on its first candidate everywhere. The
         // dialler gets exactly one attempt at whatever this returns (`ChannelPairingTransport`
-        // dials the target it is handed, once, and falls back to HTTPS rather than retrying).
-        return OverlayEndpointDiscovery.PUBLISHED_NAMES.firstNotNullOfOrNull { name ->
-            provisioningTargetAt(context, name)
-        }
-    }
+        // dials the target it is handed, once, and falls back to HTTPS rather than retrying), so
+        // the probe is the only thing standing between a roam and a spent attempt.
 
-    /**
-     * One published name → a target, or `null` with the reason logged.
-     *
-     * Split out of [target] so the walk above reads as a walk rather than a nested `if` ladder:
-     * every rejection in here is a reason to try the *other* name, and the only place that is a
-     * reason to give up is the caller's `?: return null`.
-     */
-    private suspend fun provisioningTargetAt(context: Context, name: String): ProvisionTarget? {
-        val resolved = OverlayDnsClient.resolve(context, name, RESOLVE_BUDGET_MS) ?: run {
-            Log.i(TAG, "'$name' did not resolve")
+        val resolved = OverlayDnsClient.resolve(context, PROV_RECORD, RESOLVE_BUDGET_MS) ?: run {
+            Log.i(TAG, "'$PROV_RECORD' did not resolve")
             return null
         }
         val tuple = resolved.tuple
@@ -205,44 +199,60 @@ internal object OverlayProvisioning {
         // ⚠️ Only an explicit `prov=1` opens the door — the same fail-closed reading the server
         // applies to its own flag, so a silent record and a closed server agree.
         if (!tuple.offersProvisioning) {
-            Log.i(TAG, "'$name' does not offer provisioning (`prov` is not 1)")
+            Log.i(TAG, "'$PROV_RECORD' does not offer provisioning (`prov` is not 1)")
             return null
         }
         val ppk = tuple.provisioningPublicKeyBase64
         if (ppk == null) {
-            Log.w(TAG, "'$name' offers provisioning but publishes no usable ppk; declining")
-            return null
-        }
-        val host = resolved.address.hostAddress ?: return null
-
-        // The port falls back the way rung 2's does: `pport` when the record names one, else the
-        // tunnel's own number, else the deployment's constant. One number, two protocols (§4.1).
-        val port = tuple.provisioningPort ?: OverlayAdvertTuple.DEFAULT_PORT
-
-        // ⚠️ **The gate, and it is the load-bearing line in this walk.** Away from home
-        // `LAN_RECORD` resolves to a private address on somebody else's LAN: the record is public,
-        // so resolution succeeds everywhere and would otherwise win the walk on every network —
-        // handing the dialler an address it can never reach, spending the channel's single attempt
-        // on it, and leaving the `wan` name below permanently untried. Testing that the socket
-        // actually opens is what turns "first name that resolves" into "first name that answers",
-        // which is the only reading that survives a roam.
-        //
-        // The cost is bounded and only paid off-LAN: at home the advert check in `target()` has
-        // already returned, and on the LAN the connect either completes in single-digit
-        // milliseconds or the host is not there.
-        //
-        // Pinned to IO the way the ladder pins its own gate: this is a blocking `Socket.connect`,
-        // and although `startLink` reaches here on `Dispatchers.Default` rather than the main
-        // thread, `target()` is a seam a caller could reach from anywhere. Inheriting whatever
-        // dispatcher that turned out to be would make a frozen UI latent rather than impossible.
-        val answered = withContext(Dispatchers.IO) { isReachable(host, port) }
-        if (!answered) {
-            Log.i(TAG, "'$name' resolved to $host:$port, but nothing answered there")
+            Log.w(TAG, "'$PROV_RECORD' offers provisioning but publishes no usable ppk; declining")
             return null
         }
 
-        Log.i(TAG, "Provisioning target from '$name': $host:$port")
-        return ProvisionTarget(host, port, ppk, tuple.serverPublicKeyBase64)
+        // ⚠️ **The addresses come from the tuple, not from the record's own `A`.** That is the v2
+        // contract: the two literals are named explicitly so no client has to resolve them, and the
+        // per-plane `lanpport=`/`wanpport=` travel with them so neither plane's port is inferred
+        // from a global default. The record's `A` is kept as a *fallback only*, for a publication
+        // whose tuple named no plane — one attempt is still better than none.
+        val planes = tuple.targets.inOrder()
+        val candidates: List<Pair<String, Int>> = if (planes.isNotEmpty()) {
+            planes.map { it.host to it.provisioningPort }
+        } else {
+            listOfNotNull(resolved.address.hostAddress?.let { host ->
+                host to (tuple.provisioningPort ?: OverlayAdvertTuple.DEFAULT_PORT)
+            })
+        }
+        if (candidates.isEmpty()) {
+            Log.w(TAG, "'$PROV_RECORD' published no usable address to dial")
+            return null
+        }
+
+        for ((host, port) in candidates) {
+            // ⚠️ **The gate, and it is the load-bearing line in this walk.** A private address on a
+            // foreign network would otherwise win the walk on every network — handing the dialler an
+            // address it can never reach, spending the channel's single attempt on it, and leaving
+            // the public address permanently untried. Testing that the socket actually opens is what
+            // turns "first address named" into "first address that answers", which is the only
+            // reading that survives a roam.
+            //
+            // The cost is bounded and paid only where a candidate cannot work: a private address off
+            // the LAN is refused (or times out) rather than hanging, and on the LAN the connect
+            // either completes in single-digit milliseconds or the host is not there.
+            //
+            // Pinned to IO the way the ladder pins its own gate: this is a blocking `Socket.connect`,
+            // and although `startLink` reaches here on `Dispatchers.Default` rather than the main
+            // thread, `target()` is a seam a caller could reach from anywhere. Inheriting whatever
+            // dispatcher that turned out to be would make a frozen UI latent rather than impossible.
+            val answered = withContext(Dispatchers.IO) { isReachable(host, port) }
+            if (!answered) {
+                Log.i(TAG, "$host:$port did not answer; trying the next published address")
+                continue
+            }
+            Log.i(TAG, "Provisioning target from '$PROV_RECORD': $host:$port")
+            return ProvisionTarget(host, port, ppk, tuple.serverPublicKeyBase64)
+        }
+
+        Log.i(TAG, "No address published by '$PROV_RECORD' answered; pairing falls back to HTTPS")
+        return null
     }
 
     /** `internal` for the same default-argument reason as [target]. */

@@ -39,6 +39,11 @@ internal object PlayerPlaybackNetworking {
     /**
      * Fallback OkHttpClient equipped with trust-all SSL configuration for self-signed
      * or untrusted local media servers (e.g. self-signed WebDAV / Plex / Jellyfin).
+     *
+     * ⚠️ `usePins = false` is a **security control, not a preference.** This client accepts any
+     * certificate and any hostname, so on this path TLS authenticates nothing. Following a pin
+     * here would let an unauthenticated mDNS advert redirect the media stream — and the
+     * `Authorization` header riding on it — to whatever LAN host the advert named.
      */
     internal val trustAllPlaybackHttpClient: OkHttpClient by lazy {
         val dispatcher = okhttp3.Dispatcher().apply {
@@ -47,7 +52,7 @@ internal object PlayerPlaybackNetworking {
         }
         OkHttpClient.Builder().withOverlayProxy()
             .dispatcher(dispatcher)
-            .dns(IPv4FirstDns())
+            .dns(IPv4FirstDns(usePins = false))
             .eventListenerFactory(PlaybackConnectionEvents)
             .sslSocketFactory(sslContext.socketFactory, trustAllManager)
             .hostnameVerifier(playbackHostnameVerifier)
@@ -64,6 +69,14 @@ internal object PlayerPlaybackNetworking {
      * Primary OkHttpClient using standard system SSL certificates and full SNI support.
      * Includes an automatic fallback to [trustAllPlaybackHttpClient] if an [SSLException]
      * occurs on self-signed local media servers.
+     *
+     * ⚠️ `usePins = false` for the same reason as [trustAllPlaybackHttpClient], and the fallback
+     * is what makes it necessary rather than optional: this client only *starts* validated, and an
+     * `SSLException` hands the request to the trust-all twin. A pin followed on the primary path
+     * would be re-followed on the fallback path — where TLS authenticates nothing — so the pin is
+     * refused at the door instead. The phone splits this differently (a validating twin gated by
+     * `OverlayPinRegistry.isPinnedHost`); that split is not ported here, so the media plane simply
+     * does not follow pins on this fork and the relay carries it as before.
      */
     internal val playbackHttpClient: OkHttpClient by lazy {
         val dispatcher = okhttp3.Dispatcher().apply {
@@ -72,7 +85,7 @@ internal object PlayerPlaybackNetworking {
         }
         OkHttpClient.Builder().withOverlayProxy()
             .dispatcher(dispatcher)
-            .dns(IPv4FirstDns())
+            .dns(IPv4FirstDns(usePins = false))
             .eventListenerFactory(PlaybackConnectionEvents)
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(15, TimeUnit.SECONDS)

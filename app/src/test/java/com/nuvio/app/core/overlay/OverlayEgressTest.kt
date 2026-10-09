@@ -14,9 +14,10 @@ import kotlin.test.assertTrue
  *
  * **What this covers, and what it deliberately does not.** Every case here is deterministic and
  * offline — nothing is fetched and no socket is opened. What is left out is the part that cannot be
- * tested this way: whether an echo service is reachable, and whether the *answer* actually decides
- * home-vs-away on a real roam. That is a device test, and the measured failure it exists to prevent
- * is recorded on `OverlayEndpointDiscovery.preferLanFor`.
+ * tested this way: whether an echo service is reachable. The verdict that once consumed those
+ * answers — an egress-address match deciding home-vs-away — was deleted with the v1→v2 record
+ * change, so the helpers below are now a general capability with a tested pure half rather than a
+ * live seam. See `OverlayEgress.localLinkAddresses`.
  *
  * ⚠️ **The subnet arithmetic is the reason this file exists.** The house is not a `/24` — the
  * deployment advertises `192.168.68.0/22` — so a string-prefix comparison that looks obviously

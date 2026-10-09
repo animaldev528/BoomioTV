@@ -218,11 +218,20 @@ internal sealed interface ProvisionMessage {
     /**
      * An assignment, in the shape the rest of the app already consumes.
      *
-     * [lanEndpoint] and [wanEndpoint] are the two discovery-name endpoints — the same pair the
-     * DuckDNS tuple publishes — and they are carried through rather than dropped because they
-     * are what the names tier prefers over the single [OverlayAssignment.endpoint] once the
-     * device is off the home LAN. Null here means the server did not offer one, not that it is
-     * empty; the ladder's existing fallback covers that.
+     * ⚠️ **[lanEndpoint] and [wanEndpoint] are v2-shaped and nothing reads them.** They used to be
+     * the two discovery *names* the client walked when it was off the home LAN; v2 replaced that
+     * walk with the record's own `lan=`/`wan=` literals, and the ladder now learns them through one
+     * funnel that both publication channels share. The adapter publishes `address:port` here
+     * whenever the tuple carries an address, and `${PROV_NAME}:${OVERLAY_WG_PORT}` when it does not
+     * (see `overlay/overlay-enroll-adapter.sh`) — so this field is a literal *or* a name depending
+     * on the box's state, which is exactly why it is not a safe pin source without a parse. It is
+     * kept because it is on the wire and this type mirrors the wire; parsing a field is not the same
+     * as acting on it, and dropping it here would hide a field the server still sends.
+     *
+     * The value they would add is narrow and stated so it is not rediscovered as a surprise: a
+     * device that has *just enrolled*, on a network where public DNS for the discovery name is
+     * filtered. Every other path already gets the same two literals from the record (rung 2) or the
+     * browse (rung 1), so wiring these is a small increment rather than a gap in the ladder.
      */
     data class EnrollReady(
         val name: String?,

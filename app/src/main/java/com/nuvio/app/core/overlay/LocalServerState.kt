@@ -28,6 +28,14 @@ import kotlinx.coroutines.flow.update
  * more than a local hop. Both tiers are pin-*first*, so ranking them wrongly costs one
  * failed connect, never a broken app.
  *
+ * ⚠️ **`WAN` is last, and its position is the whole of what it means.** It is the same server as
+ * `LAN`, seen from off the property: the public address the discovery record publishes as `wan=`.
+ * A private address on a foreign network is refused immediately rather than after a timeout, so
+ * putting the LAN literal first costs one fast refusal away from home and nothing at all at home
+ * — which is why the order is fixed here rather than decided per network by comparing egress
+ * addresses. That comparison, and the on-link test that backed it up, are gone: they answered
+ * "which of these two *names* resolves usefully", and two literals need no such question.
+ *
  * ⚠️ **The LAN tier still runs at home, and that is not vestigial.** Its remaining job is to
  * supply the tunnel's **endpoint** — [OverlayLocalDiscovery.pinCandidate] still publishes
  * `pinnedAddress` and the verified advert, which is what `OverlaySession` dials. What changes
@@ -41,6 +49,17 @@ enum class LocalServerSource {
 
     /** The server's own address, found by mDNS on the network the phone is on. */
     LAN,
+
+    /**
+     * The server's public address, as the discovery record publishes it.
+     *
+     * ⚠️ **The only source that is placed from the *tuple* rather than from a probe.** mDNS
+     * supplies `LAN` and the tunnel supplies `TUNNEL`, each from something the device can observe
+     * for itself; this one exists because the service name's public `A` record deliberately points
+     * at the *private* address, so off the property the name resolves to something undialable and
+     * the published `wan=` literal is the only way to reach the HTTP plane.
+     */
+    WAN,
 }
 
 /**

@@ -9,6 +9,16 @@ import java.io.DataInputStream
 private const val TAG = "OverlayProbe"
 
 /**
+ * What the probe queries when [BoomioConfig.serviceOrigin] yields no host.
+ *
+ * Belt and braces rather than a real path: the origin's own default is a well-formed URL, so this
+ * only fires if a caller has written something unparseable into that field. Naming a host anyway
+ * is better than probing the empty string, which would report a DNS failure and be read as a
+ * broken tunnel.
+ */
+private const val DEFAULT_PROBE_DNS_NAME = "boomio.duckdns.org"
+
+/**
  * Debug-only: proves the userspace tunnel works **inside an installed APK**.
  *
  * ⚠️ **This exists because that is the one thing still completely unproven.** Spike B measured
@@ -61,12 +71,21 @@ object OverlayProbe {
      * A name that must resolve inside the tunnel, so a correct answer means real carriage.
      *
      * ⚠️ **This is the name the app actually dials, not any one service's host.** The collapsed
-     * edge serves every service off `boomio.tracemonkey.org` behind a path prefix, so probing a
-     * per-service host (`bsc.tracemonkey.org`) would prove carriage of a name nothing dials any
-     * more — a green probe over a broken configuration. Keep this equal to the host the
-     * collapsed `BOOMIO_*` values point at.
+     * edge serves every service off one host behind a path prefix, so probing a per-service host
+     * (`bsc.…`) would prove carriage of a name nothing dials any more — a green probe over a
+     * broken configuration.
+     *
+     * ⚠️ **Read from [BoomioConfig.serviceOrigin] rather than baked, and that is the point.** The
+     * origin is now learned from the discovery record, so a probe naming a compiled-in host would
+     * go on reporting green for a name the app stopped using the moment the deployment renamed
+     * itself — the exact failure this constant's previous value had. Reading it live keeps the
+     * probe honest about what the app is actually configured to dial.
+     *
+     * A `get()` rather than a `const`: the origin changes at runtime, and a probe that ran before
+     * discovery finished would otherwise be frozen on the default for the life of the process.
      */
-    private const val PROBE_DNS_NAME = "boomio.tracemonkey.org"
+    private val PROBE_DNS_NAME: String
+        get() = hostOf(BoomioConfig.serviceOrigin) ?: DEFAULT_PROBE_DNS_NAME
 
     /**
      * Wall-clock bound on the in-tunnel query.

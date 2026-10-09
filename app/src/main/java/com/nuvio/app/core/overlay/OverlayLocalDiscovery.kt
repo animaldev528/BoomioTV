@@ -140,27 +140,27 @@ internal object OverlayLocalDiscovery {
     fun lastVerifiedAdvert(): OverlayMdnsAdvert? = lastVerifiedAdvert
 
     /**
-     * The discovery names the last advert this browse **saw** carried, whether or not its address
-     * was usable.
+     * The dial targets the last advert this browse **saw** carried, whether or not its address was
+     * usable.
      *
      * ⚠️ **Distinct from [lastVerifiedAdvert], and the difference is the whole reason this
      * exists.** That field means "an advert whose SRV target resolved to something this device can
      * dial"; this one means "an advert arrived and named its server". The two come apart in exactly
      * the case that matters: a platform whose NSD hands back a link-local IPv6 and no `A` leaves the
-     * address unusable while the names remain perfectly good, and a client that throws the names
-     * away with the address has discarded them in the one case that needs them.
+     * address unusable while the targets remain perfectly good, and a client that throws the
+     * targets away with the address has discarded them in the one case that needs them.
      *
-     * The names are the part of an advert that does not depend on the network it arrived over --
-     * see [OverlayDiscoveryNames] -- so they are kept separately from the address that does.
+     * The targets are the part of an advert that does not depend on the network it arrived over --
+     * see [OverlayDiscoveryTargets] -- so they are kept separately from the address that does.
      *
-     * Cleared by [clear] with the pin, and for the same reason: a name learned from the network the
+     * Cleared by [clear] with the pin, and for the same reason: a target learned from the network the
      * device has just left is the stale-discovery failure this whole subsystem exists to prevent.
      */
     @Volatile
-    private var advertNames: OverlayDiscoveryNames? = null
+    private var advertTargets: OverlayDiscoveryTargets? = null
 
-    /** The names from the last advert *seen*, usable address or not. See [advertNames]. */
-    fun advertNames(): OverlayDiscoveryNames? = advertNames
+    /** The targets from the last advert *seen*, usable address or not. See [advertTargets]. */
+    fun advertTargets(): OverlayDiscoveryTargets? = advertTargets
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
@@ -300,7 +300,7 @@ internal object OverlayLocalDiscovery {
         // The advert goes with the pin. The endpoint ladder reads this, and an advert resolved
         // on the network the phone has just left names a host that is not on this one.
         lastVerifiedAdvert = null
-        advertNames = null
+        advertTargets = null
         OverlayPinRegistry.clear(LocalServerSource.LAN)
         LocalServerState.update(LocalServerSource.LAN, LocalServerStatus.Idle)
     }
@@ -435,11 +435,8 @@ internal object OverlayLocalDiscovery {
         // clears this with it.
         lastVerifiedAdvert = OverlayMdnsAdvert(
             address = candidate.address,
-            serverPublicKeyBase64 = candidate.serverPublicKey,
-            port = candidate.wgPort,
             serviceName = candidate.serviceName,
-            lanName = candidate.lanName,
-            wanName = candidate.wanName,
+            tuple = candidate.tuple,
         )
         OverlayPinRegistry.pin(LocalServerSource.LAN, hosts, candidate.address)
         LocalServerState.update(
@@ -472,26 +469,22 @@ internal object OverlayLocalDiscovery {
         val hostName: String?,
         val version: String?,
         /**
-         * The advert's `pubkey` and `port` — the WireGuard half of the tuple.
+         * The advert's whole tuple — the WireGuard key and port, the two dial addresses and the
+         * service name, exactly as [parseMdnsAdvertTxt] read them.
          *
-         * Null when the advert did not carry them, which is a real case worth representing:
-         * a server older than the tunnel publishes `addr`/`v` and nothing else, and the ladder
-         * must see an unusable candidate rather than a fabricated key.
-         */
-        val serverPublicKey: String? = null,
-        val wgPort: Int? = null,
-        /**
-         * The advert's `lan=`/`wan=` — the two names that outlive the network this advert came
-         * from. Null when the advert did not carry them, which is the case for a server older
-         * than `#66`.
+         * ⚠️ **Carried whole rather than unpacked, and that is a correction.** This class used to
+         * hold the four fields the tunnel needed, which was correct while the tunnel was rung 1's
+         * only consumer and wrong the moment the ladder needed the addresses too: the advert was
+         * parsed here and only half of it survived, so the ladder re-read the same TXT map at
+         * `OverlayEndpointDiscovery` and the two readings could drift. One parse, one type, and the
+         * same shape the DNS rung produces.
          *
-         * ⚠️ **These are not part of the tuple.** The tuple is what a *tunnel* needs — a key
-         * and a port, both true wherever the client stands. These are what the *ladder* needs
-         * once the address it pinned has stopped routing, in which case nothing about the tuple
-         * is wrong and the endpoint is still useless. See [OverlayDiscoveryNames].
+         * It may be an **empty** tuple — a server with no version, or one older than the tunnel,
+         * publishes an advert this client refuses — and that is a state worth representing rather
+         * than a case to filter: the address is still a perfectly good pin, and the ladder is the
+         * component that gets to decide a keyless advert is unusable.
          */
-        val lanName: String? = null,
-        val wanName: String? = null,
+        val tuple: OverlayAdvertTuple,
     )
 
     /**
@@ -610,7 +603,7 @@ internal object OverlayLocalDiscovery {
         // reads an unusable *key* this way ("an advert whose key is unusable is still a server whose
         // name is worth knowing"), and an unusable *address* is the same kind of fact.
         val tuple = parseMdnsAdvertTxt(attributesOf(info))
-        rememberAdvertNames(tuple.lanName, tuple.wanName)
+        rememberAdvertTargets(tuple.targets)
         val address = addresses.firstOrNull { it is Inet4Address && it.isUsableLanAddress() }
         if (address == null) {
             Log.d(TAG, "No usable IPv4 address for '${info.serviceName}'")
@@ -628,23 +621,24 @@ internal object OverlayLocalDiscovery {
             serviceName = info.serviceName,
             hostName = runCatching { info.host?.hostName }.getOrNull(),
             version = attributeVersion(info),
-            serverPublicKey = validServerKeyOrNull(tuple.serverPublicKeyBase64),
-            wgPort = tuple.port,
-            lanName = tuple.lanName,
-            wanName = tuple.wanName,
+            tuple = tuple,
         )
     }
 
     /**
-     * Records the names an advert carried, for the endpoint ladder.
+     * Records the targets an advert carried, for the endpoint ladder.
      *
-     * Replaced wholesale rather than merged, for the reason [OverlayDiscoveryNames] gives: both
-     * fields are one server's current truth, so a record carrying only one has withdrawn the other.
+     * ⚠️ **Replaced wholesale rather than merged, and the replacement is complete.** Both fields are
+     * one server's current truth, so a record carrying only one plane has withdrawn the other --
+     * merging would keep a withdrawn `wan` alive for the life of the process, which is the
+     * stale-discovery failure this subsystem exists to prevent. An advert that named no plane at all
+     * is *not* recorded, because it is not a withdrawal: a server that never published addresses has
+     * said nothing about them, and overwriting known-good targets with nothing would let an older
+     * advert on the same segment erase a newer one's.
      */
-    private fun rememberAdvertNames(lan: String?, wan: String?) {
-        val names = OverlayDiscoveryNames(lan = lan, wan = wan)
-        if (names.isEmpty) return
-        advertNames = names
+    private fun rememberAdvertTargets(targets: OverlayDiscoveryTargets) {
+        if (targets.isEmpty) return
+        advertTargets = targets
     }
 
     /** `attributes` throws on some platform builds when the record was never resolved. */
@@ -694,21 +688,24 @@ internal object OverlayLocalDiscovery {
     /**
      * Whether the default network is a LAN transport (Wi-Fi or Ethernet).
      *
-     * ⚠️ **`internal` rather than private because [OverlayEndpointDiscovery] reads it too** — but
-     * only as its *last* resort, when neither the egress match nor the on-link test could read the
-     * network at all. See `OverlayEndpointDiscovery.preferLanFor`.
+     * **Private, because the one reader outside this file is gone.** It used to be `internal` so
+     * `OverlayEndpointDiscovery` could consult it as the *last* resort of the home-vs-away verdict,
+     * when neither the egress match nor the on-link test could read the network at all. v2 deleted
+     * that verdict — the record publishes a LAN *address* and a WAN *address*, and the connect tries
+     * them in a fixed order rather than asking where it is — so the only caller left is this file's
+     * own cold-launch shortcut.
      *
      * ⚠️ **This describes the link, not the network's identity, and a phone hotspot is a Wi-Fi
      * transport.** A device that roamed from the house to a hotspot answers `true` here, which is
-     * why this can no longer be the first question asked. It was, and it sent a TV on a hotspot to
+     * why this must never be the only question asked. It was, and it sent a TV on a hotspot to
      * its own unroutable LAN address (measured 2026-10-07).
      *
-     * The caveat that once made the answer meaningful for that caller still holds: the overlay's own
-     * tunnel is userspace and registers no VPN network, so sitting on Wi-Fi still reads as LAN even
-     * with the tunnel up. A third-party `VpnService` (NordVPN) does hold the slot and therefore
-     * reads as non-LAN.
+     * The caveat that once made the answer meaningful for the deleted caller still holds: the
+     * overlay's own tunnel is userspace and registers no VPN network, so sitting on Wi-Fi still reads
+     * as LAN even with the tunnel up. A third-party `VpnService` (NordVPN) does hold the slot and
+     * therefore reads as non-LAN.
      */
-    internal fun isOnLocalNetwork(context: Context): Boolean {
+    private fun isOnLocalNetwork(context: Context): Boolean {
         val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
             ?: return false
         val capabilities = manager.activeNetwork?.let { manager.getNetworkCapabilities(it) }

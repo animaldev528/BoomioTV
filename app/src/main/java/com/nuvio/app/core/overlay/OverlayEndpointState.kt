@@ -20,7 +20,7 @@ enum class OverlayEndpointSource {
     /** Rung 1 — the mDNS advert `_boomio-overlay._udp`, on the server's own network. */
     MDNS,
 
-    /** Rung 2 — the `boomio-local` DNS record, when mDNS is blocked or unavailable. */
+    /** Rung 2 — the `boomio-prov.duckdns.org` TXT record, when mDNS is blocked or unavailable. */
     LOCAL_DNS,
 
     /**
@@ -31,18 +31,19 @@ enum class OverlayEndpointSource {
     MANUAL,
 
     /**
-     * The two names the server publishes, climbed **only after every rung has missed the gate**.
+     * The addresses the discovery record publishes, tried **only after every rung has missed the
+     * gate**.
      *
      * ⚠️ **This is not a fourth rung, and the order above is what says so.** The three rungs
      * answer "where is the server?"; this answers "the answer I had has gone stale", which is a
      * state only the gate can detect. It fires when rung 1 has nothing to say *and* the address
      * rung 3 is still holding does not answer on the current network — which is exactly the phone
      * having left the house. It is declared last because it is tried last, and because an endpoint
-     * that came from a name must be distinguishable in a support log from one a human typed.
+     * that came from the record must be distinguishable in a support log from one a human typed.
      *
-     * See `OverlayDiscoveryNames` for what the names are and why they are a pair.
+     * See `OverlayDiscoveryTargets` for what is dialled here and why the order is fixed.
      */
-    DISCOVERY_NAME,
+    DISCOVERY_RECORD,
 }
 
 /**

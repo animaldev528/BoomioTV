@@ -16,15 +16,22 @@ private const val TAG = "OverlayEgress"
  * The egress question's budget, handed to [fetchEgressIp] — which is a real bound, and this is the
  * number it is actually bounded by.
  *
- * ⚠️ **Bounded because it sits on the discovery path**, in front of the names tier's walk. The walk
- * only ever runs after every rung has already missed the gate, so this is the tail of an
- * already-slow path; it buys a correct answer with a bounded delay and must never be allowed to
+ * ⚠️ **Bounded because it sat on the discovery path**, in front of the names tier's walk. The walk
+ * only ever ran after every rung had already missed the gate, so this was the tail of an
+ * already-slow path; it bought a correct answer with a bounded delay and must never be allowed to
  * grow into an unbounded one. 1500 ms is roughly five times a healthy round trip to any of the
  * services below, which leaves room for one retry and no room for a hang.
  *
  * ⚠️ **The bound is the budget *plus one attempt*, not the budget exactly** — see [fetchEgressIp]
- * for why a coroutine timeout cannot tighten that. [egressMatchesPublishedWan] splits this figure
- * between its own two waits, so the whole check costs this plus its name resolution.
+ * for why a coroutine timeout cannot tighten that.
+ *
+ * ⚠️ **The caller that gave this its reason to exist is gone, and this is kept deliberately.**
+ * `egressMatchesPublishedWan` compared this device's public address with the one the server
+ * published under `wan=`, to decide whether the client was at home — back when `wan=` was a *name*
+ * to resolve. In v2 the record publishes `wan=` as an address and the client hands both addresses
+ * to the connect instead of guessing, so the comparison has nothing left to decide. The probe
+ * itself is a general "what is my public address" capability with a measured set of endpoints, so
+ * it stays; what was deleted is the name-driven verdict built on top of it.
  */
 internal const val EGRESS_BUDGET_MS = 1_500L
 
@@ -136,8 +143,14 @@ internal fun isOnLink(link: InetAddress, prefixLength: Int, candidate: InetAddre
 /**
  * Every address this device currently holds on its default network, with its prefix length.
  *
- * Empty means "nothing to compare against" — see [OverlayEndpointDiscovery.preferLanFor], which
- * reads that as *unknown* rather than as *not home*.
+ * Empty means "nothing to compare against" — which the caller that used to read it treated as
+ * *unknown* rather than as *not home*.
+ *
+ * ⚠️ **Nothing in the app reads this today.** It fed the on-link half of the home-vs-away verdict,
+ * and v2 deleted that verdict: the record now publishes both a LAN and a WAN *address*, and the
+ * connect tries them in a fixed order rather than asking where it is. The function is kept, like the
+ * egress probe above it, because "which subnet is this device on" is a general capability with a
+ * tested pure half ([isOnLink]) — but it is a capability with no current caller, not a live seam.
  */
 internal fun localLinkAddresses(context: Context): List<Pair<InetAddress, Int>> {
     val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
@@ -222,29 +235,3 @@ internal suspend fun fetchEgressIp(budgetMs: Long): String? =
         null
     }
 
-/**
- * Whether this device's public address is the one [wanName] publishes — or null when no verdict can
- * be reached. **Never throws, and never exceeds [budgetMs] by more than one echo attempt** (see
- * [fetchEgressIp], which is where that overrun lives; the figure here is split between the two
- * waits this check makes rather than spent twice).
- *
- * ⚠️ **A WAN name that resolves to a private address yields `null`, not `false`.** The whole value
- * of this test is that it compares two *public* addresses; if the published name answers with
- * something private, the deployment is misconfigured or the name has been repointed, and the honest
- * answer is "I cannot tell" so the caller falls through to the on-link test rather than acting on a
- * comparison that could not have been meaningful.
- */
-internal suspend fun egressMatchesPublishedWan(wanName: String, budgetMs: Long): Boolean? {
-    // ⚠️ Split rather than spent twice: resolving the published name and asking the internet are
-    // two waits, and handing each the *whole* budget would make this check cost twice what its
-    // caller was told it costs. Resolution gets a third and answers in tens of milliseconds when it
-    // answers at all, so the probe keeps the bulk.
-    val resolveBudget = budgetMs / 3
-    val published = resolveHost(wanName, resolveBudget) ?: return null
-    if (published.isSiteLocalAddress || published.isLoopbackAddress || published.isLinkLocalAddress) {
-        Log.d(TAG, "'$wanName' resolved to a non-public address (${published.hostAddress}); no verdict")
-        return null
-    }
-    val egress = fetchEgressIp(budgetMs - resolveBudget) ?: return null
-    return sameFamilyAddress(published.hostAddress, egress)
-}

@@ -109,7 +109,7 @@ class OverlayEndpointDiscoveryTest {
                 "addr" to "10.77.0.1".toByteArray(),
                 "pubkey" to PUBLISHED_SERVER_KEY_B64.toByteArray(),
                 "port" to "51820".toByteArray(),
-                "v" to "1".toByteArray(),
+                "v" to "2".toByteArray(),
             ),
         )
         assertEquals(PUBLISHED_SERVER_KEY_B64, tuple.serverPublicKeyBase64)
@@ -120,7 +120,12 @@ class OverlayEndpointDiscoveryTest {
     fun `the mDNS advert accepts pk as well as pubkey`() {
         // The two channels spell the field differently, and a rung that only knew one spelling
         // would fail for a reason that has nothing to do with discovery.
-        val tuple = parseMdnsAdvertTxt(mapOf("pk" to PUBLISHED_SERVER_KEY_B64.toByteArray()))
+        val tuple = parseMdnsAdvertTxt(
+            mapOf(
+                "v" to "2".toByteArray(),
+                "pk" to PUBLISHED_SERVER_KEY_B64.toByteArray(),
+            ),
+        )
         assertEquals(PUBLISHED_SERVER_KEY_B64, tuple.serverPublicKeyBase64)
     }
 
@@ -134,14 +139,20 @@ class OverlayEndpointDiscoveryTest {
     fun `a blank value in an advert reads as absent`() {
         // An advert written by a shell script can very easily publish `pubkey=` with nothing
         // after it; that must not become a key that is the empty string.
-        val tuple = parseMdnsAdvertTxt(mapOf("pubkey" to "".toByteArray(), "port" to "  ".toByteArray()))
+        val tuple = parseMdnsAdvertTxt(
+            mapOf(
+                "v" to "2".toByteArray(),
+                "pubkey" to "".toByteArray(),
+                "port" to "  ".toByteArray(),
+            ),
+        )
         assertNull(tuple.serverPublicKeyBase64)
         assertNull(tuple.port)
     }
 
     @Test
     fun `the DuckDNS TXT record parses into the same tuple as the mDNS advert`() {
-        val tuple = parseDnsTxtRecord(listOf("v1;pk=$PUBLISHED_SERVER_KEY_B64;port=51820;prov=0"))
+        val tuple = parseDnsTxtRecord(listOf("v=2;pk=$PUBLISHED_SERVER_KEY_B64;port=51820;prov=0"))
         assertEquals(PUBLISHED_SERVER_KEY_B64, tuple.serverPublicKeyBase64)
         assertEquals(51820, tuple.port)
     }
@@ -156,7 +167,7 @@ class OverlayEndpointDiscoveryTest {
         // input shape the production path never produces — the failure was in the test's
         // placement of the boundary, not in the parser.)
         val tuple = parseDnsTxtRecord(
-            listOf("v1;pk=$PUBLISHED_SERVER_KEY_B64", "port=51820"),
+            listOf("v=2;pk=$PUBLISHED_SERVER_KEY_B64", "port=51820"),
         )
         assertEquals(PUBLISHED_SERVER_KEY_B64, tuple.serverPublicKeyBase64)
         assertEquals(51820, tuple.port)
@@ -177,12 +188,12 @@ class OverlayEndpointDiscoveryTest {
         val half = PUBLISHED_SERVER_KEY_B64.length / 2
         val response = dnsResponse(
             id = 1,
-            question = "boomio-local.tracemonkey.org",
+            question = "boomio-prov.duckdns.org",
             questionType = TYPE_TXT,
             answers = listOf(
                 Answer(
                     TYPE_TXT,
-                    txtRdata("v1;pk=${PUBLISHED_SERVER_KEY_B64.take(half)}", "${PUBLISHED_SERVER_KEY_B64.drop(half)};port=51820"),
+                    txtRdata("v=2;pk=${PUBLISHED_SERVER_KEY_B64.take(half)}", "${PUBLISHED_SERVER_KEY_B64.drop(half)};port=51820"),
                 ),
             ),
         )
@@ -196,13 +207,13 @@ class OverlayEndpointDiscoveryTest {
     @Test
     fun `an unknown TXT field is ignored rather than fatal`() {
         // The format is versioned so a server can add fields without a client update.
-        val tuple = parseDnsTxtRecord(listOf("v2;pk=$PUBLISHED_SERVER_KEY_B64;port=51820;future=yes"))
+        val tuple = parseDnsTxtRecord(listOf("v=2;pk=$PUBLISHED_SERVER_KEY_B64;port=51820;future=yes"))
         assertEquals(51820, tuple.port)
     }
 
     @Test
     fun `a TXT record with no key yields an addressable but unusable tuple`() {
-        val tuple = parseDnsTxtRecord(listOf("v1;port=51820"))
+        val tuple = parseDnsTxtRecord(listOf("v=2;port=51820"))
         assertNull(tuple.serverPublicKeyBase64)
         assertEquals(51820, tuple.port)
     }
@@ -217,7 +228,7 @@ class OverlayEndpointDiscoveryTest {
         // handshake has a keypair of its own, because bsc is deliberately not trusted with the
         // tunnel's identity.
         val tuple = parseDnsTxtRecord(
-            listOf("v1;pk=$PUBLISHED_SERVER_KEY_B64;port=51820;prov=1;ppk=$PROVISIONING_KEY_B64"),
+            listOf("v=2;pk=$PUBLISHED_SERVER_KEY_B64;port=51820;prov=1;ppk=$PROVISIONING_KEY_B64"),
         )
         assertEquals(PUBLISHED_SERVER_KEY_B64, tuple.serverPublicKeyBase64)
         assertEquals(PROVISIONING_KEY_B64, tuple.provisioningPublicKeyBase64)
@@ -232,11 +243,11 @@ class OverlayEndpointDiscoveryTest {
         // record that never mentioned it. Both are closed — but only one of them is an answer, and
         // a field that could not tell the difference could not later report "this server does not
         // offer provisioning" separately from "this server has it switched off".
-        val off = parseDnsTxtRecord(listOf("v1;pk=$PUBLISHED_SERVER_KEY_B64;port=51820;prov=0"))
+        val off = parseDnsTxtRecord(listOf("v=2;pk=$PUBLISHED_SERVER_KEY_B64;port=51820;prov=0"))
         assertEquals(false, off.provisioningEnabled)
         assertTrue(!off.offersProvisioning)
 
-        val unstated = parseDnsTxtRecord(listOf("v1;pk=$PUBLISHED_SERVER_KEY_B64;port=51820"))
+        val unstated = parseDnsTxtRecord(listOf("v=2;pk=$PUBLISHED_SERVER_KEY_B64;port=51820"))
         assertNull(unstated.provisioningEnabled)
         assertTrue(!unstated.offersProvisioning, "an unstated switch is closed, not permissive")
     }
@@ -246,7 +257,7 @@ class OverlayEndpointDiscoveryTest {
         // `prov` gates an unauthenticated, internet-facing listener. A value the client cannot
         // read must not be rounded to "on" — the same position the server takes on its own flag,
         // where a missing or unreadable file means provisioning is OFF.
-        val tuple = parseDnsTxtRecord(listOf("v1;port=51820;prov=maybe"))
+        val tuple = parseDnsTxtRecord(listOf("v=2;port=51820;prov=maybe"))
         assertNull(tuple.provisioningEnabled)
         assertTrue(!tuple.offersProvisioning)
     }
@@ -257,7 +268,7 @@ class OverlayEndpointDiscoveryTest {
         // would never open, and an unopenable handshake is indistinguishable from an impostor —
         // so a typo would read as an attack. Validating at the edge keeps "this record is
         // malformed" from arriving as "this server is not the server it claims to be".
-        val tuple = parseDnsTxtRecord(listOf("v1;port=51820;ppk=not-a-key"))
+        val tuple = parseDnsTxtRecord(listOf("v=2;port=51820;ppk=not-a-key"))
         assertNull(tuple.provisioningPublicKeyBase64)
     }
 
@@ -266,14 +277,14 @@ class OverlayEndpointDiscoveryTest {
         // The §4.3 escape hatch: if provisioning ever needs its own number, a deployed client
         // already follows the split. Unused today, which is exactly why it is worth pinning —
         // the day it is used is not the day to discover the client ignored it.
-        val tuple = parseDnsTxtRecord(listOf("v1;port=51820;pport=4430"))
+        val tuple = parseDnsTxtRecord(listOf("v=2;port=51820;pport=4430"))
         assertEquals(4430, tuple.provisioningPort)
         assertEquals(51820, tuple.port, "the tunnel's own port is unaffected")
     }
 
     @Test
     fun `a malformed pport falls back to the tunnel port`() {
-        val tuple = parseDnsTxtRecord(listOf("v1;port=51820;pport=99999999999"))
+        val tuple = parseDnsTxtRecord(listOf("v=2;port=51820;pport=99999999999"))
         assertNull(tuple.provisioningPortOverride)
         assertEquals(51820, tuple.provisioningPort)
     }
@@ -286,6 +297,7 @@ class OverlayEndpointDiscoveryTest {
         // that has nothing to do with discovery.
         val tuple = parseMdnsAdvertTxt(
             mapOf(
+                "v" to "2".toByteArray(),
                 "pubkey" to PUBLISHED_SERVER_KEY_B64.toByteArray(),
                 "port" to "51820".toByteArray(),
                 "prov" to "1".toByteArray(),
@@ -315,77 +327,145 @@ class OverlayEndpointDiscoveryTest {
     }
 
     // -----------------------------------------------------------------------------------------
-    // The two discovery names — the client half of #66
+    // The v2 publication — the tuple both channels carry
     // -----------------------------------------------------------------------------------------
 
     @Test
-    fun `the mDNS advert publishes both discovery names`() {
+    fun `the mDNS advert carries the service name, both addresses and the per-plane ports`() {
         val tuple = parseMdnsAdvertTxt(
             mapOf(
+                "v" to "2".toByteArray(),
                 "pubkey" to PUBLISHED_SERVER_KEY_B64.toByteArray(),
                 "port" to "51820".toByteArray(),
-                "lan" to LAN_NAME.toByteArray(),
-                "wan" to WAN_NAME.toByteArray(),
+                "svc" to SERVICE_NAME.toByteArray(),
+                "lan" to LAN_ADDR.toByteArray(),
+                "wan" to WAN_ADDR.toByteArray(),
+                "lanport" to "51821".toByteArray(),
+                "wanport" to "51822".toByteArray(),
+                "lanpport" to "51831".toByteArray(),
+                "wanpport" to "51832".toByteArray(),
             ),
         )
-        assertEquals(LAN_NAME, tuple.lanName)
-        assertEquals(WAN_NAME, tuple.wanName)
-    }
-
-    @Test
-    fun `the DuckDNS TXT record publishes both discovery names`() {
-        val tuple = parseDnsTxtRecord(
-            listOf("v1;pk=$PUBLISHED_SERVER_KEY_B64;port=51820;prov=0;lan=$LAN_NAME;wan=$WAN_NAME"),
+        assertEquals(SERVICE_NAME, tuple.svcName)
+        assertEquals(LAN_ADDR, tuple.lanAddress)
+        assertEquals(WAN_ADDR, tuple.wanAddress)
+        // ⚠️ The addresses become planes, each carrying its *own* pair of ports. A record naming
+        // only the generic `port=` still yields both planes, but a record that names per-plane
+        // ports must not have them overwritten by the generic one.
+        assertEquals(
+            listOf(LAN_ADDR to 51821, WAN_ADDR to 51822),
+            tuple.targets.inOrder().map { it.host to it.tunnelPort },
         )
-        assertEquals(LAN_NAME, tuple.lanName)
-        assertEquals(WAN_NAME, tuple.wanName)
+        assertEquals(listOf(51831, 51832), tuple.targets.inOrder().map { it.provisioningPort })
+        // LAN first, and the flag that says so travels with the plane rather than with its index.
+        assertEquals(listOf(true, false), tuple.targets.inOrder().map { it.isLan })
     }
 
     @Test
-    fun `the names survive a publication that splits them across two TXT records`() {
-        // The publisher is free to put the tuple and the names in separate records, and the
-        // join-on-`;` is what makes that readable as one publication rather than two halves.
+    fun `the DuckDNS TXT record carries the same tuple as the advert`() {
+        // The two channels spell the tuple differently — one attribute per field versus one
+        // semicolon-separated string — so carrying the *same* fields on both is what lets nothing
+        // downstream know which rung answered.
         val tuple = parseDnsTxtRecord(
-            listOf("v1;pk=$PUBLISHED_SERVER_KEY_B64;port=51820", "lan=$LAN_NAME;wan=$WAN_NAME"),
+            listOf(
+                "v=2;pk=$PUBLISHED_SERVER_KEY_B64;port=51820;prov=1;svc=$SERVICE_NAME" +
+                    ";lan=$LAN_ADDR;wan=$WAN_ADDR;lanport=51821;wanport=51822" +
+                    ";lanpport=51831;wanpport=51832",
+            ),
+        )
+        assertEquals(SERVICE_NAME, tuple.svcName)
+        assertEquals(
+            listOf(LAN_ADDR to 51821, WAN_ADDR to 51822),
+            tuple.targets.inOrder().map { it.host to it.tunnelPort },
+        )
+        assertEquals(listOf(51831, 51832), tuple.targets.inOrder().map { it.provisioningPort })
+        assertTrue(tuple.offersProvisioning)
+    }
+
+    @Test
+    fun `the tuple survives a publication that splits it across two TXT strings`() {
+        // A DNS TXT record is a *sequence* of strings, and a resolver may return one logical record
+        // split across several. The join-on-`;` is what makes that readable as one publication
+        // rather than two halves -- and it is also why the version token need not be the first
+        // string the parser sees for the gate to find it.
+        val tuple = parseDnsTxtRecord(
+            listOf(
+                "v=2;pk=$PUBLISHED_SERVER_KEY_B64;port=51820",
+                "svc=$SERVICE_NAME;lan=$LAN_ADDR;wan=$WAN_ADDR",
+            ),
         )
         assertEquals(PUBLISHED_SERVER_KEY_B64, tuple.serverPublicKeyBase64)
-        assertEquals(LAN_NAME, tuple.lanName)
-        assertEquals(WAN_NAME, tuple.wanName)
+        assertEquals(SERVICE_NAME, tuple.svcName)
+        assertEquals(LAN_ADDR, tuple.lanAddress)
+        assertEquals(WAN_ADDR, tuple.wanAddress)
     }
 
     @Test
-    fun `a publication older than the names reads as no names, not as a crash`() {
-        // Every deployed server is this shape until #66 ships, so it is the common case rather
-        // than an edge one -- and it must be "unknown", never a name that is the empty string.
+    fun `a v1 record is refused whole, never half-parsed`() {
+        // ⚠️ The one case that must not be lenient, and the reason `v=` is a required field rather
+        // than a hint. `lan=` and `wan=` were *names* in v1 and are *addresses* in v2, so a v1 value
+        // is a perfectly well-formed string that under the v2 rule yields no plane at all. Read
+        // leniently it would report "nothing published" about a record that published two names --
+        // and go on reporting it indefinitely. The gate returns an empty tuple instead, which the
+        // ladder survives by falling through to its baked defaults.
+        val txt = parseDnsTxtRecord(listOf("v1;pk=$PUBLISHED_SERVER_KEY_B64;port=51820"))
+        assertNull(txt.serverPublicKeyBase64)
+        assertTrue(txt.targets.isEmpty)
+
+        // Unstated is refused by the same rule, not treated as "old enough to trust".
         val mdns = parseMdnsAdvertTxt(mapOf("pubkey" to PUBLISHED_SERVER_KEY_B64.toByteArray()))
-        assertNull(mdns.lanName)
-        assertNull(mdns.wanName)
-
-        val txt = parseDnsTxtRecord(listOf("v1;pk=$PUBLISHED_SERVER_KEY_B64;port=51820;prov=0"))
-        assertNull(txt.lanName)
-        assertNull(txt.wanName)
+        assertNull(mdns.serverPublicKeyBase64)
+        assertTrue(mdns.targets.isEmpty)
     }
 
     @Test
-    fun `a blank or malformed name reads as absent`() {
-        // A publisher bug must not become a resolver call on the ladder's *failure* path, which
-        // is the one place a stray timeout is least affordable.
+    fun `a bare version token is unstated, not an unknown version`() {
+        // ⚠️ This is the trap the version constant exists to avoid, and it has caught this codebase
+        // twice already -- once in the publisher (`TXT_VERSION = "v2"`) and once in this file's own
+        // fixtures, where a dozen records spelled the token `v1`/`v2` and were silently refused.
+        //
+        // `parseDnsTxtRecord` splits on `;` and drops any token with no `=` in it, so `v2` is not
+        // "version 2 -- refuse it"; it is *absent*, exactly like a record that never carried the
+        // field. The two are the same outcome here, which is why the bug is invisible: the gate
+        // still refuses, and the log still blames a version. The publisher must therefore write
+        // `v=2`, and a future bump must write `v=3` rather than `v3`.
+        val bare = parseDnsTxtRecord(listOf("v2;pk=$PUBLISHED_SERVER_KEY_B64;port=51820"))
+        assertNull(bare.serverPublicKeyBase64, "a token with no `=` never reaches the gate")
+        assertTrue(bare.targets.isEmpty)
+
+        // And the same record with the `=` present is read as published, which is the whole
+        // difference the assertion above is about.
+        val proper = parseDnsTxtRecord(listOf("v=2;pk=$PUBLISHED_SERVER_KEY_B64;port=51820"))
+        assertEquals(PUBLISHED_SERVER_KEY_B64, proper.serverPublicKeyBase64)
+        assertEquals(51820, proper.port)
+    }
+
+    @Test
+    fun `a name where an address belongs reads as absent, never as something to resolve`() {
+        // A record whose version was bumped before its fields were is a publisher bug, and the
+        // strict dotted-quad rule is what keeps it from becoming a resolver call on the ladder's
+        // *failure* path -- the one place a stray timeout is least affordable.
         val tuple = parseMdnsAdvertTxt(
             mapOf(
-                "lan" to "   ".toByteArray(),
-                "wan" to "https://boomio.duckdns.org/".toByteArray(),
+                "v" to "2".toByteArray(),
+                "svc" to SERVICE_NAME.toByteArray(),
+                "lan" to "boomio-lan.duckdns.org".toByteArray(),
+                "wan" to "https://$SERVICE_NAME/".toByteArray(),
             ),
         )
-        assertNull(tuple.lanName)
-        assertNull(tuple.wanName)
+        assertNull(tuple.lanAddress)
+        assertNull(tuple.wanAddress)
+        assertTrue(tuple.targets.isEmpty)
+        // The service name is untouched: `svc` is the one field that *is* a name, and it lands.
+        assertEquals(SERVICE_NAME, tuple.svcName)
     }
 
     @Test
-    fun `a discovery name is normalised to the one form a resolver and a log both expect`() {
+    fun `a service name is normalised to the one form a URL and a certificate both use`() {
         // Case and a trailing root dot are two spellings of one name, and only one of them
-        // compares equal to what the wire, a log line, or this test expects.
-        assertEquals(WAN_NAME, validDiscoveryNameOrNull("  BOOMIO.DuckDNS.org.  "))
-        assertEquals(LAN_NAME, validDiscoveryNameOrNull(LAN_NAME))
+        // compares equal to what the wire, a log line, or a certificate SAN expects.
+        assertEquals(SERVICE_NAME, validDiscoveryNameOrNull("  BOOMIO.DuckDNS.org.  "))
+        assertEquals(SERVICE_NAME, validDiscoveryNameOrNull(SERVICE_NAME))
         assertNull(validDiscoveryNameOrNull(null))
         assertNull(validDiscoveryNameOrNull(""))
         assertNull(validDiscoveryNameOrNull("   "))
@@ -398,49 +478,43 @@ class OverlayEndpointDiscoveryTest {
     }
 
     @Test
-    fun `the ladder climbs lan before wan`() {
-        // ⚠️ The order is the design. At home `lan=` is the reachable one and `wan=` is not (the
-        // public address does not hairpin); off-LAN the reverse holds. Trying `lan=` first costs
-        // one failed probe at home and nothing away from it, because a private address on a
-        // foreign network fails immediately rather than after a timeout. The reverse order would
-        // hide the working name behind a guaranteed-dead one on every cold start at home.
-        assertEquals(
-            listOf(LAN_NAME, WAN_NAME),
-            OverlayDiscoveryNames(LAN_NAME, WAN_NAME).inOrder(),
-        )
-        // A publication that carries only one name still yields a climbable list.
-        assertEquals(listOf(WAN_NAME), OverlayDiscoveryNames(null, WAN_NAME).inOrder())
-        assertEquals(listOf(LAN_NAME), OverlayDiscoveryNames(LAN_NAME, null).inOrder())
-        // A publisher that set both names to the same value must not cost two probes for one
-        // answer -- this runs on the failure path, where latency is least affordable.
-        assertEquals(listOf(LAN_NAME), OverlayDiscoveryNames(LAN_NAME, LAN_NAME).inOrder())
-        assertTrue(OverlayDiscoveryNames(null, null).inOrder().isEmpty())
-        assertTrue(OverlayDiscoveryNames(null, null).isEmpty)
-        assertFalse(OverlayDiscoveryNames(LAN_NAME, null).isEmpty)
+    fun `an address is four decimal octets and nothing else`() {
+        assertEquals(LAN_ADDR, validDottedQuadOrNull("  $LAN_ADDR  "))
+        assertEquals(WAN_ADDR, validDottedQuadOrNull(WAN_ADDR))
+        // ⚠️ Every shape a v1 record carried in these fields -- each must read as *absent*, which
+        // is the whole safety property of the v1→v2 change.
+        assertNull(validDottedQuadOrNull("boomio-lan.duckdns.org"))
+        assertNull(validDottedQuadOrNull("192.168.68.65:51820"))
+        assertNull(validDottedQuadOrNull("192.168.68"))
+        assertNull(validDottedQuadOrNull("192.168.68.65.7"))
+        assertNull(validDottedQuadOrNull("192.168.68.256"))
+        // Leading zeros are refused rather than reinterpreted: reading `068` as `68` would be the
+        // parser inventing an address that was never published.
+        assertNull(validDottedQuadOrNull("192.168.068.65"))
+        assertNull(validDottedQuadOrNull(null))
+        assertNull(validDottedQuadOrNull(""))
     }
 
     @Test
-    fun `away from the LAN the ladder climbs wan first`() {
-        // ⚠️ The reversal is what keeps the names tier useful once the WAN forward is closed. The
-        // gate can no longer tell the two apart there -- a private address and a public one both
-        // fail when nothing answers on 443 -- so the order is the only thing choosing, and the
-        // tier keeps the *first* name that resolved. If `lan=` stayed in front it would be the
-        // private address that got kept, off-LAN, which is the one answer that cannot work.
+    fun `the ladder climbs the LAN address before the WAN one, always`() {
+        // ⚠️ The order is fixed, and *fixed* is the change. It used to be chosen per network by an
+        // egress-address comparison and an on-link test -- both answering "which of these two
+        // *names* resolves usefully from here". Two literal addresses need no such question: a
+        // private address is not routable off-LAN and fails immediately, so trying `lan` first
+        // costs one fast refusal away from home and nothing at all at home. The reverse order would
+        // hide the working address behind a guaranteed-dead one on every cold start at home.
         assertEquals(
-            listOf(WAN_NAME, LAN_NAME),
-            OverlayDiscoveryNames(LAN_NAME, WAN_NAME).inOrder(preferLan = false),
+            listOf(LAN_ADDR, WAN_ADDR),
+            publishedTargets(LAN_ADDR, WAN_ADDR).inOrder().map { it.host },
         )
-        // Deduplication still applies, and still runs before the reversal.
-        assertEquals(
-            listOf(LAN_NAME),
-            OverlayDiscoveryNames(LAN_NAME, LAN_NAME).inOrder(preferLan = false),
-        )
-        // A one-name publication is unaffected by the preference.
-        assertEquals(
-            listOf(WAN_NAME),
-            OverlayDiscoveryNames(null, WAN_NAME).inOrder(preferLan = false),
-        )
-        assertTrue(OverlayDiscoveryNames(null, null).inOrder(preferLan = false).isEmpty())
+        // A publication carrying only one address still yields a dialable list.
+        assertEquals(listOf(WAN_ADDR), publishedTargets(null, WAN_ADDR).inOrder().map { it.host })
+        assertEquals(listOf(LAN_ADDR), publishedTargets(LAN_ADDR, null).inOrder().map { it.host })
+        // Neither address yields nothing -- and `isEmpty` is how the tier says so, rather than
+        // walking an empty list and reporting a climb that failed for the wrong reason.
+        assertTrue(publishedTargets(null, null).inOrder().isEmpty())
+        assertTrue(publishedTargets(null, null).isEmpty)
+        assertFalse(publishedTargets(LAN_ADDR, null).isEmpty)
     }
 
     // -----------------------------------------------------------------------------------------
@@ -451,12 +525,12 @@ class OverlayEndpointDiscoveryTest {
     fun `a response carrying a TXT and an A record parses both`() {
         val response = dnsResponse(
             id = 0x1234,
-            question = "boomio-local.tracemonkey.org",
+            question = "boomio-prov.duckdns.org",
             questionType = TYPE_TXT,
             answers = listOf(
                 // The name is a compression pointer to offset 12 (the question's name) — which
                 // is what every real resolver emits and what a naive parser mis-reads.
-                Answer(TYPE_TXT, txtRdata("v1;pk=$PUBLISHED_SERVER_KEY_B64;port=51820")),
+                Answer(TYPE_TXT, txtRdata("v=2;pk=$PUBLISHED_SERVER_KEY_B64;port=51820")),
                 Answer(TYPE_A, byteArrayOf(192.toByte(), 168.toByte(), 68.toByte(), 65.toByte())),
             ),
         )
@@ -477,13 +551,13 @@ class OverlayEndpointDiscoveryTest {
     fun `a response for a different query id is rejected`() {
         // ⚠️ The id check is the entire integrity story of a UDP lookup — anything on the path
         // can inject a datagram, and a mismatched id is the one thing that says it is not ours.
-        val response = dnsResponse(0x1234, "boomio-local.tracemonkey.org", TYPE_A, listOf(Answer(TYPE_A, IPV4)))
+        val response = dnsResponse(0x1234, "boomio-prov.duckdns.org", TYPE_A, listOf(Answer(TYPE_A, IPV4)))
         assertNull(OverlayDnsClient.parseResponse(response, 0x9999))
     }
 
     @Test
     fun `a query is not accepted as its own answer`() {
-        val query = OverlayDnsClient.buildQuery("boomio-local.tracemonkey.org", TYPE_A, 7)
+        val query = OverlayDnsClient.buildQuery("boomio-prov.duckdns.org", TYPE_A, 7)
         // The QR bit is clear, so this is a question, not a response.
         assertNull(OverlayDnsClient.parseResponse(query, 7))
     }
@@ -492,7 +566,7 @@ class OverlayEndpointDiscoveryTest {
     fun `a CNAME answer is reported so the caller can follow it`() {
         val response = dnsResponse(
             1,
-            "boomio-local.tracemonkey.org",
+            "boomio-prov.duckdns.org",
             TYPE_TXT,
             listOf(Answer(TYPE_CNAME, nameRdata("boomio.duckdns.org"))),
         )
@@ -507,7 +581,7 @@ class OverlayEndpointDiscoveryTest {
         // walk that simply follows pointers hangs forever on a packet like this one.
         val response = dnsResponse(
             1,
-            "boomio-local.tracemonkey.org",
+            "boomio-prov.duckdns.org",
             TYPE_A,
             listOf(Answer(TYPE_A, IPV4)),
         )
@@ -524,7 +598,7 @@ class OverlayEndpointDiscoveryTest {
 
     @Test
     fun `a truncated response is flagged rather than parsed as whole`() {
-        val response = dnsResponse(1, "boomio-local.tracemonkey.org", TYPE_A, listOf(Answer(TYPE_A, IPV4)))
+        val response = dnsResponse(1, "boomio-prov.duckdns.org", TYPE_A, listOf(Answer(TYPE_A, IPV4)))
         response[2] = (response[2].toInt() or 0x02).toByte() // set TC
         assertTrue(OverlayDnsClient.parseResponse(response, 1)!!.truncated)
     }
@@ -537,8 +611,8 @@ class OverlayEndpointDiscoveryTest {
 
     @Test
     fun `a TXT rdata split into several strings is concatenated`() {
-        val rdata = txtRdata("v1;pk=", "ABC", ";port=51820")
-        assertEquals("v1;pk=ABC;port=51820", OverlayDnsClient.parseTxtRdata(rdata, 0, rdata.size))
+        val rdata = txtRdata("v=2;pk=", "ABC", ";port=51820")
+        assertEquals("v=2;pk=ABC;port=51820", OverlayDnsClient.parseTxtRdata(rdata, 0, rdata.size))
     }
 
     @Test
@@ -803,6 +877,23 @@ class OverlayEndpointDiscoveryTest {
         return out.toByteArray()
     }
 
+    /**
+     * The dial targets a v2 publication carrying these two addresses would yield.
+     *
+     * Built through [OverlayAdvertTuple] rather than by hand so these tests exercise the same
+     * derivation the ladder does: a plane's ports default from the tuple's own generics, and the
+     * LAN/WAN ordering is the tuple's to decide. A helper that constructed [OverlayPlane] directly
+     * would stay green if either of those stopped happening.
+     */
+    private fun publishedTargets(lan: String?, wan: String?): OverlayDiscoveryTargets =
+        OverlayAdvertTuple(
+            serverPublicKeyBase64 = PUBLISHED_SERVER_KEY_B64,
+            port = 51820,
+            version = OverlayAdvertTuple.REQUIRED_VERSION,
+            lanAddress = lan,
+            wanAddress = wan,
+        ).targets
+
     private val IPV4 = byteArrayOf(192.toByte(), 168.toByte(), 68.toByte(), 65.toByte())
 
     /** The key published by both channels for this deployment — see `OverlayWgTunnelTest`. */
@@ -813,11 +904,16 @@ class OverlayEndpointDiscoveryTest {
         const val PROVISIONING_KEY_B64 = "ERERERERERERERERERERERERERERERERERERERERERE="
 
         /**
-         * The two names the publisher writes into both channels — see
-         * `overlay/overlay-duckdns.py`, where `DUCKDNS_NAME_LAN` names the first.
+         * The one name the publisher writes into both channels — the service FQDN every URL, SNI
+         * and certificate check stays on. See `overlay/overlay-duckdns.py`, `DUCKDNS_NAME_SVC`.
          */
-        const val LAN_NAME = "boomio-lan.duckdns.org"
-        const val WAN_NAME = "boomio.duckdns.org"
+        const val SERVICE_NAME = "boomio.duckdns.org"
+
+        /** The server's address at home, as the record publishes it: a literal, never a name. */
+        const val LAN_ADDR = "192.168.68.65"
+
+        /** The server's public address, likewise a literal. */
+        const val WAN_ADDR = "209.107.100.169"
 
         const val TYPE_A = 1
         const val TYPE_CNAME = 5
