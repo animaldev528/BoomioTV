@@ -538,6 +538,7 @@
     <string name="overlay_setup_skip_subtitle">Continue without linking. You can link later under Settings, Advanced, Server connection.</string>
     <string name="overlay_status_found_lan">On your network at %1$s</string>
     <string name="overlay_status_found_tunnel">Through the private tunnel at %1$s</string>
+    <string name="overlay_status_found_direct">Reached directly at %1$s</string>
     <string name="overlay_status_endpoint_found">Endpoint found at %1$s</string>
     <string name="overlay_status_needs_manual">No server found automatically \u2014 %1$s</string>
     <string name="overlay_status_unavailable">Unavailable \u2014 %1$s</string>

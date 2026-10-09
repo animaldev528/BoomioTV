@@ -998,8 +998,13 @@ private fun NetworkMetricCard(
  * [LocalServerStatus.Found] comes next because it names the address traffic is *actually*
  * taking, which outranks any statement about how an address was found.
  *
- * The two "found" cases are worded apart on purpose: the tunnel is not "local", and calling it
- * so would send someone looking on their own network for a machine that is somewhere else.
+ * The three "found" cases are worded apart on purpose: the tunnel is not "local", and calling it
+ * so would send someone looking on their own network for a machine that is somewhere else. The
+ * WAN case is the same trap one step further out -- that address came from the discovery record
+ * and is the server's *public* one, so "local" there would name a machine that is not merely off
+ * this network but on the other side of the NAT. Nothing renders it today: the WAN pin is placed
+ * by `OverlayEndpointDiscovery`, which does not own a status slot, so this arm exists to keep the
+ * `when` exhaustive rather than because it draws.
  */
 @Composable
 internal fun overlayStatusText(
@@ -1012,6 +1017,7 @@ internal fun overlayStatusText(
     local is LocalServerStatus.Found -> when (local.source) {
         LocalServerSource.LAN -> stringResource(R.string.overlay_status_found_lan, local.address)
         LocalServerSource.TUNNEL -> stringResource(R.string.overlay_status_found_tunnel, local.address)
+        LocalServerSource.WAN -> stringResource(R.string.overlay_status_found_direct, local.address)
     }
 
     endpoint is OverlayEndpointStatus.Found ->
