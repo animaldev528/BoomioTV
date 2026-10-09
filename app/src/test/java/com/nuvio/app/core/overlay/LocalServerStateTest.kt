@@ -14,6 +14,7 @@ class LocalServerStateTest {
 
     private val foundLan = LocalServerStatus.Found("192.168.68.65", LocalServerSource.LAN)
     private val foundTunnel = LocalServerStatus.Found("10.77.0.1", LocalServerSource.TUNNEL)
+    private val foundWan = LocalServerStatus.Found("203.0.113.7", LocalServerSource.WAN)
 
     private fun statuses(vararg pairs: Pair<LocalServerSource, LocalServerStatus>) =
         mapOf(*pairs).effectiveStatus()
@@ -30,22 +31,53 @@ class LocalServerStateTest {
     }
 
     @Test
-    fun `the tunnel source wins when both found something`() {
-        // Both tiers work here, so the ranking is what decides. ⚠️ This is the reversal of
-        // 2026-10-07: the tunnel used to lose this, on "LAN is the more local path". The
-        // owner's call is one path everywhere — the app brings its own tunnel up at home
-        // too, and preferring the LAN pin meant the shipped transport carried nothing there.
-        // The display has to agree with the registry, or the row would name an address the
-        // app is not using.
+    fun `the LAN source wins when both found something`() {
+        // Both tiers work here, so the ranking is what decides. ⚠️ This is the *restoration*
+        // of 2026-10-09: between 2026-10-07 and then the tunnel won this case, on "the app
+        // brings its own tunnel up at home too, so preferring the LAN pin leaves the shipped
+        // transport unexercised exactly where it is cheapest to exercise". Read as a claim
+        // about which path to prefer, that argument holds — but the owner's ladder is LAN
+        // https, then LAN WireGuard, then WAN https, then WAN WireGuard, so a tunnel on the
+        // home network is a detour around a link that is already there. Rung 1 belongs to the
+        // LAN. The display has to agree with the registry, or the row would name an address
+        // the app is not using.
         assertEquals(
-            foundTunnel,
+            foundLan,
             statuses(LocalServerSource.LAN to foundLan, LocalServerSource.TUNNEL to foundTunnel),
         )
     }
 
     @Test
+    fun `both direct planes lose to the tunnel when they are only idle`() {
+        // The WAN arm is rung 3 and the LAN arm rung 1, but *idle* is idle: a source that has
+        // reported nothing must never mask a working one, whatever its rank.
+        assertEquals(
+            foundTunnel,
+            statuses(
+                LocalServerSource.LAN to LocalServerStatus.Idle,
+                LocalServerSource.TUNNEL to foundTunnel,
+                LocalServerSource.WAN to LocalServerStatus.Idle,
+            ),
+        )
+    }
+
+    @Test
+    fun `the WAN source loses to both the LAN and the tunnel`() {
+        // Rung 3 is last: it is the same server as `LAN` seen from off the property, so it is
+        // only ever the answer when nothing nearer reported anything.
+        assertEquals(
+            foundLan,
+            statuses(LocalServerSource.LAN to foundLan, LocalServerSource.WAN to foundWan),
+        )
+        assertEquals(
+            foundTunnel,
+            statuses(LocalServerSource.TUNNEL to foundTunnel, LocalServerSource.WAN to foundWan),
+        )
+    }
+
+    @Test
     fun `a tunnel find outranks a LAN failure`() {
-        // ⚠️ The case this ranking exists for. Off the home network the browse reports
+        // ⚠️ The case the ranking exists for. Off the home network the browse reports
         // "not on Wi-Fi or Ethernet" — true, and useless — while the tunnel is carrying
         // every request. Showing the failure would tell the user the app is stuck on the
         // public edge in the exact moment it is not.

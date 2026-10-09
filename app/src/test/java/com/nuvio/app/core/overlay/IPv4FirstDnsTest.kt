@@ -199,16 +199,16 @@ class IPv4FirstDnsTest {
     }
 
     @Test
-    fun `the tunnel pin outranks the LAN pin when both are present`() {
-        // ⚠️ Reversed 2026-10-07 with the ranking itself. Home used to take the LAN pin and
-        // leave the tunnel carrying nothing; the owner's call is one path everywhere. This
-        // test is written against a registry holding both, so it exercises the *rank* alone —
-        // `ownTunnelCarriesTraffic` decides whether the LAN arm is consulted at all, and on a
-        // host test no Go tunnel is up, so the LAN pin is still eligible here.
+    fun `the LAN pin outranks the tunnel pin when both are present`() {
+        // ⚠️ Restored 2026-10-09 with the ranking itself. Between 2026-10-07 and then the tunnel
+        // won this case — "one path everywhere" — which sent a device at home onto the tunnel
+        // instead of a LAN link that was already there. The owner's ladder is LAN https first, so
+        // rung 1 is the LAN. This test is written against a registry holding both, so it exercises
+        // the *rank* alone: no Go tunnel is up in a host test, so nothing here is suppressed.
         OverlayPinRegistry.pin(LocalServerSource.TUNNEL, listOf(publicHost), overlay)
         OverlayPinRegistry.pin(LocalServerSource.LAN, listOf(publicHost), pinned)
 
-        assertEquals(overlay, dnsOf(publicV4).lookup(publicHost).first())
+        assertEquals(pinned, dnsOf(publicV4).lookup(publicHost).first())
     }
 
     @Test
@@ -235,8 +235,9 @@ class IPv4FirstDnsTest {
         // plane. Handing the connect both addresses is what makes that survive: a private address on
         // a foreign network is refused immediately, so trying it first costs nothing.
         //
-        // ⚠️ `directWanPlayback` must be loosened first: it defaults `false`, and that toggle
-        // suppresses the WAN arm. Absent that, this returns the LAN pin alone.
+        // ⚠️ `directWanPlayback` is set explicitly, though it now defaults `true` (changed
+        // 2026-10-09): this test pins the *chain order* rather than the default, so it says what it
+        // needs rather than resting on it. See the toggle test below for the arm taken away.
         SecurityPolicyState.apply(SecurityPolicy(directWanPlayback = true))
         val serviceName = "boomio.duckdns.org"
         OverlayPinRegistry.pin(LocalServerSource.WAN, listOf(serviceName), wan)
@@ -247,9 +248,12 @@ class IPv4FirstDnsTest {
 
     @Test
     fun `a forbidden WAN arm leaves the LAN pin answering alone`() {
-        // The default policy on this deployment, at the seam. It is the toggle working — but see
-        // `OverlayPinRegistry.isSuppressed` for why the server's premise for that default no longer
-        // holds for the v2 origin.
+        // The toggle at the seam, gone the other way from the test above: with the WAN arm suppressed
+        // the chain is the LAN literal and then the delegate. ⚠️ `directWanPlayback` now defaults
+        // `true` (changed 2026-10-09), so the *tightening* is what is applied here — the collapse
+        // serves WAN callers, so the old "forbidden by default" premise was a claim about an edge
+        // that does not exist. See `OverlayPinRegistry.isSuppressed`.
+        SecurityPolicyState.apply(SecurityPolicy(directWanPlayback = false))
         val serviceName = "boomio.duckdns.org"
         OverlayPinRegistry.pin(LocalServerSource.WAN, listOf(serviceName), wan)
         OverlayPinRegistry.pin(LocalServerSource.LAN, listOf(serviceName), pinned)
@@ -271,10 +275,11 @@ class IPv4FirstDnsTest {
     }
 
     @Test
-    fun `while our own tunnel carries traffic the seam falls through to the system resolver`() {
-        // Both direct arms stand down together — see `OverlayPinRegistry`. A WAN pin left answering
-        // here would quietly put every name on the public edge while a healthy tunnel carried
-        // nothing, and it would look like success because the edge answers too.
+    fun `while our own tunnel carries traffic only the WAN arm stands down`() {
+        // ⚠️ The asymmetry *is* the ladder. The WAN pin is rung 3, behind the tunnel, so a WAN pin
+        // left answering here would quietly put every name on the public edge while a healthy tunnel
+        // carried nothing — and it would look like success because the edge answers too. The LAN pin
+        // is rung 1 and keeps answering; suppressing it here was the 2026-10-07 position, retired.
         SecurityPolicyState.apply(SecurityPolicy(directWanPlayback = true))
         val serviceName = "boomio.duckdns.org"
         OverlayPinRegistry.pin(LocalServerSource.WAN, listOf(serviceName), wan)
@@ -282,6 +287,7 @@ class IPv4FirstDnsTest {
 
         OverlayPinRegistry.ownTunnelCarriesTraffic = { true }
 
-        assertEquals(listOf(publicV4), dnsOf(publicV4).lookup(serviceName))
+        // The LAN literal answers, the WAN one is gone, and the delegate stays behind both.
+        assertEquals(listOf(pinned, publicV4), dnsOf(publicV4).lookup(serviceName))
     }
 }

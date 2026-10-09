@@ -21,22 +21,27 @@ import kotlinx.serialization.json.booleanOrNull
  * route — the client never promotes a direct route over the tunnel because of this object, which is
  * what keeps the default (below) equal to today's behaviour.
  *
- * The two `mtlsEnforced*` flags are carried for completeness and are **not consumed here**: the edge
- * enforces mTLS, and the client's job is to *present* a certificate when it has one, which
- * `MtlsSsl.withClientCertificate` already does unconditionally. They are parsed and cached so a
- * later change that does consult them finds the value already travelling.
+ * The two `mtlsEnforced*` flags are carried for completeness and are **not consumed here**: the
+ * *server* enforces mTLS, per request — the edge only labels the plane a request arrived on and
+ * stamps the certificate it saw, and bsc decides from these flags. The client's job is to *present*
+ * a certificate when it has one, which `MtlsSsl.withClientCertificate` already does
+ * unconditionally. They are parsed and cached so a later change that does consult them finds the
+ * value already travelling.
  *
  * ── The defaults are the server's, and that is deliberate ─────────────────────
  * These are `routes/security.js`'s `DEFAULT_POLICY`, key for key. The server documents them as the
  * direction that is *safe for existing clients* because the live edge already matches them: the LAN
- * plane answers directly, the WAN plane's deny-by-default answers `404`. A client that never hears
- * from the server therefore behaves as it does today at the level that is observable — the one place
- * the client is stricter than a literal reading of "today" is the tunnel-down fallback on the WAN
- * plane (see [mayDialDirectly]), and that direct dial answers `404` at today's edge anyway.
+ * plane answers directly, and the collapse **serves** the WAN plane rather than refusing it — a
+ * client whose tunnel is down dials the public address on purpose. So `directWanPlayback = true` is
+ * what the edge already does, and `false` is the tightening an operator may choose. (An earlier
+ * version of this comment said the WAN plane's deny-by-default answered `404`; the collapse has no
+ * such branch.) A client that never hears from the server therefore behaves as it does today — the
+ * one place it is stricter than a literal reading of "today" is the tunnel-down fallback on the WAN
+ * plane (see [mayDialDirectly]), and that is the server's own default too.
  */
 internal data class SecurityPolicy(
     val directLanPlayback: Boolean = true,
-    val directWanPlayback: Boolean = false,
+    val directWanPlayback: Boolean = true,
     val mtlsEnforcedOnLan: Boolean = false,
     val mtlsEnforcedOnWan: Boolean = false,
 ) {

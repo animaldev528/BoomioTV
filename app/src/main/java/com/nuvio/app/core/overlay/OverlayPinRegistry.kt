@@ -75,15 +75,18 @@ internal object OverlayPinRegistry {
     /**
      * Whether the app's **own** userspace tunnel is currently carrying boomio traffic.
      *
-     * ⚠️ **This exists because the LAN pin has to be *kept* but not *followed* at home, and
-     * those are two different things.** Path B (see `OverlayTunnel`'s two-paths doc) installs
-     * no kernel route and therefore pins nothing — which left the LAN pin, placed a moment
-     * earlier by the mDNS browse, as the only pin in the registry and so the route every
-     * client took. The tunnel was up and carrying nothing; the relay was idle. Measured on
-     * device 2026-10-07: the home screen read "Local server detected — 192.168.68.65" with a
-     * healthy overlay in place.
+     * ⚠️ **This is the rung-3 gate: it answers whether the WAN pin must stand down.** Path B (see
+     * `OverlayTunnel`'s two-paths doc) installs no kernel route and therefore pins nothing, so with
+     * a tunnel carrying the traffic, following the WAN pin as well would put boomio traffic on the
+     * public edge while a tunnel that can carry it sits idle. This flag names that state.
      *
-     * Skipping `LAN` at lookup time rather than declining to place the pin is deliberate:
+     * (It was written on 2026-10-07 to suppress the *LAN* arm instead, back when the tunnel ranked
+     * first: the tunnel was up and carrying nothing, the relay was idle, and the LAN pin — placed a
+     * moment earlier by the mDNS browse — was the route every client took, so the home screen read
+     * "Local server detected — 192.168.68.65" with a healthy overlay in place. The ranking was
+     * restored on 2026-10-09 and the LAN arm no longer consults this; the WAN arm does.)
+     *
+     * Skipping the arm at lookup time rather than declining to place the pin is deliberate:
      * holding it costs nothing, the browse's work is not thrown away when the tunnel drops,
      * and no window opens in which a *removed* pin would have to be rebuilt. A lookup runs on
      * a network thread per connect, so this reads the tunnel's own `StateFlow` live and
@@ -93,12 +96,13 @@ internal object OverlayPinRegistry {
      * tunnel and the relay come up on independent lifecycles, so `TunnelState.Up` alone is
      * reachable while `OverlayRelay` never bound — a failed bind, or a `start` that has not run
      * yet. In that state no client has a proxy URL (`RelayProxySelector` answers `DIRECT`), so
-     * suppressing the LAN pin would send every request to the public WAN address with no
-     * tunnel behind it, and hairpin is off: the app would be *less* able to reach the server
-     * than before this change. Requiring the relay means the pin is dropped only once something
-     * is actually carrying the traffic. `RelayState.Up` is published in the same synchronized
-     * block that assigns the handle, so it is exact rather than approximate, and reading it
-     * costs no allocation on a path that runs once per connect.
+     * suppressing the WAN pin would drop a client with no tunnel behind it onto system DNS — and
+     * the service name's own `A` record points at the *private* address, so off the property that
+     * answer is undialable. The app would be *less* able to reach the server than before this
+     * change. Requiring the relay means the WAN pin is dropped only once something is actually
+     * carrying the traffic. `RelayState.Up` is published in the same synchronized block that
+     * assigns the handle, so it is exact rather than approximate, and reading it costs no
+     * allocation on a path that runs once per connect.
      *
      * A function rather than a direct reference so the ranking is testable without a running
      * Go device. Production never reassigns it, which is also why the composition above carries
@@ -148,31 +152,31 @@ internal object OverlayPinRegistry {
     /**
      * Whether [source]'s arm must stand down and let a higher-ranked one answer.
      *
-     * ⚠️ **Both direct arms are suppressed, by the same two conditions, and the symmetry is the
-     * point.** The tunnel-carrying check (see [ownTunnelCarriesTraffic]) and the policy's
-     * per-plane toggle both say the same thing about a *direct* route — do not take one — and
-     * neither of them cares whether that route crosses the LAN or the WAN. Suppressing only the
-     * LAN arm would leave a `directWanPlayback=false` policy silently routing every request
-     * straight out to the public address, which is precisely the bypass the toggle exists to
-     * close.
+     * ⚠️ **The LAN arm answers to the policy alone; the WAN arm answers to the policy *and* to the
+     * tunnel — and that asymmetry is the ladder.** The ranking is LAN → TUNNEL → WAN, so the LAN
+     * pin is rung 1: it is offered whenever the policy permits a direct LAN dial, tunnel or no
+     * tunnel. The WAN pin is rung 3, *behind* the tunnel, so it stands down while our own tunnel
+     * carries and only a client whose tunnel is down ever reaches it.
+     *
+     * Suppressing the LAN arm while the tunnel carried was the tunnel-first position of
+     * 2026-10-07, retired along with the ranking that motivated it (see `LocalServerSource`). What
+     * it would do now is skip rung 1 on the network where rung 1 is cheapest and most reliable.
      *
      * The TUNNEL arm is never suppressed: it names the overlay address and is not a direct
      * route at all. Read live, per lookup, like everything else here — so both transitions
      * follow in either direction with no bookkeeping.
      *
-     * ⚠️ **`directWanPlayback` defaults to `false`, so by default the WAN pin never answers.**
-     * That is the toggle working as designed — it is a permission about a *direct WAN route*, and a
-     * WAN pin is exactly that. It does mean the off-LAN, tunnel-down client falls to system DNS
-     * (and, on this deployment, to the service name's own `A` record) rather than to the `wan=`
-     * literal the discovery record published, until an operator sets `directWanPlayback: true` in
-     * bsm. The server's own default was written as "a WAN caller gets `404` at today's edge, so
-     * deny it"; the v2 origin is served to the WAN with no source-IP gate, so that premise no longer
-     * holds for this name and the toggle is worth revisiting. Deliberately NOT worked around here:
-     * the client may not quietly promote a direct route the server's policy forbids.
+     * ⚠️ **`directWanPlayback` defaults to `true` (changed 2026-10-09), so the WAN pin answers as
+     * soon as the tunnel is down.** `false` is still the tightening an operator may choose, and the
+     * client obeys it — a WAN pin is exactly the direct WAN route that toggle names. Deliberately
+     * NOT worked around here: the client may not quietly promote a direct route the server's policy
+     * forbids. (The note this replaces said the server's default was "a WAN caller gets `404` at
+     * today's edge, so deny it". The collapse serves the WAN with no source-IP gate, so that premise
+     * was never true of this name, and the server's default now matches what the edge really does.)
      */
     private fun isSuppressed(source: LocalServerSource): Boolean = when (source) {
         LocalServerSource.TUNNEL -> false
-        LocalServerSource.LAN -> ownTunnelCarriesTraffic() || !mayDialDirectly(DirectPlane.LAN)
+        LocalServerSource.LAN -> !mayDialDirectly(DirectPlane.LAN)
         LocalServerSource.WAN -> ownTunnelCarriesTraffic() || !mayDialDirectly(DirectPlane.WAN)
     }
 

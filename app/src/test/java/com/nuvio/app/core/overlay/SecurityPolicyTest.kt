@@ -60,10 +60,14 @@ class SecurityPolicyTest {
 
     @Test
     fun `the default policy is the server's, key for key`() {
+        // ⚠️ Both direct planes default to `true`, and `directWanPlayback` flipped there on
+        // 2026-10-09. It used to default `false`, on "a WAN caller gets 404 at today's edge" — but
+        // the collapse *serves* WAN callers rather than refusing them, so the old default was a
+        // claim about an edge that does not exist. The server's `DEFAULT_POLICY` moved with it.
         assertEquals(
             SecurityPolicy(
                 directLanPlayback = true,
-                directWanPlayback = false,
+                directWanPlayback = true,
                 mtlsEnforcedOnLan = false,
                 mtlsEnforcedOnWan = false,
             ),
@@ -78,6 +82,17 @@ class SecurityPolicyTest {
         OverlayPinRegistry.ownTunnelCarriesTraffic = { false }
         OverlayPinRegistry.pin(LocalServerSource.LAN, listOf("bsc.tracemonkey.org"), pinned)
 
+        assertEquals(pinned, OverlayPinRegistry.lookup("bsc.tracemonkey.org"))
+    }
+
+    @Test
+    fun `the default policy follows the LAN pin even while our own tunnel carries`() {
+        // ⚠️ The ladder, at the default policy: rung 1 is LAN https, so a carrying tunnel does not
+        // suppress the LAN pin. The 2026-10-07 position — "the tunnel is first, so the LAN arm stands
+        // down while it carries" — is retired; see `LocalServerSource`.
+        OverlayPinRegistry.pin(LocalServerSource.LAN, listOf("bsc.tracemonkey.org"), pinned)
+
+        OverlayPinRegistry.ownTunnelCarriesTraffic = { true }
         assertEquals(pinned, OverlayPinRegistry.lookup("bsc.tracemonkey.org"))
     }
 

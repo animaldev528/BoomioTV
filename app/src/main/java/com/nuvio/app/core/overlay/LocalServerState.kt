@@ -18,15 +18,18 @@ import kotlinx.coroutines.flow.update
  * [effectiveStatus] walks them in this order at *display* time. Declaring a new source
  * therefore places it: put it where it belongs in the ranking, not at the end.
  *
- * ⚠️ **`TUNNEL` outranks `LAN`, and that order was reversed on 2026-10-07 — do not
- * "restore" it.** The tunnel was once the fallback, on the reasoning that a LAN pin can only
- * exist on the server's own network and is therefore the most local path available. That is
- * sound about *distance* and wrong about *intent*: the app already has a tunnel up on the
- * home network too, so preferring the LAN pin means the shipped transport goes unexercised
- * exactly where it is cheapest to exercise, and every tunnel defect waits until the owner
- * leaves the house to show itself. The owner's call was that one path everywhere is worth
- * more than a local hop. Both tiers are pin-*first*, so ranking them wrongly costs one
- * failed connect, never a broken app.
+ * ⚠️ **`LAN` outranks `TUNNEL`, and that order was *restored* on 2026-10-09 — the reversal of
+ * 2026-10-07 is retired, so do not "re-invert" this either.** Between those dates the tunnel was
+ * first, on the reasoning that the app has a tunnel up on the home network too, so preferring the
+ * LAN pin leaves the shipped transport unexercised exactly where it is cheapest to exercise and
+ * every tunnel defect waits until the owner leaves the house. Read as a claim about *which path to
+ * prefer*, that argument holds. What it misses is that the owner's ladder is LAN https, then LAN
+ * WireGuard, then WAN https, then WAN WireGuard — so a tunnel on the home network is a detour
+ * around a link that is already there, and rung 1 belongs to the LAN. The ranking here is the
+ * first half of that ladder; [OverlayPinRegistry] holds the second half.
+ *
+ * Both tiers are pin-*first*, so ranking them wrongly costs one failed connect, never a broken
+ * app.
  *
  * ⚠️ **`WAN` is last, and its position is the whole of what it means.** It is the same server as
  * `LAN`, seen from off the property: the public address the discovery record publishes as `wan=`.
@@ -36,19 +39,19 @@ import kotlinx.coroutines.flow.update
  * addresses. That comparison, and the on-link test that backed it up, are gone: they answered
  * "which of these two *names* resolves usefully", and two literals need no such question.
  *
- * ⚠️ **The LAN tier still runs at home, and that is not vestigial.** Its remaining job is to
- * supply the tunnel's **endpoint** — [OverlayLocalDiscovery.pinCandidate] still publishes
- * `pinnedAddress` and the verified advert, which is what `OverlaySession` dials. What changes
- * is only that its *pin* stops being followed while our own tunnel carries traffic; see
- * [OverlayPinRegistry.ownTunnelCarriesTraffic], which is where that is enforced and the only
- * reason a live LAN pin existing alongside a live tunnel is not a bug.
+ * ⚠️ **The LAN tier does two jobs at home, and neither is vestigial.** It supplies the tunnel's
+ * **endpoint** — [OverlayLocalDiscovery.pinCandidate] still publishes `pinnedAddress` and the
+ * verified advert, which is what `OverlaySession` dials — and, since `LAN` is rung 1 again, its
+ * *pin* is followed as well. The two do not conflict: with the tunnel up the LAN pin answers
+ * first and the tunnel waits behind it, and with the tunnel down the LAN pin is the only local
+ * path there is.
  */
 enum class LocalServerSource {
-    /** The server's overlay address, reached through the WireGuard tunnel. */
-    TUNNEL,
-
     /** The server's own address, found by mDNS on the network the phone is on. */
     LAN,
+
+    /** The server's overlay address, reached through the WireGuard tunnel. */
+    TUNNEL,
 
     /**
      * The server's public address, as the discovery record publishes it.

@@ -113,26 +113,30 @@ class OverlayPinRegistryTest {
     }
 
     @Test
-    fun `the two sources hold their own pins and the tunnel is ranked first`() {
+    fun `the two sources hold their own pins and the LAN is ranked first`() {
         // The tiers are driven by independent triggers that know nothing about each
         // other. With one slot, a tunnel probe landing a second after a browse would
         // replace a working LAN pin with the overlay address — silently, and for the
         // rest of the session.
         //
-        // ⚠️ The tunnel wins the rank. It used to lose it, on "the most local path
-        // available"; the owner reversed that on 2026-10-07 so the shipped transport is
-        // the one used everywhere, home included.
+        // ⚠️ The LAN wins the rank. It lost it between 2026-10-07 and 2026-10-09, on "the
+        // most local path available" — but the owner's ladder is LAN https, then LAN
+        // WireGuard, then WAN https, then WAN WireGuard, so rung 1 is the LAN, and the
+        // 2026-10-07 reversal is retired.
         OverlayPinRegistry.pin(LocalServerSource.TUNNEL, listOf("bsc.tracemonkey.org"), overlay)
         OverlayPinRegistry.pin(LocalServerSource.LAN, listOf("bsc.tracemonkey.org"), pinned)
 
-        assertEquals(overlay, OverlayPinRegistry.lookup("bsc.tracemonkey.org"))
+        assertEquals(pinned, OverlayPinRegistry.lookup("bsc.tracemonkey.org"))
     }
 
     @Test
-    fun `the LAN pin is kept but not followed while our own tunnel carries traffic`() {
-        // ⚠️ The regression this guards is silent and looks like success: path B pins
-        // nothing, so without this the LAN pin is the only route in the registry, every
-        // client goes direct to 192.168.68.65, and a healthy tunnel carries nothing at all.
+    fun `the LAN pin keeps answering while our own tunnel carries traffic`() {
+        // ⚠️ **This is the rung-1 rule, and 2026-10-07 had it backwards.** While our own
+        // tunnel carries, the LAN arm is *not* suppressed: the ladder is LAN https, then LAN
+        // WireGuard, so a tunnel on the home network is a detour around a link that is already
+        // there, and skipping the LAN pin would take the shipped transport off the direct link
+        // on the one network where that link is cheapest. What stands down in this state is the
+        // *WAN* arm — rung 3, behind the tunnel — not the LAN one.
         val was = OverlayPinRegistry.ownTunnelCarriesTraffic
         try {
             OverlayPinRegistry.pin(LocalServerSource.LAN, listOf("bsc.tracemonkey.org"), pinned)
@@ -141,12 +145,12 @@ class OverlayPinRegistryTest {
             OverlayPinRegistry.ownTunnelCarriesTraffic = { false }
             assertEquals(pinned, OverlayPinRegistry.lookup("bsc.tracemonkey.org"))
 
-            // Tunnel up: the pin is still there, and deliberately not followed — the relay
-            // resolves the name inside the tunnel instead.
+            // Tunnel up: the LAN pin still answers. Nothing about a carrying tunnel suppresses
+            // rung 1, so the transition changes nothing here.
             OverlayPinRegistry.ownTunnelCarriesTraffic = { true }
-            assertNull(OverlayPinRegistry.lookup("bsc.tracemonkey.org"))
-            assertNull(OverlayPinRegistry.lookup("bss-dav.tracemonkey.org"))
-            assertFalse(OverlayPinRegistry.isPinnedHost("https://bss-dav.tracemonkey.org/x.mkv"))
+            assertEquals(pinned, OverlayPinRegistry.lookup("bsc.tracemonkey.org"))
+            assertEquals(pinned, OverlayPinRegistry.lookup("bss-dav.tracemonkey.org"))
+            assertTrue(OverlayPinRegistry.isPinnedHost("https://bss-dav.tracemonkey.org/x.mkv"))
 
             // And the transition back is instant, with no re-browse: the pin never left.
             OverlayPinRegistry.ownTunnelCarriesTraffic = { false }
@@ -158,13 +162,13 @@ class OverlayPinRegistryTest {
 
     @Test
     fun `a tunnel pin still answers while our own tunnel carries traffic`() {
-        // Both *direct* arms stand down in this state; the tunnel arm is never suppressed, because
-        // it names the overlay address the kernel can reach rather than a direct route — it is
-        // exactly the right answer here and must survive.
+        // The tunnel arm is never suppressed: it names the overlay address the kernel can reach
+        // rather than a direct route, so it is exactly the right answer here and must survive.
+        // With no LAN pin present it is the whole answer — which is the off-LAN case, and the
+        // reason this arm must not be caught by the WAN arm's rule.
         val was = OverlayPinRegistry.ownTunnelCarriesTraffic
         try {
             OverlayPinRegistry.pin(LocalServerSource.TUNNEL, listOf("bsc.tracemonkey.org"), overlay)
-            OverlayPinRegistry.pin(LocalServerSource.LAN, listOf("bsc.tracemonkey.org"), pinned)
             OverlayPinRegistry.ownTunnelCarriesTraffic = { true }
 
             assertEquals(overlay, OverlayPinRegistry.lookup("bsc.tracemonkey.org"))
@@ -205,8 +209,9 @@ class OverlayPinRegistryTest {
         // then the wan" — while `lookupChain` hands the dialler both, so a LAN connect refused on a
         // foreign network falls through to the WAN literal instead of failing outright.
         //
-        // ⚠️ The WAN arm is only visible here because the policy permits it: `directWanPlayback`
-        // defaults to `false`, which suppresses it. See the test below.
+        // ⚠️ The WAN arm is visible here because the policy permits it — `directWanPlayback`
+        // defaults to `true` (changed 2026-10-09), and this test sets it explicitly so the
+        // assertion does not rest on that default. See the toggle test below.
         OverlayPinRegistry.ownTunnelCarriesTraffic = { false }
         SecurityPolicyState.apply(SecurityPolicy(directWanPlayback = true))
         // Pinned WAN first, on purpose: the order must come from the enum's rank, not from the
@@ -223,28 +228,33 @@ class OverlayPinRegistryTest {
 
     @Test
     fun `the WAN arm obeys directWanPlayback and the LAN arm does not`() {
-        // ⚠️ **The default policy forbids the WAN arm, and that is the toggle working, not a bug.**
-        // `directWanPlayback` defaults to `false` on the server ("a WAN caller gets 404 at today's
-        // edge"), and a WAN pin *is* a direct WAN route — so it is suppressed by default while the
-        // LAN pin, whose toggle defaults `true`, answers. The client may not quietly promote a
-        // direct route the server's policy forbids.
+        // ⚠️ **A WAN pin is a *direct WAN route*, and that is exactly what the toggle names.**
+        // `directWanPlayback` defaults to `true` (changed 2026-10-09), so by default the WAN
+        // literal answers alongside the LAN one: the collapse *serves* WAN callers rather than
+        // 404ing them, so refusing the arm by default was a claim nothing implemented. An operator
+        // tightening it to `false` takes the arm away, and the client obeys — it may not quietly
+        // promote a direct route the server's policy forbids. The LAN arm answers to its own
+        // toggle (`directLanPlayback`, default `true`) and never to this one.
         OverlayPinRegistry.ownTunnelCarriesTraffic = { false }
         OverlayPinRegistry.pin(LocalServerSource.WAN, listOf("boomio.duckdns.org"), wanAddress)
         OverlayPinRegistry.pin(LocalServerSource.LAN, listOf("boomio.duckdns.org"), pinned)
 
-        // Default policy: the LAN literal answers, the WAN one does not.
-        assertEquals(listOf(pinned), OverlayPinRegistry.lookupChain("boomio.duckdns.org"))
-
-        // Loosening it restores the fall-through with no re-discovery — the pin never left.
-        SecurityPolicyState.apply(SecurityPolicy(directWanPlayback = true))
+        // Default policy: both literals answer, LAN first.
         assertEquals(
             listOf(pinned, wanAddress),
             OverlayPinRegistry.lookupChain("boomio.duckdns.org"),
         )
 
-        // An operator tightening it again takes the arm away just as instantly.
+        // An operator tightening it removes the arm with no re-discovery — the pin never left.
         SecurityPolicyState.apply(SecurityPolicy(directWanPlayback = false))
         assertEquals(listOf(pinned), OverlayPinRegistry.lookupChain("boomio.duckdns.org"))
+
+        // And loosening it restores the fall-through just as instantly.
+        SecurityPolicyState.apply(SecurityPolicy(directWanPlayback = true))
+        assertEquals(
+            listOf(pinned, wanAddress),
+            OverlayPinRegistry.lookupChain("boomio.duckdns.org"),
+        )
     }
 
     @Test
@@ -262,23 +272,29 @@ class OverlayPinRegistryTest {
     }
 
     @Test
-    fun `both direct pins stand down while our own tunnel carries traffic`() {
-        // ⚠️ **The symmetry is the point, and suppressing only the LAN arm is the bug it prevents.**
-        // A WAN pin left answering would put every request that reached the registry on the public
-        // edge while a healthy tunnel carried nothing — and it would look like success, because the
-        // edge answers too. The policy is loosened first so that the *tunnel*, not the toggle, is
-        // what the assertion is testing.
+    fun `the WAN pin stands down while our own tunnel carries traffic`() {
+        // ⚠️ **Only the WAN arm stands down in this state, and that asymmetry *is* the ladder.**
+        // The WAN pin is rung 3, behind the tunnel, so a WAN pin left answering would put requests
+        // on the public edge while a healthy tunnel carried nothing — and it would look like
+        // success, because the edge answers too. The LAN arm is rung 1 and keeps answering
+        // (see the LAN test above); suppressing it here was the 2026-10-07 position, retired.
+        // The policy is left permissive so that the *tunnel*, not the toggle, is what the
+        // assertion is testing.
         SecurityPolicyState.apply(SecurityPolicy(directWanPlayback = true))
         OverlayPinRegistry.pin(LocalServerSource.WAN, listOf("boomio.duckdns.org"), wanAddress)
         OverlayPinRegistry.pin(LocalServerSource.LAN, listOf("boomio.duckdns.org"), pinned)
 
         OverlayPinRegistry.ownTunnelCarriesTraffic = { true }
-        assertNull(OverlayPinRegistry.lookup("boomio.duckdns.org"))
-        assertTrue(OverlayPinRegistry.lookupChain("boomio.duckdns.org").isEmpty())
-        assertFalse(OverlayPinRegistry.isPinnedHost("https://bsf.boomio.duckdns.org/x"))
-
-        // Both arms are still held, so the transition back needs no re-discovery.
-        OverlayPinRegistry.ownTunnelCarriesTraffic = { false }
+        // The WAN arm is gone; the LAN arm is all that is left, and it is the right answer.
         assertEquals(pinned, OverlayPinRegistry.lookup("boomio.duckdns.org"))
+        assertEquals(listOf(pinned), OverlayPinRegistry.lookupChain("boomio.duckdns.org"))
+        assertTrue(OverlayPinRegistry.isPinnedHost("https://bsf.boomio.duckdns.org/x"))
+
+        // The WAN arm is still held, so dropping the tunnel restores the chain with no re-discovery.
+        OverlayPinRegistry.ownTunnelCarriesTraffic = { false }
+        assertEquals(
+            listOf(pinned, wanAddress),
+            OverlayPinRegistry.lookupChain("boomio.duckdns.org"),
+        )
     }
 }

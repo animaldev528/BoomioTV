@@ -141,6 +141,23 @@ object NetworkModule {
      * certificates. Uses a separate cache from first-party traffic.
      *
      * Do not use for first-party endpoints.
+     *
+     * ⚠️ **This client must never carry the client certificate, and the reason is structural
+     * rather than a matter of taste.** `withClientCertificate()` is implemented as
+     * `sslSocketFactory(DeferredClientCertSocketFactory(), platformTrustManager())`, so chaining it
+     * here would *replace* the trust-all `sslSocketFactory` installed below and silently take away
+     * the permissive behaviour that exists for self-signed addon and subtitle servers — the app
+     * would start refusing exactly the hosts this client is for. A caller that wants the
+     * certificate wants a *validating* client, and on this fork the first-party boomio plane
+     * already has one: [com.nuvio.app.features.boomio.BoomioHttpPlatform] and
+     * `SupabaseHttpEngine` both carry `withOverlayProxy()` and `withClientCertificate()`. The
+     * phone splits this differently — its addon client (`AddonPlatform.android.kt`) *is* validating
+     * and *does* carry the certificate, because it fetches BSF's own endpoints — so this file's
+     * `addonPermissive` looks like a divergence from the phone and is not one: the phone has no
+     * trust-all addon client to compare against. The residual is real and named here rather than
+     * hidden: a first-party BSF endpoint reached through *this* client would arrive certless and be
+     * refused once the WAN/LAN mTLS toggles are armed. Closing that needs a validating addon twin
+     * on this fork, which is its own change — not a line added here.
      */
     @Provides
     @Singleton

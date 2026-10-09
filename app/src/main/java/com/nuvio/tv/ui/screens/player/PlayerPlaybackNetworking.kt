@@ -4,6 +4,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import com.nuvio.app.core.mtls.withClientCertificate
 import com.nuvio.app.core.overlay.withOverlayProxy
 import com.nuvio.tv.core.network.IPv4FirstDns
 import okhttp3.OkHttpClient
@@ -77,6 +78,12 @@ internal object PlayerPlaybackNetworking {
      * refused at the door instead. The phone splits this differently (a validating twin gated by
      * `OverlayPinRegistry.isPinnedHost`); that split is not ported here, so the media plane simply
      * does not follow pins on this fork and the relay carries it as before.
+     *
+     * ⚠️ **What it *does* carry, since 2026-10-09, is the client certificate.** A boomio media host
+     * sits on the same origin as everything else, so a device that has enrolled should present the
+     * certificate on the media plane too — before this, playback was one of the clients that never
+     * offered one, which made "always offering the cert" true of the config plane and false of the
+     * media plane. See the position of the `withClientCertificate()` call below.
      */
     internal val playbackHttpClient: OkHttpClient by lazy {
         val dispatcher = okhttp3.Dispatcher().apply {
@@ -102,6 +109,12 @@ internal object PlayerPlaybackNetworking {
                     trustAllPlaybackHttpClient.newCall(request).execute()
                 }
             }
+            // ⚠️ Added LAST, and the position is load-bearing. `withClientCertificate()` appends
+            // `MtlsHandshakeWatchInterceptor`, and OkHttp application interceptors run
+            // outermost-first — so added *after* the fallback above it sits *inside* it, and P2.6's
+            // trigger sees the refused handshake itself. Added earlier it would never fire: the
+            // fallback swallows the exception and the caller sees a successful retry instead.
+            .withClientCertificate()
             .build()
     }
 
