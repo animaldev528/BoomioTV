@@ -7,6 +7,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -194,11 +195,18 @@ class OverlayWgTunnelTest {
         assertContains(status, "listen_port=38978")
     }
 
-    /** The same string reaches callers through `up()`, which captures it for the state. */
+    /**
+     * The same string reaches callers through `up()`, which captures it for the state.
+     *
+     * ⚠️ The handshake line is not decoration: `up()` reads this dump to decide whether the
+     * device is a tunnel or a black hole, so a fixture without one never reaches the state
+     * this test is about.
+     */
     @Test
     fun `the status captured by up is redacted too`() {
         binding.statusReply = """
             private_key=3333333333333333333333333333333333333333333333333333333333333333
+            last_handshake_time_sec=1770000000
             tx_bytes=148
         """.trimIndent()
 
@@ -250,10 +258,96 @@ class OverlayWgTunnelTest {
         assertEquals(0, binding.downCalls)
     }
 
-    private fun tunnel() = OverlayWgTunnel(
+    /**
+     * ⚠️ **The predicate the device regression turned on.** "The device came up" and "the tunnel
+     * carries traffic" are different facts, and `last_handshake_time_sec` is the only field in
+     * wireguard-go's dump that separates them: a configured device reports `tx_bytes` whether or
+     * not anything on the far side ever answered.
+     */
+    @Test
+    fun `a dump with a zero handshake time reads as not handshaked`() {
+        assertFalse(handshakeCompleted(NOT_HANDSHAKED))
+    }
+
+    @Test
+    fun `a dump with a completed handshake reads as handshaked`() {
+        assertTrue(
+            handshakeCompleted(
+                """
+                endpoint=192.168.68.65:51820
+                last_handshake_time_sec=1770000000
+                tx_bytes=148
+                rx_bytes=0
+                """.trimIndent()
+            )
+        )
+    }
+
+    /**
+     * ⚠️ **The unrecognised dump reads as *not* handshaked, and that direction is the point.**
+     * A format this code does not understand must fall back to the direct path rather than
+     * suppress it — the failure it guards against is every working path being switched off.
+     */
+    @Test
+    fun `a dump that never mentions the handshake reads as not handshaked`() {
+        assertFalse(handshakeCompleted("listen_port=38978\ntx_bytes=0"))
+        assertFalse(handshakeCompleted(""))
+    }
+
+    /**
+     * ⚠️ **The regression this whole change exists for.** A device configured against an endpoint
+     * it cannot reach — a WAN literal on a network that does not hairpin — comes up and never
+     * handshakes. It used to publish [TunnelState.Up], and two consumers read that as "the tunnel
+     * carries traffic": the pin registry stood the LAN and WAN arms down and the relay held the
+     * direct-dial fallback back, so every request became a `CONNECT: 502`.
+     */
+    @Test
+    fun `up fails and tears the device down when no handshake lands`() {
+        binding.statusReply = NOT_HANDSHAKED
+        val tunnel = tunnel(handshakeWaitMs = 250)
+
+        val state = tunnel.up(
+            endpoint = "209.107.100.169:51820",
+            serverPublicKeyBase64 = PUBLISHED_SERVER_KEY_B64,
+            localCidr = "10.77.0.9/32",
+        )
+
+        val failed = assertIs<TunnelState.Failed>(state)
+        assertContains(failed.reason, "No WireGuard handshake")
+        assertIs<TunnelState.Failed>(tunnel.state.value)
+        assertEquals(1, binding.upCalls)
+        assertEquals(1, binding.downCalls, "a configured-but-dead device must not be left running")
+    }
+
+    /**
+     * ⚠️ **The wait is a wait, not a deadline check.** A healthy bring-up hands back a device
+     * whose handshake has not landed *yet* — that gap is the reason
+     * [OverlayTunnel.OWN_TUNNEL_PROBE_ATTEMPTS] exists — so `up()` has to keep polling rather
+     * than read the status once. This drives that: two polls report a bare device, the third
+     * reports a handshake.
+     */
+    @Test
+    fun `up keeps polling until the handshake lands`() {
+        binding.statusQueue.addLast(NOT_HANDSHAKED)
+        binding.statusQueue.addLast(NOT_HANDSHAKED)
+        val tunnel = tunnel(handshakeWaitMs = 5_000)
+
+        val state = tunnel.up(
+            endpoint = "192.168.68.65:51820",
+            serverPublicKeyBase64 = PUBLISHED_SERVER_KEY_B64,
+            localCidr = "10.77.0.9/32",
+        )
+
+        assertIs<TunnelState.Up>(state)
+        assertEquals(1, binding.upCalls)
+        assertEquals(0, binding.downCalls, "a device that does handshake must be left up")
+    }
+
+    private fun tunnel(handshakeWaitMs: Long = 8_000) = OverlayWgTunnel(
         binding = binding,
         loadKeypair = { null },
         saveKeypair = { },
+        handshakeWaitMs = handshakeWaitMs,
     )
 
     private companion object {
@@ -267,6 +361,18 @@ class OverlayWgTunnelTest {
         /** `base64 -d … | xxd -p` of the same key. */
         const val PUBLISHED_SERVER_KEY_HEX =
             "92a65975971bf1c185f408544c9c3b456b8cffdf1666cf4d24e1a504a5ad894d"
+
+        /**
+         * A device configured against an endpoint this network cannot reach: up, sending, and
+         * never answered. `tx_bytes` is non-zero — those are the handshake attempts — which is
+         * exactly why "bytes moved" cannot be mistaken for "the tunnel works".
+         */
+        const val NOT_HANDSHAKED =
+            "endpoint=209.107.100.169:51820\n" +
+                "last_handshake_time_sec=0\n" +
+                "last_handshake_time_nsec=0\n" +
+                "tx_bytes=1184\n" +
+                "rx_bytes=0"
     }
 }
 
@@ -300,8 +406,25 @@ private class RecordingBinding : OverlayWgBinding {
     var failDownWith: Throwable? = null
     var failStatusWith: Throwable? = null
 
-    /** What the binding reports; a realistic `IpcGet` dump where a test needs one. */
-    var statusReply: String = "handshake=1.2s rx=0 tx=0"
+    /**
+     * What the binding reports; a realistic `IpcGet` dump where a test needs one.
+     *
+     * ⚠️ **`last_handshake_time_sec` must be non-zero here, and the default is load-bearing now
+     * that [OverlayWgTunnel.up] waits for a handshake.** A dump with that line at zero — or
+     * without it at all — reads as *not handshaked*, so a default shaped that way would make
+     * every `up()` call in this file time out and land in `Failed`.
+     */
+    var statusReply: String = """
+        listen_port=38978
+        endpoint=192.168.68.65:51820
+        allowed_ip=10.77.0.0/24
+        last_handshake_time_sec=1770000000
+        last_handshake_time_nsec=0
+        tx_bytes=148
+        rx_bytes=0
+        persistent_keepalive_interval=25
+        protocol_version=1
+    """.trimIndent()
 
     override fun up(
         privateKeyHex: String,
@@ -323,9 +446,18 @@ private class RecordingBinding : OverlayWgBinding {
         failDownWith?.let { throw it }
     }
 
+    /**
+     * Statuses handed out in order, one per `status()` call, before [statusReply] takes over.
+     *
+     * ⚠️ **Exists for the handshake wait.** `up()` polls until a handshake appears, so proving
+     * the *wait* works — rather than only the timeout — needs a device that reports a bare
+     * device first and a handshaked one later, which a single fixed reply cannot express.
+     */
+    val statusQueue: ArrayDeque<String> = ArrayDeque()
+
     override fun status(): String {
         failStatusWith?.let { throw it }
-        return statusReply
+        return if (statusQueue.isNotEmpty()) statusQueue.removeFirst() else statusReply
     }
 
     override fun generateKeypair(): OverlayWgKeypair {

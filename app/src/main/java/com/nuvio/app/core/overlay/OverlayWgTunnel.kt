@@ -11,19 +11,70 @@ import kotlinx.coroutines.flow.asStateFlow
 private const val TAG = "OverlayWgTunnel"
 
 /**
+ * How long [OverlayWgTunnel.up] waits for a WireGuard handshake before calling the device dead.
+ *
+ * ⚠️ **Bounded, and generous on purpose.** wireguard-go initiates a handshake as soon as the
+ * device is up when `persistent_keepalive_interval` is set — this app sets 25 s — and a healthy
+ * peer answers in about a second; `OverlayTunnel`'s own doc records the same figure. Eight
+ * seconds is therefore several times a healthy round trip, and it is a *wait* rather than a
+ * policy: being wrong in the generous direction costs eight seconds of bring-up latency once,
+ * while being wrong in the stingy direction declares a working tunnel dead.
+ */
+private const val HANDSHAKE_WAIT_MS = 8_000L
+
+/** How often the wait above re-reads the device. Cheap — one `IpcGet` per poll. */
+private const val HANDSHAKE_POLL_MS = 250L
+
+/**
+ * Whether wireguard-go's `IpcGet` dump shows a **completed** handshake.
+ *
+ * ⚠️ **`last_handshake_time_sec == 0` is the signal, and it is the only one the dump offers.**
+ * A configured device reports `tx_bytes > 0` immediately — those bytes *are* the handshake
+ * attempts — so neither "the device exists" nor "bytes moved" separates a live tunnel from one
+ * shouting into a network that will never answer. Every other field is identical between the
+ * two.
+ *
+ * A dump with no such line reads as **not** handshaked, which is the safe direction: an
+ * unrecognised format falls back to the direct path rather than black-holing it.
+ *
+ * Pure, and that is the point — the real binding is a JNI library that cannot load on the host
+ * JVM, so the one part of this decision worth testing is kept out of it.
+ */
+internal fun handshakeCompleted(rawStatus: String): Boolean =
+    rawStatus.lineSequence()
+        .firstOrNull { it.substringBefore('=').trim() == "last_handshake_time_sec" }
+        ?.substringAfter('=', "")
+        ?.trim()
+        ?.toLongOrNull()
+        ?.let { it > 0L }
+        ?: false
+
+/**
  * What the userspace tunnel is doing.
  *
  * ⚠️ **Deliberately not the same type as [RelayState] or [OverlayTunnel]'s, even though the
  * three read similarly.** They answer different questions — the relay's is "is there a
  * listener", [OverlayTunnel]'s is "did the user bring up a VPN the platform can see", and
- * this one is "is our own wireguard-go device up". Collapsing them would make the diagnostic
- * row unable to say which of the three is the one that is wrong.
+ * this one is "is our own wireguard-go device up **and answering**". Collapsing them would make
+ * the diagnostic row unable to say which of the three is the one that is wrong.
  */
 internal sealed interface TunnelState {
     /** Never brought up, or brought down. The initial state. */
     data object Down : TunnelState
 
-    /** `Up()` returned and the device is running. [status] is wireguard-go's own view. */
+    /**
+     * `Up()` returned, the device is running, **and a WireGuard handshake has completed**.
+     * [status] is wireguard-go's own view.
+     *
+     * ⚠️ **The handshake clause is load-bearing, and it was added after a device regression.**
+     * This state used to mean only "the device was configured", and two consumers read it as
+     * "the tunnel carries traffic": [OverlayPinRegistry.ownTunnelCarriesTraffic], which stands
+     * the LAN and WAN arms down while it is true, and [OverlayRelay]'s `mayFallBackToDirect`,
+     * which holds the direct-dial fallback back while it is true. A device configured against an
+     * endpoint it cannot reach — a WAN literal, on a network that does not hairpin — therefore
+     * reported `Up`, suppressed every other path, and turned every live fetch into a
+     * `CONNECT: 502`. See [OverlayWgTunnel.up] for the wait that makes the clause true.
+     */
     data class Up(val status: String) : TunnelState
 
     /** The device could not be built, usually a rejected config. */
@@ -62,6 +113,15 @@ internal class OverlayWgTunnel(
     internal val binding: OverlayWgBinding,
     private val loadKeypair: () -> OverlayWgKeypair?,
     private val saveKeypair: (OverlayWgKeypair) -> Unit,
+    /**
+     * How long [up] waits for a handshake before declaring the device dead.
+     *
+     * ⚠️ **A parameter rather than a direct read of [HANDSHAKE_WAIT_MS], for the same reason the
+     * collaborators above are parameters**: the wait is real wall-clock cost, and a test that
+     * must spend eight seconds to observe a timeout is a test nobody keeps running. The default
+     * is the production value, so production is unaffected.
+     */
+    private val handshakeWaitMs: Long = HANDSHAKE_WAIT_MS,
 ) {
 
     private val _state = MutableStateFlow<TunnelState>(TunnelState.Down)
@@ -142,10 +202,38 @@ internal class OverlayWgTunnel(
                 mtu = mtu,
                 keepalive = keepalive,
             )
-            // `Up()` returning is not the same as a handshake having completed — the device
-            // comes up before the peer answers. Reading status here captures the *initial*
-            // view, which is what makes a later read a comparison rather than a guess.
-            TunnelState.Up(redactKeys(binding.status())).also { _state.value = it }
+            // ⚠️ **`Up()` returning is not the same as a handshake having completed, and this
+            // wait is what makes [TunnelState.Up] mean the latter.** The device comes up before
+            // the peer answers — and, when the endpoint is one this network cannot reach at all,
+            // it comes up and *never* answers. Both states used to publish `Up`, which two
+            // consumers read as "the tunnel carries traffic": the pin registry stood the LAN and
+            // WAN arms down, and the relay held the direct-dial fallback back. Every request then
+            // went into a tunnel that carried nothing. The wait costs about a second on a healthy
+            // bring-up and is the only thing that separates the two cases.
+            //
+            // ⚠️ **The bound is deliberately generous rather than tight.** Nothing here is
+            // measuring how fast the peer is; it is separating "answered" from "cannot answer".
+            // A stingy bound would declare a working tunnel dead on a slow network, which is the
+            // one mistake with a lasting cost.
+            val handshakeDeadline = System.nanoTime() + handshakeWaitMs * 1_000_000L
+            var status = binding.status()
+            while (!handshakeCompleted(status) && System.nanoTime() < handshakeDeadline) {
+                Thread.sleep(HANDSHAKE_POLL_MS)
+                status = binding.status()
+            }
+            if (!handshakeCompleted(status)) {
+                // Torn down rather than left running. A device that is up but has never
+                // handshaken is not a degraded tunnel, it is a black hole: leaving it up would
+                // keep `_state` one caller away from reporting `Up` again and re-suppressing the
+                // paths that do work.
+                runCatching { binding.down() }
+                    .onFailure { Log.w(TAG, "Tearing down a handshake-less device failed", it) }
+                return fail(
+                    "No WireGuard handshake within ${handshakeWaitMs}ms against $endpoint — " +
+                        "configured, but not reachable from this network"
+                )
+            }
+            TunnelState.Up(redactKeys(status)).also { _state.value = it }
         } catch (t: Throwable) {
             Log.w(TAG, "Could not bring the overlay tunnel up", t)
             fail(t.message ?: t::class.java.simpleName)
