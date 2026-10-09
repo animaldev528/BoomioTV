@@ -239,11 +239,30 @@ class PlayerViewModel @Inject constructor(
         override fun setVolume(fraction: Float) {
             // Main-thread-only: companion commands arrive via the manager's main
             // handler. Scales this player's own audio; device volume is untouched.
-            controller.exoPlayer?.volume = fraction.coerceIn(0f, 1f)
+            // Routed through the controller so a private-listening mute survives
+            // the slider instead of being overwritten by it.
+            controller.setPlayerVolume(fraction)
         }
         override fun startPhoneAudioFork(phoneIp: String, port: Int): Boolean =
+            // No mute here: the phone's private-listening screen owns the TV-speaker
+            // switch, and sends it on the same frame. A fork the phone asked for
+            // without stating a preference leaves this TV audible — never silence a
+            // room on a guess.
             controller.startPhoneAudioFork(phoneIp, port)
-        override fun stopPhoneAudioFork() = controller.stopPhoneAudioFork()
+
+        override fun setTvSpeakersEnabled(enabled: Boolean) {
+            // Main-thread-only, like every companion command. Routed through the
+            // controller's single volume authority so it composes with the volume
+            // slider rather than fighting it.
+            controller.setPrivateListeningMute(!enabled)
+        }
+
+        override fun stopPhoneAudioFork() {
+            controller.stopPhoneAudioFork()
+            // Always un-mute on teardown: the fork is gone, so the room must be
+            // audible again whatever the last preference was.
+            controller.setPrivateListeningMute(false)
+        }
         override val isPhoneAudioForkActive: Boolean
             get() = controller.isPhoneAudioForkActive()
 

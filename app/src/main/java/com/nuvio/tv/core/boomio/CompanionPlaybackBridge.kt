@@ -110,6 +110,16 @@ interface ActiveCompanionPlayer {
      */
     fun startPhoneAudioFork(phoneIp: String, port: Int): Boolean = false
 
+    /**
+     * Whether this TV keeps playing through its own speakers while a fork is live.
+     *
+     * The phone's private-listening screen owns this switch — there is no TV-side
+     * setting for it — so the room can be silenced, or brought back, mid-session.
+     * Implementations must not rebuild the fork to honour it: the tee taps PCM
+     * before the player's volume, so this is a volume change and nothing else.
+     */
+    fun setTvSpeakersEnabled(enabled: Boolean) = Unit
+
     /** Unarm private listening. Safe to call when nothing is forked. */
     fun stopPhoneAudioFork() = Unit
 

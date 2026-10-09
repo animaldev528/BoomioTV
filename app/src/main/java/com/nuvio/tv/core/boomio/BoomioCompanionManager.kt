@@ -232,6 +232,13 @@ class BoomioCompanionManager @Inject constructor(
         webSocket?.send(payload.toString())
     }
 
+    /**
+     * Phone endpoint the running audio fork is streaming to, or null when nothing is forked.
+     * Lets a repeat `audio_fork_start` be recognised as a preference change instead of a re-arm
+     * (see [handleAudioForkStart]).
+     */
+    private var activeForkEndpoint: Pair<String, Int>? = null
+
     private fun handleInbound(text: String) {
         val msg = runCatching { JSONObject(text) }.getOrNull() ?: return
         when (msg.optString("type")) {
@@ -323,6 +330,7 @@ class BoomioCompanionManager @Inject constructor(
                 val player = bridge.activePlayer.value
                 val wasActive = player?.isPhoneAudioForkActive == true
                 player?.stopPhoneAudioFork()
+                activeForkEndpoint = null
                 if (msg.optString("reason") == "phone_timeout") {
                     // The hub just declared this phone dead — don't ack into the relay path it closed.
                     Log.i(TAG, "Private listening ended: phone heartbeat timed out")
@@ -349,6 +357,9 @@ class BoomioCompanionManager @Inject constructor(
         }
         val phoneIp = msg.optString("phoneIp")
         val port = msg.optInt("port", -1)
+        // "Play on the TV too" from the phone's private-listening screen. Absent means a client that
+        // predates the switch: leave this TV's speakers alone rather than guessing at them.
+        val keepTvAudio = if (msg.has("keepTvAudio")) msg.optBoolean("keepTvAudio") else null
         // Pre-flight before arming (Q6 / review F1): the phone must be a literal IPv4 on the TV's
         // own subnet. Rejecting here avoids acking "started" to a phone on guest Wi-Fi or another
         // VLAN (which would then deliver silence), and avoids the async dead-worker case where a
@@ -361,6 +372,16 @@ class BoomioCompanionManager @Inject constructor(
             sendAudioForkStatus(status = "error", reason = "different_network")
             return
         }
+        // The phone re-sends this same frame when the viewer flips the TV-speakers switch
+        // mid-session. Ending at the endpoint already forking means nothing about the tee changed,
+        // so apply the new preference and leave the fork running — tearing it down would gap the
+        // phone's audio for a flag that only decides whether the room hears it too.
+        if (player.isPhoneAudioForkActive && activeForkEndpoint == (phoneIp to port)) {
+            keepTvAudio?.let { player.setTvSpeakersEnabled(it) }
+            Log.i(TAG, "Private listening TV speakers -> $keepTvAudio")
+            sendAudioForkStatus(status = "started")
+            return
+        }
         // A fresh arm supersedes any fork still running from a previous phone (the phone can crash
         // before audio_fork_stop reaches us; the hub heartbeat may not have reaped it yet, and the
         // stale fork is streaming into a dead socket). Stop-then-start makes a re-arm deterministic
@@ -370,7 +391,11 @@ class BoomioCompanionManager @Inject constructor(
             Log.i(TAG, "Private listening re-arm — stopping prior fork")
             player.stopPhoneAudioFork()
         }
+        activeForkEndpoint = null
         if (player.startPhoneAudioFork(phoneIp, port)) {
+            activeForkEndpoint = phoneIp to port
+            // The phone's choice governs for the life of this fork. Unstated leaves the TV audible.
+            keepTvAudio?.let { player.setTvSpeakersEnabled(it) }
             Log.i(TAG, "Private listening started -> $phoneIp:$port")
             sendAudioForkStatus(status = "started")
         } else {

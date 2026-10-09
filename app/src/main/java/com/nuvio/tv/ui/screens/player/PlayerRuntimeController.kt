@@ -340,6 +340,44 @@ class PlayerRuntimeController(
         _playbackTimeline.value = PlaybackTimelineState()
     }
 
+    // ── Private-listening volume authority ──────────────────────────────────────
+    // Two intents write this player's volume and must not clobber each other: the
+    // companion volume slider (a fraction the phone asked for) and the
+    // private-listening mute (a decision about the room, not about the mix). Both
+    // funnel through here so the mute composes with the slider rather than racing
+    // it — a slider move mid-fork must not un-silence the TV.
+    //
+    // The tee taps PCM *before* this volume is applied, so muting costs the phone
+    // nothing: it keeps receiving the same samples.
+    @Volatile private var requestedPlayerVolume: Float = 1f
+    @Volatile private var privateListeningMuted: Boolean = false
+
+    private fun applyEffectivePlayerVolume() {
+        _exoPlayer?.volume = if (privateListeningMuted) 0f else requestedPlayerVolume
+    }
+
+    /** The volume a companion volume command asked for, before the private-listening mute. */
+    internal fun setPlayerVolume(fraction: Float) {
+        requestedPlayerVolume = fraction.coerceIn(0f, 1f)
+        applyEffectivePlayerVolume()
+    }
+
+    /**
+     * Silence (or restore) this TV's own speakers for private listening.
+     *
+     * Deliberately always re-asserts rather than early-returning on an unchanged
+     * value: that makes it correct for a fork that has just (re)started with a
+     * fresh ExoPlayer at full volume, and correct when the setting is flipped
+     * mid-fork. Clearing it restores exactly what the companion last asked for.
+     */
+    internal fun setPrivateListeningMute(mute: Boolean) {
+        privateListeningMuted = mute
+        applyEffectivePlayerVolume()
+    }
+
+    /** True while the TV's own speakers are silenced for private listening. */
+    internal fun isPrivateListeningMuted(): Boolean = privateListeningMuted
+
     /**
      * Arm Roku-style private listening: tee the audio the TV is already decoding for its own
      * speakers to [phoneIp]:[phonePort] over UDP (see docs/plan-private-listening-exo-tee.md).
