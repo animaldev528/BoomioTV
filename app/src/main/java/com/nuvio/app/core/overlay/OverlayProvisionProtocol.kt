@@ -222,11 +222,16 @@ internal sealed interface ProvisionMessage {
      * the two discovery *names* the client walked when it was off the home LAN; v2 replaced that
      * walk with the record's own `lan=`/`wan=` literals, and the ladder now learns them through one
      * funnel that both publication channels share. The adapter publishes `address:port` here
-     * whenever the tuple carries an address, and `${PROV_NAME}:${OVERLAY_WG_PORT}` when it does not
-     * (see `overlay/overlay-enroll-adapter.sh`) — so this field is a literal *or* a name depending
-     * on the box's state, which is exactly why it is not a safe pin source without a parse. It is
-     * kept because it is on the wire and this type mirrors the wire; parsing a field is not the same
-     * as acting on it, and dropping it here would hide a field the server still sends.
+     * whenever the tuple carries an address, and falls back **differently per plane** when it does
+     * not: `${OVERLAY_SVC}:${OVERLAY_WG_PORT}` for [lanEndpoint] — the one name's `A` record *is*
+     * the LAN literal, so the name is a correct LAN endpoint — and **blank** for [wanEndpoint],
+     * because since the collapse no name resolves to the WAN, and a WAN endpoint built from the one
+     * name would be a dial target that answers only where the LAN one already did. `bsc` reads the
+     * blank back as null (see `overlay/overlay-enroll-adapter.sh`). So this field is a literal, or —
+     * on the LAN half only — the one name, which is exactly why it is not a safe pin source without
+     * a parse. It is kept because it is on the wire and this type mirrors the wire; parsing a field
+     * is not the same as acting on it, and dropping it here would hide a field the server still
+     * sends.
      *
      * The value they would add is narrow and stated so it is not rediscovered as a surprise: a
      * device that has *just enrolled*, on a network where public DNS for the discovery name is
