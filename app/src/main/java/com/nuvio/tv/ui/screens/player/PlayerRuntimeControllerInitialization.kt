@@ -1607,7 +1607,14 @@ internal fun PlayerRuntimeController.initializePlayer(
                         }
 
                         // ── Main Engine Failover ──
-                        if (maybeAutoSwitchInternalPlayerOnStartupError(detailedError = detailedError, allowEngineFailover = allowEngineFailover)) {
+                        // errorCode is passed so a decoder-capability failure fails over even when
+                        // the opt-in auto-switch setting is off: this engine has proven it cannot
+                        // decode the stream, and retrying it below could never succeed.
+                        if (maybeAutoSwitchInternalPlayerOnStartupError(
+                                detailedError = detailedError,
+                                allowEngineFailover = allowEngineFailover,
+                                errorCode = error.errorCode
+                            )) {
                             return
                         }
                         if (attemptAutoRetry(error, detailedError)) {
@@ -1911,7 +1918,11 @@ internal fun PlayerRuntimeController.initializePlayer(
             if (
                 maybeAutoSwitchInternalPlayerOnStartupError(
                     detailedError = e.message ?: context.getString(com.nuvio.tv.R.string.player_error_initialize_failed),
-                    allowEngineFailover = allowEngineFailover
+                    allowEngineFailover = allowEngineFailover,
+                    // An initialize() that throws mid-codec-configuration surfaces here rather
+                    // than through onPlayerError, so carry the code when there is one — a
+                    // decoder-capability failure must fail over even with the setting off.
+                    errorCode = (e as? PlaybackException)?.errorCode
                 )
             ) {
                 return@launch

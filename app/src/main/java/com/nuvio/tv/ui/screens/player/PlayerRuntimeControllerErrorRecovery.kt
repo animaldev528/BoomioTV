@@ -102,11 +102,18 @@ internal fun isRetryablePlaybackError(error: PlaybackException): Boolean {
         PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED,
         PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED,
 
-        // --- Decoder errors (often transient after pause/resume on some hardware) ---
+        // --- Transient decode failure (often clears after pause/resume on some hardware) ---
+        PlaybackException.ERROR_CODE_DECODING_FAILED -> true
+
+        // --- Decoder-capability failures: NOT retryable on the same engine ---
+        // The engine that reported one of these has proven it cannot decode this stream's
+        // format, and a decoder cannot gain capability by being re-initialized. Retrying it
+        // only burns the startup retry budget and strands the user on a spinner. These route
+        // to engine failover (libmpv software decode) instead — see
+        // [isDecoderCapabilityFailure] and maybeAutoSwitchInternalPlayerOnStartupError.
         PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
-        PlaybackException.ERROR_CODE_DECODING_FAILED,
         PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
-        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED -> true
+        PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED -> false
 
         // --- Behind-the-scenes / unexpected errors (often IllegalStateException / NPE) ---
         PlaybackException.ERROR_CODE_UNSPECIFIED -> {
@@ -116,6 +123,25 @@ internal fun isRetryablePlaybackError(error: PlaybackException): Boolean {
 
         else -> false
     }
+}
+
+/**
+ * Decoder-capability failures: the failing engine cannot decode this stream's format.
+ *
+ * Unlike source/IO errors these are not transient. A decoder does not gain capability by being
+ * re-initialized, so re-creating the same engine cannot succeed — the only recovery that can
+ * work is an engine failover (ExoPlayer → libmpv software decode). These codes are therefore
+ * excluded from [isRetryablePlaybackError] and exempted from the opt-in
+ * `autoSwitchInternalPlayerOnError` gate in [maybeAutoSwitchInternalPlayerOnStartupError].
+ *
+ * [PlaybackException.ERROR_CODE_DECODING_FAILED] is deliberately **not** in this set: it is
+ * ambiguous and frequently clears on a plain retry, so it stays retryable — the startup-phase
+ * check in the failover still routes it to an engine switch when it happens before first frame.
+ */
+internal fun isDecoderCapabilityFailure(errorCode: Int): Boolean {
+    return errorCode == PlaybackException.ERROR_CODE_DECODER_INIT_FAILED ||
+        errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES ||
+        errorCode == PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED
 }
 
 /**
@@ -506,7 +532,11 @@ internal fun PlayerRuntimeController.tryParsingErrorProbeFallback(
             }
             initializePlayer(currentStreamUrl, currentHeaders, startPaused = paused)
         } else {
-            if (maybeAutoSwitchInternalPlayerOnStartupError(detailedError = detailedError, allowEngineFailover = allowEngineFailover)) {
+            if (maybeAutoSwitchInternalPlayerOnStartupError(
+                    detailedError = detailedError,
+                    allowEngineFailover = allowEngineFailover,
+                    errorCode = error.errorCode
+                )) {
                 return@launch
             }
             if (attemptAutoRetry(error, detailedError)) {

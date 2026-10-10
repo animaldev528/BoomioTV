@@ -10,10 +10,16 @@ import kotlinx.coroutines.launch
 
 internal fun PlayerRuntimeController.maybeAutoSwitchInternalPlayerOnStartupError(
     detailedError: String,
-    allowEngineFailover: Boolean
+    allowEngineFailover: Boolean,
+    errorCode: Int? = null
 ): Boolean {
     if (!allowEngineFailover) return false
-    if (!autoSwitchInternalPlayerOnErrorEnabled) return false
+    // A decoder-capability failure is not a matter of preference: the current engine has
+    // proven it cannot decode this stream, so retrying it cannot succeed and the only
+    // recovery that can work is switching engines. The explicit auto-switch setting still
+    // governs every other (speculative) failover.
+    val decoderCapabilityFailure = errorCode != null && isDecoderCapabilityFailure(errorCode)
+    if (!autoSwitchInternalPlayerOnErrorEnabled && !decoderCapabilityFailure) return false
     if (startupEngineFailoverTriggered) return false
     if (!isStartupPhaseForEngineFailover()) return false
 
