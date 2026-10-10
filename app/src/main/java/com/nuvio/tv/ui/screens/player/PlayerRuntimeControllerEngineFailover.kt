@@ -11,7 +11,8 @@ import kotlinx.coroutines.launch
 internal fun PlayerRuntimeController.maybeAutoSwitchInternalPlayerOnStartupError(
     detailedError: String,
     allowEngineFailover: Boolean,
-    errorCode: Int? = null
+    errorCode: Int? = null,
+    decodeCeilingVerdict: String? = null
 ): Boolean {
     if (!allowEngineFailover) return false
     // A decode failure is not a matter of preference: the current engine has proven it cannot
@@ -21,7 +22,17 @@ internal fun PlayerRuntimeController.maybeAutoSwitchInternalPlayerOnStartupError
     // mid-stream DECODING_FAILED is usually transient and never reaches here.
     val decodeFailureRequiringSwitch =
         errorCode != null && isDecodeFailureRequiringEngineSwitch(errorCode)
-    if (!autoSwitchInternalPlayerOnErrorEnabled && !decodeFailureRequiringSwitch) return false
+    // The same reasoning, for the failure mode that never produces an error code. A decoder that
+    // refuses its configuration and is silently replaced by a software one leaves media3 reporting
+    // FORMAT_EXCEEDS_CAPABILITIES and raises nothing, so there is no errorCode to key on — the
+    // Firestick spinner. Only [maybeFailOverForDecodeIncompatibility] supplies this, and only
+    // after the device's own declared ceiling has agreed with media3, so it is a second
+    // proven-dead engine rather than a speculative switch.
+    val decodeCeilingFailureRequiringSwitch = !decodeCeilingVerdict.isNullOrBlank()
+    if (!autoSwitchInternalPlayerOnErrorEnabled &&
+        !decodeFailureRequiringSwitch &&
+        !decodeCeilingFailureRequiringSwitch
+    ) return false
     if (startupEngineFailoverTriggered) return false
     if (!isStartupPhaseForEngineFailover()) return false
 
@@ -36,7 +47,14 @@ internal fun PlayerRuntimeController.maybeAutoSwitchInternalPlayerOnStartupError
         message = "allowEngineFailover=$allowEngineFailover detailedError=${detailedError.take(220)}"
     )
     rememberCurrentTrackPreferenceForEngineSwitch()
-    Log.w(PlayerRuntimeController.TAG, "Startup playback error; auto-switching engine: $detailedError")
+    if (decodeCeilingFailureRequiringSwitch) {
+        Log.w(
+            PlayerRuntimeController.TAG,
+            "DECODE_CEILING: this engine cannot decode the offer; auto-switching engine: $detailedError"
+        )
+    } else {
+        Log.w(PlayerRuntimeController.TAG, "Startup playback error; auto-switching engine: $detailedError")
+    }
     startupEngineFailoverTriggered = true
 
     val targetEngineLabel = targetEngineLabel(targetEngine)

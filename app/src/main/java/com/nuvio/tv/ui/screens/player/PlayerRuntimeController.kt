@@ -663,6 +663,11 @@ class PlayerRuntimeController(
     // attempt is forced to libdovi mode 1 before falling back to HDR10 base layer.
     internal val dv7Mode1ForcedStreamUrls: MutableSet<String> = mutableSetOf()
     internal val vc1TrackSelectionBypassStreamUrls: MutableSet<String> = mutableSetOf()
+    // Offers already reported and failed over because this device's own decode ceiling says it
+    // cannot play them. The tracks callback fires repeatedly for one stream, so without this the
+    // report and the engine switch would both repeat with it. Keyed on the stream URL, so a
+    // replay of the same title after a reload is treated as a new playback.
+    internal val decodeIncompatibilityHandledSignatures: MutableSet<String> = mutableSetOf()
     internal val safeAudioForcedStreamUrls: MutableSet<String> = mutableSetOf()
     internal val audioDisabledForcedStreamUrls: MutableSet<String> = mutableSetOf()
     internal var isMapDv7ToHevcActiveForCurrentPlayback: Boolean = false

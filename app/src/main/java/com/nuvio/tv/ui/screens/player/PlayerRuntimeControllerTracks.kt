@@ -231,6 +231,13 @@ internal fun PlayerRuntimeController.updateAvailableTracks(tracks: Tracks) {
             retryCurrentStreamWithVc1TrackSelectionBypass(currentPosition)
             return
         }
+        // The second verdict this callback carries, and the one no error code can reach: a decoder
+        // that cannot take the format but never throws. On the Firestick the hardware HEVC decoder
+        // refuses configure(-EINVAL) and Android swaps in a software one — media3 says
+        // FORMAT_EXCEEDS_CAPABILITIES here and raises nothing, so the error-keyed failover has
+        // nothing to fire on and playback spins until the viewer gives up. Checked after the VC-1
+        // bypass, which is the case where the video track is not even selected yet.
+        maybeFailOverForDecodeIncompatibility(effectiveVideoFormat, currentVideoTrackBestSupport)
     } else {
         currentVideoTrackMimeType = null
         currentVideoTrackCodecs = null
