@@ -2,8 +2,11 @@ package com.nuvio.tv.core.di
 
 import android.content.Context
 import android.util.Log
+import com.nuvio.app.core.mtls.withClientCertificate
 import com.nuvio.app.core.overlay.withOverlayProxy
 import com.nuvio.tv.BuildConfig
+import com.nuvio.tv.core.boomio.boomioOwnHosts
+import com.nuvio.tv.core.boomio.hostScopedCallFactory
 import com.nuvio.tv.data.remote.api.AddonApi
 import com.nuvio.tv.data.remote.api.AniSkipApi
 import com.nuvio.tv.data.remote.api.AnimeSkipApi
@@ -135,6 +138,46 @@ object NetworkModule {
             })
             .build()
     }
+
+    /**
+     * [provideOkHttpClient]'s certificate-bearing twin, for the boomio plane's own JSON routes.
+     *
+     * Built from the validating client rather than from scratch, because that is what makes it a
+     * drop-in for one route: same DNS seam, same cache, same User-Agent and Sentry interceptors, and
+     * the same *server* verification. The only difference is the appended
+     * [com.nuvio.app.core.mtls.withClientCertificate], which — per its own KDoc — is inert until
+     * this device holds a certificate and changes no byte on the wire at a host that never asks for
+     * one.
+     *
+     * ⚠️ **It is `@Named` because it must never be injected unqualified, and the reason is a
+     * device-credential leak rather than a style preference.** A client certificate is a stable
+     * identifier for *this* device, and a client that attaches it globally would offer it to every
+     * host the client is pointed at — including a third-party Stremio addon, or a subtitle server on
+     * a stranger's domain. The certificate itself is not secret (it is sent in the clear on every
+     * handshake, which is why the server writes it `0644`), but the *fact* that this device enrols
+     * at this deployment, and the name the registrar minted for it, are not things a public addon
+     * has any business learning — and a host that asks for a certificate it should never have seen
+     * gets one. So the certificate rides only the calls whose *target host* has been checked against
+     * the hosts this app's own server answers for. The check itself lives at the call site —
+     * `BoomioStreamResolver.resolveHttpClientFor` — because it is per-*request*, and OkHttp decides
+     * its socket factory per *client*.
+     *
+     * ⚠️ **The predicate at that call site is host identity, never pin presence.** The overlay's pin
+     * registry (`OverlayPinRegistry.isPinnedHost`) is absent on the LAN — that is what the pin *is* —
+     * so a pin-gated client would stop presenting the certificate exactly when the device is at
+     * home, which is the opposite of the intent.
+     *
+     * ⚠️ **Sharing [provideOkHttpClient]'s connection pool is safe, and it is not a leak path.**
+     * `newBuilder()` keeps the same pool, but OkHttp only reuses a pooled connection when the new
+     * address's `sslSocketFactory` matches the one the connection was opened with
+     * (`RealConnection.supportsUrl`), so a connection opened by one of these two clients can never be
+     * handed to the other.
+     */
+    @Provides
+    @Singleton
+    @Named("boomioClientCertificate")
+    fun provideBoomioClientCertificateOkHttpClient(okHttpClient: OkHttpClient): OkHttpClient =
+        okHttpClient.newBuilder().withClientCertificate().build()
 
     /**
      * Permissive client for addon-provided URLs, including self-hosted servers with self-signed
@@ -435,13 +478,34 @@ object NetworkModule {
 
     // --- Skip Intro APIs ---
 
+    /**
+     * `GET /skip/segments` — the segment-markers adapter, which the boomio deployment serves from
+     * bsc at `<bsc>/skip` (see `bsc/routes/skip.js`). So this Retrofit dials a host of ours and must
+     * present the client certificate on it like every other boomio route; without it the edge serves
+     * the request as an *unidentified* device rather than refusing.
+     *
+     * ⚠️ **Host-scoped, not attached unconditionally.** `INTRODB_API_URL` is a compile-time knob and
+     * can point at the *public* IntroDB service (`api.introdb.app`) as easily as at our own bsc. A
+     * certificate handed to that host would be this device's credential offered to a stranger, so the
+     * factory picks between the two clients per request off the URL's own host — see
+     * [com.nuvio.tv.core.boomio.hostScopedCallFactory].
+     */
     @Provides
     @Singleton
     @Named("introDb")
-    fun provideIntroDbRetrofit(okHttpClient: OkHttpClient, moshi: Moshi): Retrofit =
+    fun provideIntroDbRetrofit(
+        okHttpClient: OkHttpClient,
+        @Named("boomioClientCertificate")
+        certificateOkHttpClient: OkHttpClient,
+        moshi: Moshi
+    ): Retrofit =
         Retrofit.Builder()
             .baseUrl(BuildConfig.INTRODB_API_URL.ifEmpty { "https://localhost/" })
-            .client(okHttpClient)
+            // `callFactory`, not `client`: `Retrofit.Builder.client()` takes an `OkHttpClient`
+            // specifically, and what this needs to install is the *factory* that chooses between two
+            // of them per request. `callFactory` is Retrofit's general override and takes the
+            // `Call.Factory` directly.
+            .callFactory(hostScopedCallFactory(::boomioOwnHosts, okHttpClient, certificateOkHttpClient))
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
 
@@ -553,13 +617,27 @@ object NetworkModule {
     fun provideAuthDiagnosticReportApi(@Named("playbackReports") retrofit: Retrofit): AuthDiagnosticReportApi =
         retrofit.create(AuthDiagnosticReportApi::class.java)
 
+    /**
+     * `BSM_BASE_URL` — the boomio admin/config plane, a host of ours on the same origin as everything
+     * else. Scoped per request like [provideIntroDbRetrofit], and for the same reason: the certificate
+     * is a *device* credential and only a host of ours may be offered it. A value that does not
+     * resolve to one of ours (the `http://localhost/` fallback included) gets the plain client, byte
+     * for byte what this provider returned before.
+     */
     @Provides
     @Singleton
     @Named("bsm")
-    fun provideBsmRetrofit(okHttpClient: OkHttpClient, moshi: Moshi): Retrofit =
+    fun provideBsmRetrofit(
+        okHttpClient: OkHttpClient,
+        @Named("boomioClientCertificate")
+        certificateOkHttpClient: OkHttpClient,
+        moshi: Moshi
+    ): Retrofit =
         Retrofit.Builder()
             .baseUrl(normalizedBaseUrl(BuildConfig.BSM_BASE_URL, "http://localhost/"))
-            .client(okHttpClient)
+            // See [provideIntroDbRetrofit]: `callFactory` carries the per-request client choice that
+            // `client(OkHttpClient)` cannot express.
+            .callFactory(hostScopedCallFactory(::boomioOwnHosts, okHttpClient, certificateOkHttpClient))
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
 

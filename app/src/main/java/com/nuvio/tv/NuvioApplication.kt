@@ -27,12 +27,15 @@ import com.nuvio.app.core.overlay.OverlaySession
 import com.nuvio.app.core.overlay.OverlayTunnel
 import com.nuvio.app.core.overlay.SecurityPolicyRefresh
 import com.nuvio.app.core.mtls.MtlsRegistration
+import com.nuvio.app.core.mtls.withClientCertificate
 import com.nuvio.app.core.overlay.withOverlayProxy
 import com.nuvio.app.core.network.ServerConfigurationRepository
 import com.nuvio.app.features.addons.AddonRef
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.boomio.BoomioSessionRepository
 import com.nuvio.tv.core.diagnostics.SentryInitializer
+import com.nuvio.tv.core.boomio.boomioOwnHosts
+import com.nuvio.tv.core.boomio.hostScopedCallFactory
 import com.nuvio.tv.core.image.StaleWhileRevalidateCacheStrategy
 import com.nuvio.tv.core.runtime.PluginRuntimeHooks
 import com.nuvio.tv.core.sync.StartupSyncService
@@ -45,6 +48,7 @@ import com.nuvio.tv.data.simkl.SimklAnimeIdPreferenceHolder
 import dagger.hilt.android.HiltAndroidApp
 import okhttp3.Cookie
 import okhttp3.CookieJar
+import okhttp3.Call
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import java.util.concurrent.ConcurrentHashMap
@@ -260,6 +264,21 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
                 .build()
         }
 
+        // ⚠️ **The image plane carries two kinds of host and only one of them is ours.** Poster art
+        // comes from third-party CDNs, but trickplay sprite sheets are fetched from the boomio media
+        // edge (a host of ours) and `/tp/*` is on the enforced side of it — a certificate-less fetch
+        // there is served as an *unidentified* device rather than refused. So the loader gets a
+        // certificate-bearing twin of the patient client and a factory that picks between the two per
+        // request off the requested host. Attaching the certificate to [imageOkHttpClient] itself
+        // would offer this device's credential to every poster CDN, which is the leak the host check
+        // exists to prevent — see [hostScopedCallFactory] and [resolveHttpClientFor].
+        val imageCertificateOkHttpClient by lazy {
+            imageOkHttpClient.newBuilder().withClientCertificate().build()
+        }
+        val imageCallFactory: Call.Factory by lazy {
+            hostScopedCallFactory(::boomioOwnHosts, imageOkHttpClient, imageCertificateOkHttpClient)
+        }
+
         val imageLoaderRef: () -> ImageLoader = { SingletonImageLoader.get(this) }
 
         return ImageLoader.Builder(this)
@@ -272,10 +291,10 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
                 add(SvgDecoder.Factory())
                 add(
                     coil3.network.okhttp.OkHttpNetworkFetcherFactory(
-                        callFactory = { imageOkHttpClient },
+                        callFactory = { imageCallFactory },
                         cacheStrategy = {
                             StaleWhileRevalidateCacheStrategy(
-                                revalidationClient = { imageOkHttpClient },
+                                revalidationClient = { imageCallFactory },
                                 imageLoaderProvider = imageLoaderRef,
                             )
                         },

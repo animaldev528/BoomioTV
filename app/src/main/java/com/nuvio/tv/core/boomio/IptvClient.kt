@@ -26,6 +26,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import javax.inject.Inject
+import javax.inject.Named
 import javax.inject.Singleton
 
 /**
@@ -115,10 +116,21 @@ data class IptvGuideSearch(
  * Every call fails soft: the UI gets an [IptvChannelsResult] with an error
  * rather than an exception, so a dead edge degrades the section instead of
  * crashing the app.
+ *
+ * ── The certificate on these routes ──────────────────────────────────────────
+ * `BOOMIO_IPTV_URL` is the live-IPTV edge (bss-iptv) — a host of ours — so every
+ * call here must travel over the certificate-bearing client. A request that
+ * arrives without it is served as an *unidentified* device rather than refused,
+ * which is the silent degradation this change closes. The choice is made per
+ * request off the URL's own host (see [resolveHttpClientFor]), so the certificate
+ * is never offered to a host that is not ours.
  */
 @Singleton
 class IptvClient @Inject constructor(
     private val okHttpClient: OkHttpClient,
+    // Reached only through [resolveHttpClientFor]; see its KDoc for the leak that scoping prevents.
+    @Named("boomioClientCertificate")
+    private val certificateOkHttpClient: OkHttpClient,
     private val moshi: Moshi,
     private val authStore: IptvAuthStore
 ) {
@@ -134,6 +146,13 @@ class IptvClient @Inject constructor(
 
     /** The IPTV seam is configured only when a base URL was compiled in. */
     fun isConfigured(): Boolean = BuildConfig.BOOMIO_IPTV_URL.isNotBlank()
+
+    /**
+     * The client [request] must travel over — the certificate-bearing one when its host is ours,
+     * the plain validating one otherwise. Scoped per request; see [resolveHttpClientFor].
+     */
+    private fun clientFor(request: Request): OkHttpClient =
+        resolveHttpClientFor(request.url.host, boomioOwnHosts(), okHttpClient, certificateOkHttpClient)
 
     private fun baseUrl(): HttpUrl? =
         BuildConfig.BOOMIO_IPTV_URL.trim().trimEnd('/').toHttpUrlOrNull()
@@ -157,7 +176,7 @@ class IptvClient @Inject constructor(
                 .url(base.newBuilder().addPathSegments("api/v1/auth/device/request").build())
                 .post(body)
                 .build()
-            okHttpClient.newCall(request).execute().use { response ->
+            clientFor(request).newCall(request).execute().use { response ->
                 val text = response.body?.string().orEmpty()
                 if (!response.isSuccessful) error("HTTP ${response.code}")
                 val dto = deviceCodeAdapter.fromJson(text) ?: error("empty response")
@@ -184,7 +203,7 @@ class IptvClient @Inject constructor(
                 )
                 .get()
                 .build()
-            okHttpClient.newCall(request).execute().use { response ->
+            clientFor(request).newCall(request).execute().use { response ->
                 val text = response.body?.string().orEmpty()
                 if (!response.isSuccessful) return@use IptvPollResult.Failed("HTTP ${response.code}")
                 val dto = pollAdapter.fromJson(text) ?: return@use IptvPollResult.Pending
@@ -229,7 +248,7 @@ class IptvClient @Inject constructor(
                 .header("Authorization", "Bearer $token")
                 .get()
                 .build()
-            okHttpClient.newCall(request).execute().use { response ->
+            clientFor(request).newCall(request).execute().use { response ->
                 if (response.code == 401 || response.code == 403) {
                     authStore.clearSession()
                     return@use IptvChannelsResult(unauthorized = true)
@@ -301,7 +320,7 @@ class IptvClient @Inject constructor(
                 .header("Authorization", "Bearer $token")
                 .get()
                 .build()
-            okHttpClient.newCall(request).execute().use { response ->
+            clientFor(request).newCall(request).execute().use { response ->
                 if (response.code == 401 || response.code == 403) {
                     authStore.clearSession()
                     return@use IptvGuideWindow()
@@ -361,7 +380,7 @@ class IptvClient @Inject constructor(
                     .header("Authorization", "Bearer $token")
                     .post(body)
                     .build()
-                okHttpClient.newCall(request).execute().use { response ->
+                clientFor(request).newCall(request).execute().use { response ->
                     if (response.code == 401 || response.code == 403) {
                         authStore.clearSession()
                         return@use null
@@ -413,7 +432,7 @@ class IptvClient @Inject constructor(
                     .header("Authorization", "Bearer $token")
                     .get()
                     .build()
-                okHttpClient.newCall(request).execute().use { response ->
+                clientFor(request).newCall(request).execute().use { response ->
                     if (response.code == 401 || response.code == 403) {
                         authStore.clearSession()
                         return@use IptvGuideSearch()
@@ -472,7 +491,7 @@ class IptvClient @Inject constructor(
                 .header("Authorization", "Bearer $token")
                 .post(ByteArray(0).toRequestBody(null))
                 .build()
-            okHttpClient.newCall(request).execute().use { response ->
+            clientFor(request).newCall(request).execute().use { response ->
                 val text = response.body?.string().orEmpty()
                 if (response.code == 401 || response.code == 403) {
                     authStore.clearSession()

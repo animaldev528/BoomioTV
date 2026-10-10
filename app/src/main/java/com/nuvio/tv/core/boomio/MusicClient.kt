@@ -14,6 +14,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import javax.inject.Inject
+import javax.inject.Named
 import javax.inject.Singleton
 
 /**
@@ -133,15 +134,33 @@ data class MusicIdentifyRequest(
  * The call is genuinely slow (measured 6.5–9.5 s on an 88 GB remux, because the
  * server fetches and decodes a window of the real stream), so callers must show
  * a pending state and must not block playback on it.
+ *
+ * ── The certificate on these routes ──────────────────────────────────────────
+ * `BOOMIO_COMPANION_URL` is the bsc companion host — a host of ours — so both
+ * requests here must travel over the certificate-bearing client. Without it the
+ * edge sees an *unidentified* device and serves it permissively rather than
+ * refusing, which is the silent degradation this change closes. The choice is made
+ * per request off the URL's own host (see [resolveHttpClientFor]), so the
+ * certificate is never offered to a host that is not ours.
  */
 @Singleton
 class MusicClient @Inject constructor(
     private val okHttpClient: OkHttpClient,
+    // Reached only through [resolveHttpClientFor]; see its KDoc for the leak that scoping prevents.
+    @Named("boomioClientCertificate")
+    private val certificateOkHttpClient: OkHttpClient,
     private val moshi: Moshi,
     private val authStore: IptvAuthStore
 ) {
     private val identifyAdapter = moshi.adapter(MusicIdentifyDto::class.java)
     private val jsonType = "application/json; charset=utf-8".toMediaType()
+
+    /**
+     * The client [request] must travel over — the certificate-bearing one when its host is ours,
+     * the plain validating one otherwise. Scoped per request; see [resolveHttpClientFor].
+     */
+    private fun clientFor(request: Request): OkHttpClient =
+        resolveHttpClientFor(request.url.host, boomioOwnHosts(), okHttpClient, certificateOkHttpClient)
 
     /** Configured only when the companion host was compiled in. */
     fun isConfigured(): Boolean = baseUrl() != null
@@ -211,7 +230,7 @@ class MusicClient @Inject constructor(
                 .build()
 
             try {
-                okHttpClient.newCall(httpRequest).execute().use { response ->
+                clientFor(httpRequest).newCall(httpRequest).execute().use { response ->
                     val text = response.body?.string().orEmpty()
 
                     // 429 is not a failure — it is the daily cap, which is a state
@@ -276,7 +295,7 @@ class MusicClient @Inject constructor(
                 .build()
 
             try {
-                okHttpClient.newCall(httpRequest).execute().use { response ->
+                clientFor(httpRequest).newCall(httpRequest).execute().use { response ->
                     val text = response.body?.string().orEmpty()
 
                     when {

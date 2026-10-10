@@ -4,16 +4,20 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
 import com.nuvio.tv.BuildConfig
+import com.nuvio.tv.core.boomio.boomioOwnHosts
+import com.nuvio.tv.core.boomio.resolveHttpClientFor
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
+import javax.inject.Named
 import javax.inject.Singleton
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Call
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -32,16 +36,33 @@ private const val TAG = "NetworkMeter"
  * boot and on each 12 h heartbeat) rather than from a Settings button. It is best-effort and inert when
  * `BOOMIO_COMPANION_URL` is blank or the probe is unreachable — it never throws and never blocks the
  * caller past the bounded window.
+ *
+ * ── The certificate on the probe ─────────────────────────────────────────────
+ * The probe is dialled at the bsc edge, a host of ours, and `/api/speedtest/probe` is on the
+ * enforced side of it — a request that arrives without the certificate is served as an
+ * *unidentified* device rather than refused. So the probe travels over the certificate-bearing
+ * twin of the ordinary client, chosen per request off the probe URL's own host (see
+ * [resolveHttpClientFor]); the certificate is never offered to a host that is not ours.
  */
 @Singleton
 class NetworkMeter @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val okHttpClient: OkHttpClient
+    private val okHttpClient: OkHttpClient,
+    // Reached only through [resolveHttpClientFor]; see its KDoc for the leak that scoping prevents.
+    @Named("boomioClientCertificate")
+    private val certificateOkHttpClient: OkHttpClient
 ) {
     private val probeClient: OkHttpClient by lazy {
         // The probe streams for up to MEASURE_WINDOW_MS; a slow-but-alive link must not be cut by the
         // shared client's read timeout, so give the probe its own longer one.
         okHttpClient.newBuilder()
+            .readTimeout(MEASURE_READ_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            .build()
+    }
+
+    /** [probeClient]'s certificate-bearing twin, for when the probe URL's host is one of ours. */
+    private val certificateProbeClient: OkHttpClient by lazy {
+        certificateOkHttpClient.newBuilder()
             .readTimeout(MEASURE_READ_TIMEOUT_MS, TimeUnit.MILLISECONDS)
             .build()
     }
@@ -58,8 +79,11 @@ class NetworkMeter @Inject constructor(
      * cached value (if any) is left intact.
      */
     suspend fun measure(): Double? {
-        val url = probeUrl() ?: return null
-        val call = probeClient.newCall(Request.Builder().url(url).get().build())
+        val probe = probeUrl()?.toHttpUrlOrNull() ?: return null
+        // Pick the client off the URL's own host so the certificate rides the probe to our own edge
+        // and is never offered anywhere else. See [resolveHttpClientFor].
+        val client = resolveHttpClientFor(probe.host, boomioOwnHosts(), probeClient, certificateProbeClient)
+        val call = client.newCall(Request.Builder().url(probe).get().build())
         val result = withTimeoutOrNull(MEASURE_TOTAL_TIMEOUT_MS) {
             withContext(Dispatchers.IO) { downloadAndMeasure(call) }
         }

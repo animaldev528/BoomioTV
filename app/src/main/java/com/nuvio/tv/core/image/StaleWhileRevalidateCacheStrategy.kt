@@ -13,7 +13,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import okhttp3.OkHttpClient
+import okhttp3.Call
 import okhttp3.Request
 import java.util.concurrent.ConcurrentHashMap
 
@@ -25,10 +25,16 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * On background 200 (new image), evicts memory cache and notifies
  * [ImageInvalidationBus] so visible composables reload in-place.
+ *
+ * ⚠️ **[revalidationClient] is a `Call.Factory`, not an `OkHttpClient`, and that is load-bearing.**
+ * The revalidation request re-dials whatever URL the cached entry held, and on this fork a subset of
+ * those URLs — the boomio media edge's trickplay sheets — belongs to the user's own server and must
+ * carry the device client certificate, while the poster CDNs must not. Choosing a client per request
+ * is the factory's job (`hostScopedCallFactory`); a single client here could only be all-or-nothing.
  */
 @OptIn(ExperimentalCoilApi::class)
 class StaleWhileRevalidateCacheStrategy(
-    private val revalidationClient: () -> OkHttpClient,
+    private val revalidationClient: () -> Call.Factory,
     private val imageLoaderProvider: () -> ImageLoader,
 ) : CacheStrategy {
 

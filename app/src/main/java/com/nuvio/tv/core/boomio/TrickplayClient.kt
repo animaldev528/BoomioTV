@@ -11,6 +11,7 @@ import okhttp3.Request
 import org.json.JSONObject
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
+import javax.inject.Named
 import javax.inject.Singleton
 
 /**
@@ -116,10 +117,23 @@ data class TrickplaySet(
  * through the edge — not the companion session token. The server verifies it
  * with `verifyStreamToken()`, exactly as `routes/http-proxy.js` does, so a token
  * that plays also previews.
+ *
+ * ── The certificate on this route ────────────────────────────────────────────
+ * Both requests this class makes — the `/tp/<mediaKey>` lookup and the index it
+ * points at — are dialled at the boomio edge (`BOOMIO_COMPANION_URL`), a host of
+ * ours, and must therefore travel over the certificate-bearing client like every
+ * other boomio route. A request that arrives without the certificate is served as
+ * an *unidentified* device rather than refused, which is the silent degradation
+ * this change closes. Scoped per request by host identity, never unconditionally:
+ * see [resolveHttpClientFor] for why the certificate must not be offered to a host
+ * that is not ours.
  */
 @Singleton
 class TrickplayClient @Inject constructor(
-    private val okHttpClient: OkHttpClient
+    private val okHttpClient: OkHttpClient,
+    // Reached only through [resolveHttpClientFor]; see its KDoc for the leak that scoping prevents.
+    @Named("boomioClientCertificate")
+    private val certificateOkHttpClient: OkHttpClient
 ) {
     /**
      * mediaKey → the resolved set. Bounded by the number of titles watched in
@@ -227,14 +241,19 @@ class TrickplayClient @Inject constructor(
     /**
      * One GET, or null. Never throws, never logs the token — the query carries a
      * bearer credential, so only the path is ever written down.
+     *
+     * The client is chosen per request off the URL's own host, so both the lookup and
+     * the index ride the certificate client when they are dialled at a host of ours and
+     * the plain validating client otherwise.
      */
     private fun get(url: HttpUrl): String? = try {
-        okHttpClient.newCall(Request.Builder().url(url).get().build()).execute().use { response ->
-            if (response.isSuccessful) response.body?.string() else {
-                Log.d(TAG, "no sprites: HTTP ${response.code} for ${url.encodedPath}")
-                null
+        resolveHttpClientFor(url.host, boomioOwnHosts(), okHttpClient, certificateOkHttpClient)
+            .newCall(Request.Builder().url(url).get().build()).execute().use { response ->
+                if (response.isSuccessful) response.body?.string() else {
+                    Log.d(TAG, "no sprites: HTTP ${response.code} for ${url.encodedPath}")
+                    null
+                }
             }
-        }
     } catch (e: Exception) {
         Log.d(TAG, "lookup failed for ${url.encodedPath}: ${e.message}")
         null
