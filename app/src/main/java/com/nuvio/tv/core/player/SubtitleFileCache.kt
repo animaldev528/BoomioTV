@@ -7,7 +7,7 @@ import androidx.core.content.FileProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
+import okhttp3.Call
 import okhttp3.Request
 import java.io.File
 import javax.inject.Inject
@@ -21,9 +21,15 @@ import javax.inject.Singleton
 @Singleton
 class SubtitleFileCache @Inject constructor(
     @ApplicationContext private val context: Context,
-    // Callers pass addon-provided subtitle URLs, so use the permissive addon client.
-    // Keep it that way: anything routed through here inherits permissive TLS.
-    @param:Named("addonPermissive") private val okHttpClient: OkHttpClient
+    // ⚠️ A `Call.Factory`, not an `OkHttpClient`, and the difference is a certificate decision.
+    // Callers pass addon-provided subtitle URLs, which are usually a third-party addon's and must
+    // stay on the permissive TLS arm — but a subtitle served by *our* own server is reached with
+    // the same URL shape and needs the device certificate, or it 403s once `requireClientCert` is
+    // armed. Fixing that by swapping in the certificate client would trade one failure for the
+    // other (it would offer this device's certificate to every addon subtitle host). The factory
+    // decides per request instead: permissive for a stranger's host, validating + certificate for
+    // one of ours. Binding an `OkHttpClient` here collapses that back to one choice for all hosts.
+    @param:Named("addonHostScoped") private val callFactory: Call.Factory
 ) {
     private val cacheDir: File
         get() = File(context.cacheDir, SUBTITLE_CACHE_DIR).also { it.mkdirs() }
@@ -72,7 +78,7 @@ class SubtitleFileCache @Inject constructor(
             .build()
 
         try {
-            okHttpClient.newCall(request).execute().use { response ->
+            callFactory.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     Log.w(TAG, "HTTP ${response.code} downloading subtitle: ${input.url}")
                     return@withContext null

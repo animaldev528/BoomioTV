@@ -42,6 +42,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import okhttp3.Cache
+import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -102,7 +103,11 @@ object NetworkModule {
         .add(KotlinJsonAdapterFactory())
         .build()
 
-    /** Validating client for fixed first-party endpoints. Addon URLs use `addonPermissive`. */
+    /**
+     * Validating client for fixed first-party endpoints. Addon URLs go through
+     * `addonHostScoped`, which hands *our* hosts this client's certificate-bearing twin and every
+     * other host the permissive one.
+     */
     @Provides
     @Singleton
     fun provideOkHttpClient(@ApplicationContext context: Context): OkHttpClient {
@@ -197,10 +202,17 @@ object NetworkModule {
      * phone splits this differently — its addon client (`AddonPlatform.android.kt`) *is* validating
      * and *does* carry the certificate, because it fetches BSF's own endpoints — so this file's
      * `addonPermissive` looks like a divergence from the phone and is not one: the phone has no
-     * trust-all addon client to compare against. The residual is real and named here rather than
-     * hidden: a first-party BSF endpoint reached through *this* client would arrive certless and be
-     * refused once the WAN/LAN mTLS toggles are armed. Closing that needs a validating addon twin
-     * on this fork, which is its own change — not a line added here.
+     * trust-all addon client to compare against.
+     *
+     * ⚠️ **The residual this block used to name is now CLOSED — do not route a first-party call
+     * through this binding.** It read: "a first-party BSF endpoint reached through *this* client
+     * would arrive certless and be refused once the WAN/LAN mTLS toggles are armed. Closing that
+     * needs a validating addon twin on this fork." That twin is
+     * [provideAddonHostScopedCallFactory], and the addon plane's two call sites (the addon Retrofit
+     * and [com.nuvio.tv.core.player.SubtitleFileCache]) now take *it* rather than this client. The
+     * permissive behaviour above is untouched and still needed — a self-signed or plain-HTTP addon
+     * server is the whole reason this client exists — so what changed is only *which* hosts reach
+     * it: a third-party addon still does, and one of ours no longer does.
      */
     @Provides
     @Singleton
@@ -223,6 +235,37 @@ object NetworkModule {
             .hostnameVerifier { _, _ -> true }
             .build()
     }
+
+    /**
+     * The addon plane's client, chosen per HOST: [provideAddonPermissiveOkHttpClient] for a
+     * third-party addon, [provideBoomioClientCertificateOkHttpClient] for one of ours.
+     *
+     * ⚠️ **Why a `Call.Factory` and not an `OkHttpClient`.** OkHttp decides its socket factory and
+     * its hostname verifier per *client*, so "present the certificate only to our own hosts" cannot
+     * be expressed by configuring one client — it has to be decided per *request*, which is what
+     * [hostScopedCallFactory] wraps. Retrofit and any raw caller take the factory and hand it a
+     * request; the host check happens inside, where the URL is finally known.
+     *
+     * ⚠️ **The two arms are not interchangeable and the asymmetry is the point.** A third-party
+     * addon gets the *permissive* arm on purpose: addons are frequently self-signed or plain-HTTP,
+     * and refusing them would break the addon system outright. One of ours gets the *validating*
+     * arm, which is strictly stronger — it is the app's ordinary server verification, plus the
+     * device certificate, and it is the arm that keeps the boomio addon working once
+     * `requireClientCert` is armed. Routing our own host through the permissive arm is what this
+     * factory exists to stop: it would present no certificate AND accept any certificate.
+     *
+     * ⚠️ **Host identity, never pin presence** — the same rule as every other host-scoped client on
+     * this fork, and for the same reason: the overlay's pin registry is absent on the LAN by
+     * construction, so a pin-gated choice would withhold the certificate exactly when the device is
+     * at home. See [boomioOwnHosts] and `BoomioStreamResolver.resolveHttpClientFor`.
+     */
+    @Provides
+    @Singleton
+    @Named("addonHostScoped")
+    fun provideAddonHostScopedCallFactory(
+        @Named("addonPermissive") permissive: OkHttpClient,
+        @Named("boomioClientCertificate") certificate: OkHttpClient,
+    ): Call.Factory = hostScopedCallFactory(::boomioOwnHosts, permissive, certificate)
 
     @Provides
     @Singleton
@@ -357,15 +400,24 @@ object NetworkModule {
         }
         .build()
 
+    /**
+     * The addon Retrofit — every addon call on this app goes through it, as an absolute `@Url`.
+     *
+     * ⚠️ **`callFactory`, not `client`.** It takes [provideAddonHostScopedCallFactory] rather than
+     * an `OkHttpClient` so the host decides the arm per request: the boomio addon (served from our
+     * own host) arrives certificate-bearing, and a third-party addon arrives over the permissive
+     * client with no certificate to leak at it. Binding an `OkHttpClient` here is what would
+     * reopen the residual — the choice would collapse to one client for every addon host.
+     */
     @Provides
     @Singleton
     fun provideRetrofit(
-        @Named("addonPermissive") okHttpClient: OkHttpClient,
+        @Named("addonHostScoped") addonCallFactory: Call.Factory,
         moshi: Moshi
     ): Retrofit =
         Retrofit.Builder()
             .baseUrl("https://placeholder.nuvio.tv/")
-            .client(okHttpClient)
+            .callFactory(addonCallFactory)
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
 
