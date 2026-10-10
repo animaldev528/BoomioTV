@@ -145,6 +145,27 @@ internal fun isDecoderCapabilityFailure(errorCode: Int): Boolean {
 }
 
 /**
+ * Decode failures that warrant an engine switch rather than a retry of the engine that failed.
+ *
+ * This is [isDecoderCapabilityFailure] plus [PlaybackException.ERROR_CODE_DECODING_FAILED], which
+ * is ambiguous on its own: mid-stream it is usually a transient decoder hiccup that a retry
+ * clears, but **before the first frame there is nothing to recover** — the engine never produced
+ * output, so what failed is the format or the decoder setup, and re-creating the same decoder
+ * cannot change that.
+ *
+ * The caller is what scopes the ambiguity: this is only consulted in
+ * [maybeAutoSwitchInternalPlayerOnStartupError], which returns false unless
+ * `isStartupPhaseForEngineFailover()` holds. So a mid-stream `DECODING_FAILED` still takes the
+ * retry path, while a startup one switches engines — which is exactly what already happened when
+ * the opt-in `autoSwitchInternalPlayerOnError` setting was on. This keeps the default-off path
+ * from behaving differently from the default-on one.
+ */
+internal fun isDecodeFailureRequiringEngineSwitch(errorCode: Int): Boolean {
+    return isDecoderCapabilityFailure(errorCode) ||
+        errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED
+}
+
+/**
  * Audio-track failures that the safe-audio → audio-disabled fallback ladder can recover from.
  *
  * - [PlaybackException.ERROR_CODE_AUDIO_TRACK_INIT_FAILED] (5001): the AudioTrack could not be

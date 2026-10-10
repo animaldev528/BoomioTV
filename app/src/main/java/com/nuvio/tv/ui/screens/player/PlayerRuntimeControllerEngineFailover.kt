@@ -14,12 +14,14 @@ internal fun PlayerRuntimeController.maybeAutoSwitchInternalPlayerOnStartupError
     errorCode: Int? = null
 ): Boolean {
     if (!allowEngineFailover) return false
-    // A decoder-capability failure is not a matter of preference: the current engine has
-    // proven it cannot decode this stream, so retrying it cannot succeed and the only
-    // recovery that can work is switching engines. The explicit auto-switch setting still
-    // governs every other (speculative) failover.
-    val decoderCapabilityFailure = errorCode != null && isDecoderCapabilityFailure(errorCode)
-    if (!autoSwitchInternalPlayerOnErrorEnabled && !decoderCapabilityFailure) return false
+    // A decode failure is not a matter of preference: the current engine has proven it cannot
+    // decode this stream, so retrying it cannot succeed and the only recovery that can work is
+    // switching engines. The explicit auto-switch setting still governs every other
+    // (speculative) failover. The startup-phase check below is what keeps this honest — a
+    // mid-stream DECODING_FAILED is usually transient and never reaches here.
+    val decodeFailureRequiringSwitch =
+        errorCode != null && isDecodeFailureRequiringEngineSwitch(errorCode)
+    if (!autoSwitchInternalPlayerOnErrorEnabled && !decodeFailureRequiringSwitch) return false
     if (startupEngineFailoverTriggered) return false
     if (!isStartupPhaseForEngineFailover()) return false
 
