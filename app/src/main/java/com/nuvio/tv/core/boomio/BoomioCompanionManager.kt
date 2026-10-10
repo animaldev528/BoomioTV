@@ -11,7 +11,7 @@ import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent
 import android.widget.Toast
-import com.nuvio.tv.BuildConfig
+import com.nuvio.app.features.boomio.BoomioConfig
 import com.nuvio.tv.core.auth.currentDeviceClientMetadata
 import com.nuvio.tv.core.sync.SyncClientIdentity
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -80,8 +80,12 @@ class BoomioCompanionManager @Inject constructor(
     // active player, which holds the audio-track ordinal; see [handleMusicIdentify].
     private val musicClient: MusicClient
 ) {
-    private val companionUrl: String = BuildConfig.BOOMIO_COMPANION_URL.trim()
-    private val wsUrl: String = companionUrl.trimEnd('/') + "/ws"
+    // ⚠️ Getters, not `val`s captured at construction. The companion origin is rewritten when
+    // discovery reads a published record or the user names a server by hand (see [BoomioConfig]);
+    // a value frozen when Hilt built this singleton would keep dialling the pre-discovery floor
+    // for the life of the process — which is exactly how the retired host survived a re-floor.
+    private val companionUrl: String get() = BoomioConfig.companionBaseUrl.trim()
+    private val wsUrl: String get() = companionUrl.trimEnd('/') + "/ws"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mainHandler = Handler(Looper.getMainLooper())

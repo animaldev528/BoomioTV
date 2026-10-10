@@ -2,8 +2,10 @@ package com.nuvio.tv.data.repository
 
 import android.content.Context
 import android.util.Log
+import com.nuvio.app.features.boomio.BoomioConfig
 import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.R
+import com.nuvio.tv.core.device.DeviceDecodeCeiling
 import com.nuvio.tv.core.network.NetworkMeter
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.network.safeApiCall
@@ -595,23 +597,40 @@ class StreamRepositoryImpl @Inject constructor(
             // when this request targets the boomio media plane. (Also guards the latent startsWith("")
             // hazard when BOOMIO_BASE_URL is unset: without isNotEmpty() below, a configured
             // BOOMIO_MAX_RESOLUTION would previously leak onto every addon request.)
-            val boomioBase = BuildConfig.BOOMIO_BASE_URL.trim().trimEnd('/')
+            // ⚠️ Off the seam, not `BuildConfig.BOOMIO_BASE_URL`. The two used to disagree — the
+            // baked constant held the retired `boomio.tracemonkey.org` while the addon's basePath
+            // came from the seam on `boomio.duckdns.org` — so `startsWith` was FALSE and the
+            // measured-link cap below was silently never attached to a boomio request.
+            val boomioBase = BoomioConfig.boomioBaseUrl.trim().trimEnd('/')
             val isBoomioEndpoint = boomioBase.isNotEmpty() && basePath.startsWith(boomioBase)
+            // Operator override first, then what this box actually decodes. See
+            // [DeviceDecodeCeiling]: a compile-time constant cannot know a device's decoder limits,
+            // and the Fire TV Stick's failure was a 4K HEVC entry reaching a 1920x1088 decoder.
             val maxResolution = BuildConfig.BOOMIO_MAX_RESOLUTION.trim()
+                .ifBlank { DeviceDecodeCeiling.maxResolution() }
                 .takeIf { it.isNotBlank() && isBoomioEndpoint }
-            if (maxResolution != null) {
-                append(if (baseQuery.isEmpty()) '?' else '&')
-                // snake_case: bsf's GET parser reads maxres|max_resolution, not camelCase maxResolution.
-                append("max_resolution=")
-                append(maxResolution)
+            val codecMaxRes = DeviceDecodeCeiling.maxResByCodec()
+                .takeIf { it.isNotBlank() && isBoomioEndpoint }
+            var needSep = baseQuery.isEmpty()
+            // `sb` is named rather than relying on the builder's implicit receiver reaching into a
+            // local function — one less thing for the compiler's judgement to decide.
+            val sb = this
+            fun appendCap(name: String, value: String) {
+                sb.append(if (needSep) '?' else '&')
+                sb.append(name)
+                sb.append('=')
+                sb.append(value)
+                needSep = false
             }
+            // snake_case for the caps bsf parses off the query; codecCapsMaxRes is its per-codec
+            // twin, which can say what the scalar cannot: 2160 is fine on HEVC, not on AVC.
+            maxResolution?.let { appendCap("max_resolution", it) }
+            codecMaxRes?.let { appendCap("codecCapsMaxRes", it) }
             // Measured link cap (Mbps) — bsf's gates hard-drop streams above mobileCapMbps, so the box
             // is only offered qualities its measured link can hold. Absent until the meter has run.
             val measuredMbps = networkMeter.lastMeasuredMbps()
             if (isBoomioEndpoint && measuredMbps != null) {
-                append(if (baseQuery.isEmpty() && maxResolution == null) '?' else '&')
-                append("mobileCapMbps=")
-                append(String.format(Locale.US, "%.1f", measuredMbps))
+                appendCap("mobileCapMbps", String.format(Locale.US, "%.1f", measuredMbps))
             }
         }
         Log.d(TAG, "Fetching streams type=$type videoId=$videoId url=$streamUrl")

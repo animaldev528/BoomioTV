@@ -3,7 +3,7 @@ package com.nuvio.tv.core.network
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
-import com.nuvio.tv.BuildConfig
+import com.nuvio.app.features.boomio.BoomioConfig
 import com.nuvio.tv.core.boomio.boomioOwnHosts
 import com.nuvio.tv.core.boomio.resolveHttpClientFor
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -124,9 +124,11 @@ class NetworkMeter @Inject constructor(
     }.getOrNull()
 
     private fun probeUrl(): String? {
-        val companion = BuildConfig.BOOMIO_COMPANION_URL.trim()
+        // Off the seam, not the baked constant: the probe must follow the origin the rest of the
+        // app dials, or the measurement describes a host nothing else uses.
+        val companion = BoomioConfig.companionBaseUrl.trim()
         if (companion.isBlank()) {
-            Log.d(TAG, "BOOMIO_COMPANION_URL blank — automated bandwidth measurement disabled")
+            Log.d(TAG, "companion base url blank — automated bandwidth measurement disabled")
             return null
         }
         // The app only ever talks to bsc over wss (companion); the probe is plain HTTP on the same host.

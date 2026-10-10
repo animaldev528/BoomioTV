@@ -1,7 +1,7 @@
 package com.nuvio.tv.core.boomio
 
 import android.util.Log
-import com.nuvio.tv.BuildConfig
+import com.nuvio.app.features.boomio.BoomioConfig
 import com.nuvio.tv.data.remote.dto.IptvChannelsDto
 import com.nuvio.tv.data.remote.dto.IptvDeviceCodeDto
 import com.nuvio.tv.data.remote.dto.IptvGuideDto
@@ -144,8 +144,15 @@ class IptvClient @Inject constructor(
 
     private val jsonType = "application/json; charset=utf-8".toMediaType()
 
-    /** The IPTV seam is configured only when a base URL was compiled in. */
-    fun isConfigured(): Boolean = BuildConfig.BOOMIO_IPTV_URL.isNotBlank()
+    /**
+     * True when the IPTV seam has a base to dial.
+     *
+     * ⚠️ Read off [BoomioConfig], not `BuildConfig.BOOMIO_IPTV_URL`. The seam has a compiled floor
+     * and discovery rewrites it, so this is a sanity check rather than a "did this build bake a
+     * URL" switch — gating on the baked value would have turned IPTV off the moment the stale
+     * `local.properties` entry was retired.
+     */
+    fun isConfigured(): Boolean = BoomioConfig.iptvBaseUrl.isNotBlank()
 
     /**
      * The client [request] must travel over — the certificate-bearing one when its host is ours,
@@ -155,7 +162,7 @@ class IptvClient @Inject constructor(
         resolveHttpClientFor(request.url.host, boomioOwnHosts(), okHttpClient, certificateOkHttpClient)
 
     private fun baseUrl(): HttpUrl? =
-        BuildConfig.BOOMIO_IPTV_URL.trim().trimEnd('/').toHttpUrlOrNull()
+        BoomioConfig.iptvBaseUrl.trim().trimEnd('/').toHttpUrlOrNull()
 
     // ── pairing ────────────────────────────────────────────────────────────
 

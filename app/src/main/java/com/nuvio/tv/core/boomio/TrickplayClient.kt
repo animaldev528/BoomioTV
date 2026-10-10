@@ -1,7 +1,7 @@
 package com.nuvio.tv.core.boomio
 
 import android.util.Log
-import com.nuvio.tv.BuildConfig
+import com.nuvio.app.features.boomio.BoomioConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl
@@ -228,7 +228,7 @@ class TrickplayClient @Inject constructor(
     // ── transport ────────────────────────────────────────────────────────────
 
     private fun baseUrl(): HttpUrl? {
-        val raw = BuildConfig.BOOMIO_COMPANION_URL.trim().trimEnd('/')
+        val raw = BoomioConfig.companionBaseUrl.trim().trimEnd('/')
         if (raw.isBlank()) return null
         val http = when {
             raw.startsWith("wss://") -> "https://" + raw.removePrefix("wss://")

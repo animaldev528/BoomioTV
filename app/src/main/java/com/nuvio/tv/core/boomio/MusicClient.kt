@@ -1,7 +1,7 @@
 package com.nuvio.tv.core.boomio
 
 import android.util.Log
-import com.nuvio.tv.BuildConfig
+import com.nuvio.app.features.boomio.BoomioConfig
 import com.nuvio.tv.data.remote.dto.MusicIdentifyDto
 import com.squareup.moshi.Moshi
 import kotlinx.coroutines.Dispatchers
@@ -192,7 +192,7 @@ class MusicClient @Inject constructor(
      * device rather than two that could silently disagree.
      */
     private fun baseUrl(): HttpUrl? {
-        val raw = BuildConfig.BOOMIO_COMPANION_URL.trim().trimEnd('/')
+        val raw = BoomioConfig.companionBaseUrl.trim().trimEnd('/')
         if (raw.isBlank()) return null
         val http = when {
             raw.startsWith("wss://") -> "https://" + raw.removePrefix("wss://")

@@ -116,6 +116,16 @@ object DeviceCapabilityProbe {
         ""
     }
 
+    /**
+     * Just the decode ceiling — the slice of a report the media plane reads.
+     *
+     * ⚠️ Exists so a caller that needs only the ceiling does not pay for a whole report: the
+     * fingerprint, install id and app/version block are for bsm's fleet view, not for deciding what
+     * to send a player. Still enumerates `MediaCodecList`, so it is a background-thread call.
+     */
+    fun effectiveCeiling(context: Context): EffectiveCapabilitiesDto =
+        computeEffective(probeSink(context), probeDecode().dto)
+
     fun buildReport(context: Context, installId: String): DeviceCapabilityReportDto {
         val sink = probeSink(context)
         val decode = probeDecode()
@@ -375,23 +385,84 @@ object DeviceCapabilityProbe {
 
     // ---- Effective (decode ∩ sink) ----
 
+    /**
+     * The height tiers the media plane speaks, tallest first. A decode rectangle and a
+     * release's own label are both snapped DOWN to one of these, so a "1080p" decoder that
+     * advertises 1920x1088 and one that advertises 1920x1080 are the same ceiling.
+     */
+    private val DELIVERABLE_TIERS = intArrayOf(4320, 2160, 1440, 1080, 720, 480)
+
+    /** The standard tier [height] satisfies, or 0 when it is below every tier / unknown. */
+    private fun tier(height: Int): Int = DELIVERABLE_TIERS.firstOrNull { height >= it } ?: 0
+
+    /** A tier back in bsf's own vocabulary — `maxres` reads "1080p"/"2160p", never "WxH". */
+    private fun resToken(tier: Int): String = if (tier > 0) "${tier}p" else ""
+
+    /**
+     * The height tier this one hardware decoder can actually deliver, or 0 when it advertises
+     * no usable range or has no hardware decoder at all.
+     *
+     * ⚠️ **The rectangle, not the two maxima.** [CodecCapabilityDto.maxWidth] and `maxHeight`
+     * are independent upper bounds — "the widest frame" and "the tallest frame" — so the
+     * largest 16:9 frame the pair guarantees is `min(maxHeight, maxWidth * 9 / 16)` tall.
+     * Taking the two maxima separately is how this reported a combination no single decoder
+     * advertised.
+     */
+    private fun decoderTier(cap: CodecCapabilityDto?): Int {
+        if (cap == null || !cap.hw) return 0
+        if (cap.maxWidth <= 0 || cap.maxHeight <= 0) return 0
+        return tier(minOf(cap.maxHeight, cap.maxWidth * 9 / 16))
+    }
+
     private fun computeEffective(
         sink: SinkSnapshot,
         decode: DecodeCapabilitiesDto
     ): EffectiveCapabilitiesDto {
-        val hwCeilings = listOfNotNull(decode.avc, decode.hevc, decode.av1, decode.vp9)
-            .filter { it.hw }
+        // Per-codec decode ceilings, and only from codecs with a real hardware decoder — a
+        // software decoder cannot present a stream, so it must never raise this ceiling.
+        val byCodec = linkedMapOf<String, Int>()
+        for ((family, cap) in listOf(
+            "avc" to decode.avc,
+            "hevc" to decode.hevc,
+            "av1" to decode.av1,
+            "vp9" to decode.vp9
+        )) {
+            val t = decoderTier(cap)
+            if (t > 0) byCodec[family] = t
+        }
+        val bestDecoderTier = byCodec.values.maxOrNull() ?: 0
+        val weakestDecoderTier = byCodec.values.minOrNull() ?: 0
 
-        // maxWidth/maxHeight are per-codec independent ceilings (a decoder advertises its widest
-        // width and tallest height separately, not one guaranteed combo), so take the widest across
-        // all HW codecs as the deliverable ceiling. Effective resolution is then the sink's current
-        // mode, capped only when that ceiling is genuinely below it (e.g. only a 1080p VP9 decoder
-        // on a 4k TV) — otherwise a 4k sink on a 4k-capable HEVC box stays 4k.
-        val maxDeliverableW = hwCeilings.maxOfOrNull { it.maxWidth } ?: 0
-        val maxDeliverableH = hwCeilings.maxOfOrNull { it.maxHeight } ?: 0
-        val capW = if (maxDeliverableW > 0) sink.width.coerceAtMost(maxDeliverableW) else sink.width
-        val capH = if (maxDeliverableH > 0) sink.height.coerceAtMost(maxDeliverableH) else sink.height
-        val maxResolution = if (capW > 0 && capH > 0) "${capW}x${capH}" else ""
+        // ⚠️ The media-plane ceiling is the DECODE ceiling, deliberately NOT clamped to the
+        // sink. A panel limits what the box can *show*, not what it can *decode*: a 1080p TV
+        // whose decoders take 2160 plays a 4K release downscaled, and clamping here would
+        // strip the only available release of a title that exists in 4K. What must not be
+        // sent is a resolution no decoder advertises — the Fire TV Stick, whose every decoder
+        // stops at 1920x1088, was handed 3840x2076 HEVC and died in configureCodec(-22).
+        val decodeMaxResolution = resToken(bestDecoderTier)
+        val decodeMaxResByCodec = buildString {
+            for ((family, t) in byCodec) {
+                if (isNotEmpty()) append(',')
+                append(family).append(':').append(resToken(t))
+            }
+            // The catch-all bsf's gate reserves for a stream whose codec word it cannot read
+            // (`other`). Conservative on purpose: an unidentifiable 4K release goes to the
+            // weakest decoder this box has, because that is the only one we can promise it to.
+            if (weakestDecoderTier > 0) {
+                if (isNotEmpty()) append(',')
+                append("other:").append(resToken(weakestDecoderTier))
+            }
+        }
+
+        // The report's own field keeps its "WxH" contract and its decode ∩ sink meaning —
+        // bsm's fleet view reads it — but the pair is now one decoder's rectangle clamped to
+        // the sink's mode, rather than a splice of two different decoders' maxima.
+        val sinkTier = tier(sink.height)
+        val capTier = when {
+            bestDecoderTier > 0 && sinkTier > 0 -> minOf(sinkTier, bestDecoderTier)
+            else -> maxOf(sinkTier, bestDecoderTier)
+        }
+        val maxResolution = if (capTier > 0) "${capTier * 16 / 9}x$capTier" else ""
 
         val hevc = decode.hevc
         // HEVC Main10 is the base layer for HDR10/HLG. When the decoder advertises no profiles we
@@ -417,7 +488,9 @@ object DeviceCapabilityProbe {
 
         return EffectiveCapabilitiesDto(
             maxResolution = maxResolution,
-            hdrUsable = usable
+            hdrUsable = usable,
+            decodeMaxResolution = decodeMaxResolution,
+            decodeMaxResByCodec = decodeMaxResByCodec
         )
     }
 }

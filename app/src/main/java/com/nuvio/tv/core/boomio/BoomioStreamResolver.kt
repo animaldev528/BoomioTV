@@ -2,9 +2,10 @@ package com.nuvio.tv.core.boomio
 
 import android.util.Log
 import com.nuvio.app.core.mtls.hostIsOurs
-import com.nuvio.app.core.overlay.hostOf
 import com.nuvio.app.core.overlay.localServerHosts
+import com.nuvio.app.features.boomio.BoomioConfig
 import com.nuvio.tv.BuildConfig
+import com.nuvio.tv.core.device.DeviceDecodeCeiling
 import com.nuvio.tv.core.network.NetworkMeter
 import com.nuvio.tv.data.mapper.toDomain
 import com.nuvio.tv.data.remote.dto.StreamResponseDto
@@ -85,52 +86,33 @@ internal fun hostScopedCallFactory(
 /**
  * The host set [resolveHttpClientFor] must treat as ours, for the boomio call sites on this fork.
  *
- * ⚠️ **Measured gap, not a defensive extra.** `localServerHosts()` answers a *pin* question: which
- * hosts may be repointed at a discovered LAN address. It is built from `BoomioConfig.*` — every one
- * of which falls back to the `boomio.duckdns.org` floor until a background discovery rewrites
- * `serviceOrigin` to whatever the published record says. But `/find` is not dialled at any of those:
- * it is dialled at `BuildConfig.BOOMIO_BASE_URL`, the URL baked in at build time, and on the TV build
- * tree that host is neither the floor nor guaranteed to be the discovery answer yet. So
- * `hostIsOurs(dialledHost, localServerHosts())` is **false** for the very host this class calls, the
- * certificate is never presented, and `/find` degrades silently to the certless, permissive path —
- * the exact failure this file exists to close, and one that would flip with the timing of a discovery
- * race. Unioning the compiled-in host in makes the answer depend on configuration rather than on
- * which subsystem won a race.
+ * ⚠️ **This is a straight alias of `localServerHosts()`, and that is the whole point.** It used to be
+ * that set *plus* a union of the four hosts read straight off `BuildConfig`
+ * (`BOOMIO_BASE_URL`, `BOOMIO_COMPANION_URL`, `BOOMIO_IPTV_URL`, `BSM_BASE_URL`). The union existed
+ * because those call sites dialled the compile-time constant while this set is derived from
+ * `BoomioConfig`, which discovery rewrites — so the two could disagree, and on the TV build tree they
+ * did: the baked value was the retired `boomio.tracemonkey.org`. `hostIsOurs(dialledHost,
+ * localServerHosts())` was then **false** for the very host `/find` called, the certificate was never
+ * presented, and the request degraded silently to the certless, permissive path — the exact failure
+ * this file exists to close, and one that flipped with the timing of a discovery race.
  *
- * ⚠️ **TV-only, deliberately.** Mobile's `BOOMIO_BASE_URL` is blank (its `BoomioConfig` is `commonMain`
- * with no baked value), so this divergence bites the TV alone; mobile's copy of this file is
- * unchanged. `localServerHosts()` is still the base, so the discovery names, the media-plane names and
- * the addon hosts remain ours here too.
- *
- * ⚠️ **Extended to every compiled-in boomio SERVICE host, not only bsf's.** The same divergence that
- * bites `/find` bites each of its siblings: [MusicClient] and [TrickplayClient] dial
- * `BOOMIO_COMPANION_URL` and [IptvClient] dials `BOOMIO_IPTV_URL` — each read straight off
- * `BuildConfig`, where this set is built from `BoomioConfig`, which discovery rewrites. Whenever
- * those disagree — and before discovery has read a record they can — a host this build dials on
- * every session is absent from the live set and the certificate is silently withheld, which is the
- * failure this file exists to close.
+ * ⚠️ **The union is gone because its cause is gone.** Every boomio call site now reads
+ * `BoomioConfig` — the one seam that discovery, mDNS and manual entry all write — so the host a call
+ * dials and the host this set derives are the same value by construction and cannot disagree.
+ * `localServerHosts()` already covers the discovery names, the media-plane hosts that appear in no
+ * configuration (`bss-dav`, `bss-tor`, …) and the addon hosts, so re-adding the service hosts here
+ * would restore a second source of truth for a question that now has exactly one answer.
  *
  * ⚠️ **`INTRODB_API_URL` is deliberately NOT here, even though `/skip/segments` is one of the boomio
  * routes.** It is a generic, operator-set endpoint whose natural value is a THIRD-PARTY service
  * (`api.introdb.app`) that bsc merely proxies for; unioning it would make that public host read as
  * ours and offer it this device's certificate — the exact leak this whole file exists to prevent. The
  * skip client is instead scoped by this set as it stands, which already gives the right answer at
- * both ends: pointed at bsc its host is here (via `BOOMIO_COMPANION_URL`, the same origin), and
- * pointed at the real IntroDB it is not. An unknown third-party endpoint is the one case where
- * withholding the credential must win over presenting it.
- *
- * The union is over *boomio service hosts we already dial*, so it can only ever add a host this build
- * was compiled to talk to — never a third-party addon.
+ * both ends: pointed at bsc its host is here (the companion base is the same origin), and pointed at
+ * the real IntroDB it is not. An unknown third-party endpoint is the one case where withholding the
+ * credential must win over presenting it.
  */
-internal fun boomioOwnHosts(): Set<String> = localServerHosts() + listOfNotNull(
-    hostOf(BuildConfig.BOOMIO_BASE_URL.trim()),
-    hostOf(BuildConfig.BOOMIO_COMPANION_URL.trim()),
-    hostOf(BuildConfig.BOOMIO_IPTV_URL.trim()),
-    // bsm's admin API is a boomio service on the same origin, and [provideBsmRetrofit] is scoped by
-    // this set for the same reason as the rest. It is listed here for the same divergence: the baked
-    // value and `BoomioConfig.bsmBaseUrl` can disagree.
-    hostOf(BuildConfig.BSM_BASE_URL.trim()),
-)
+internal fun boomioOwnHosts(): Set<String> = localServerHosts()
 
 /**
  * Resolves playback streams through the boomio media plane (`bsf`).
@@ -145,9 +127,11 @@ internal fun boomioOwnHosts(): Set<String> = localServerHosts() + listOfNotNull(
  * stream picker, autoplay selector and built-in player consume boomio streams
  * exactly like any addon stream.
  *
- * The seam is inert unless [BuildConfig.BOOMIO_BASE_URL] is set in
- * local.properties; the existing addon/debrid/Trakt/TMDB resolvers remain the
- * primary sources and are left untouched as fallback.
+ * The base it dials is [BoomioConfig.boomioBaseUrl] — floored to the service origin
+ * and rewritten the moment discovery reads a published record or the user names a
+ * server by hand — so the seam is live on every build rather than only one that baked
+ * a URL into `local.properties`. The existing addon/debrid/Trakt/TMDB resolvers remain
+ * the primary sources and are left untouched as fallback.
  *
  * ── The certificate on this route, and why it is not optional ────────────────
  * `bsf` reads the identity the edge stamps from the TLS client certificate, and on `/find` it uses
@@ -170,8 +154,15 @@ class BoomioStreamResolver @Inject constructor(
 ) {
     private val responseAdapter = moshi.adapter(StreamResponseDto::class.java)
 
-    /** True when the boomio seam is configured (BOOMIO_BASE_URL is set). */
-    fun isEnabled(): Boolean = BuildConfig.BOOMIO_BASE_URL.isNotBlank()
+    /**
+     * True when the boomio seam has a base to dial.
+     *
+     * ⚠️ Read off [BoomioConfig], not `BuildConfig.BOOMIO_BASE_URL`. The seam is no longer "did this
+     * build bake a URL": the origin has a compiled floor, so it is live on every build and this is a
+     * sanity check rather than a feature switch. Gating on the baked value instead would have turned
+     * the whole media plane off the moment the stale `local.properties` value was retired.
+     */
+    fun isEnabled(): Boolean = BoomioConfig.boomioBaseUrl.isNotBlank()
 
     /**
      * Calls boomio `/find` for [videoId] (the Stremio-style id, e.g. `tt1234567`
@@ -219,7 +210,7 @@ class BoomioStreamResolver @Inject constructor(
     }
 
     /**
-     * Builds the `/find` URL from [BuildConfig.BOOMIO_BASE_URL]. Episodes use the
+     * Builds the `/find` URL from [BoomioConfig.boomioBaseUrl]. Episodes use the
      * explicit `/find/:imdbId/:season/:episode` route (which requires an IMDB id);
      * everything else uses `/find/:stremioId`, which boomio normalizes (it accepts
      * `tt…` and `tmdb:…` ids and infers the type from the presence of a `:`).
@@ -229,9 +220,9 @@ class BoomioStreamResolver @Inject constructor(
      * disagree.
      */
     private fun buildFindUrl(videoId: String, season: Int?, episode: Int?): HttpUrl? {
-        val base = BuildConfig.BOOMIO_BASE_URL.trim().trimEnd('/')
+        val base = BoomioConfig.boomioBaseUrl.trim().trimEnd('/')
         val baseUrl = base.toHttpUrlOrNull() ?: run {
-            Log.w(TAG, "boomio: invalid BOOMIO_BASE_URL")
+            Log.w(TAG, "boomio: invalid boomio base url")
             return null
         }
         val builder = baseUrl.newBuilder().addPathSegment("find")
@@ -244,12 +235,24 @@ class BoomioStreamResolver @Inject constructor(
         } else {
             builder.addPathSegment(videoId)
         }
-        // Install-level capability hint: when this build was compiled with a max
-        // resolution (BOOMIO_MAX_RESOLUTION, e.g. "1080p"), ask bsf to cap the
-        // streams it feeds back so higher resolutions never reach the picker.
+        // What this box can actually decode, probed from MediaCodecList and read off the
+        // process-wide cache — see [DeviceDecodeCeiling]. Sent so bsf's resolution gate drops
+        // streams this box cannot decode *before* the picker ever offers them; the Fire TV Stick's
+        // "stuck on starting stream" was a 3840x2076 HEVC entry reaching a decoder capped at
+        // 1920x1088, where it died in configureCodec(-22).
+        //
+        // The build property stays as an operator override for a deliberate down-cap; the probe is
+        // the default because a compile-time constant cannot know what a device decodes.
         // (snake_case: bsf's GET parser reads maxres|max_resolution, not camelCase maxResolution.)
-        BuildConfig.BOOMIO_MAX_RESOLUTION.trim().takeIf { it.isNotBlank() }?.let {
-            builder.addQueryParameter("max_resolution", it)
+        val maxResolution = BuildConfig.BOOMIO_MAX_RESOLUTION.trim()
+            .ifBlank { DeviceDecodeCeiling.maxResolution() }
+        if (maxResolution.isNotBlank()) {
+            builder.addQueryParameter("max_resolution", maxResolution)
+        }
+        // The per-codec twin, and the reason it exists: the scalar above is binary at the 4K
+        // boundary, so it cannot say "2160 is fine on HEVC but not on AVC".
+        DeviceDecodeCeiling.maxResByCodec().takeIf { it.isNotBlank() }?.let {
+            builder.addQueryParameter("codecCapsMaxRes", it)
         }
         // Measured link cap (Mbps): bsf's gates hard-drop streams above mobileCapMbps, so the box is
         // only offered qualities its measured link can actually hold. Absent until the meter has run.

@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.nuvio.app.core.mtls.withClientCertificate
 import com.nuvio.app.core.overlay.withOverlayProxy
+import com.nuvio.app.features.boomio.BoomioConfig
 import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.core.boomio.boomioOwnHosts
 import com.nuvio.tv.core.boomio.hostScopedCallFactory
@@ -686,7 +687,9 @@ object NetworkModule {
         moshi: Moshi
     ): Retrofit =
         Retrofit.Builder()
-            .baseUrl(normalizedBaseUrl(BuildConfig.BSM_BASE_URL, "http://localhost/"))
+            // Off the seam: this builder runs once per DI graph, and the seam is what discovery
+            // and manual entry write. The baked constant would outrank both. See [BoomioConfig].
+            .baseUrl(normalizedBaseUrl(BoomioConfig.bsmBaseUrl, "http://localhost/"))
             // See [provideIntroDbRetrofit]: `callFactory` carries the per-request client choice that
             // `client(OkHttpClient)` cannot express.
             .callFactory(hostScopedCallFactory(::boomioOwnHosts, okHttpClient, certificateOkHttpClient))

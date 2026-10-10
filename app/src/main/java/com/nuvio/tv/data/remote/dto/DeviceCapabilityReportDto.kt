@@ -137,7 +137,27 @@ data class EffectiveCapabilitiesDto(
     /** "WxH" the sink runs at, capped to the widest hardware decode ceiling; "" when unknown. */
     val maxResolution: String = "",
     /** HDR tokens the sink advertises AND the box can decode, fixed order: dv, hdr10, hdr10plus, hlg. */
-    val hdrUsable: List<String> = emptyList()
+    val hdrUsable: List<String> = emptyList(),
+    /**
+     * The **decode** ceiling in the media plane's own vocabulary ("1080p"/"2160p"); "" when no
+     * hardware decoder advertises a range.
+     *
+     * ⚠️ Deliberately **not** clamped to the sink, unlike [maxResolution]. A panel limits what the
+     * box can *show*, not what it can *decode* — a 1080p TV whose decoders take 2160 plays a 4K
+     * release downscaled, and clamping here would strip the only release of a title that exists in
+     * 4K. What must never be sent is a resolution no decoder advertises: a Fire TV Stick, whose
+     * every decoder stops at 1920x1088, was handed 3840x2076 HEVC and died in `configureCodec(-22)`.
+     */
+    val decodeMaxResolution: String = "",
+    /**
+     * Per-codec decode ceilings as `avc:1080p,hevc:2160p,other:1080p` — the wire form of bsf's
+     * `codecCapsMaxRes` query parameter, which drops a stream above the ceiling for its *own* video
+     * family. The scalar above cannot express the case that actually happens (a 4K panel whose HEVC
+     * decoder takes 2160 while its AVC decoder stops at 1080) and would either hand such a box a 4K
+     * H.264 release it cannot decode or refuse it 4K HEVC it can. `other` is bsf's reserved
+     * catch-all, set to the weakest decoder so an unidentifiable 4K release never sails past.
+     */
+    val decodeMaxResByCodec: String = ""
 )
 
 /**
