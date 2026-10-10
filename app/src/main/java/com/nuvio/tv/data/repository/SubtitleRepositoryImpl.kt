@@ -2,6 +2,7 @@ package com.nuvio.tv.data.repository
 
 import android.content.Context
 import android.util.Log
+import com.nuvio.app.features.boomio.BoomioConfig
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.network.safeApiCall
 import com.nuvio.tv.data.local.AddonPreferences
@@ -172,8 +173,12 @@ class SubtitleRepositoryImpl @Inject constructor(
         val encodedType = encodePathSegment(normalizedType)
         val encodedActualId = encodePathSegment(actualId)
 
-        // Build the subtitle URL with optional extra parameters
-        val rawBaseUrl = addon.baseUrl.trimEnd('/')
+        // Build the subtitle URL with optional extra parameters.
+        // ⚠️ Resolve at the DIAL only. An addon is a DURABLE RECORD: its stored base keeps whatever
+        //    host was current when it was installed, so a service-origin rename never reaches it.
+        //    [BoomioConfig.liveBaseUrlFor] rewrites just the host of a known-retired origin and
+        //    passes every other host through. subtitleUrl feeds only api.getSubtitles() and the log.
+        val rawBaseUrl = BoomioConfig.liveBaseUrlFor(addon.baseUrl).trimEnd('/')
         val queryStart = rawBaseUrl.indexOf('?')
         val basePath = if (queryStart >= 0) rawBaseUrl.substring(0, queryStart).trimEnd('/') else rawBaseUrl
         val baseQuery = if (queryStart >= 0) rawBaseUrl.substring(queryStart) else ""

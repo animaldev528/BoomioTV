@@ -2,6 +2,7 @@ package com.nuvio.tv.data.repository
 
 import android.content.Context
 import android.util.Log
+import com.nuvio.app.features.boomio.BoomioConfig
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.network.safeApiCall
 import com.nuvio.tv.data.mapper.toDomainOrNull
@@ -93,7 +94,11 @@ class CatalogRepositoryImpl @Inject constructor(
         skip: Int,
         extraArgs: Map<String, String>
     ): String {
-        val trimmedBase = baseUrl.trimEnd('/')
+        // ⚠️ Resolve at the DIAL only. An addon is a DURABLE RECORD, so its stored base keeps the
+        //    host that was current when it was installed, and a service-origin rename never reaches
+        //    it. [BoomioConfig.liveBaseUrlFor] rewrites just the host of a known-retired origin; the
+        //    caller's own addonBaseUrl still flows into the row and the item mapper unchanged.
+        val trimmedBase = BoomioConfig.liveBaseUrlFor(baseUrl).trimEnd('/')
         val queryStart = trimmedBase.indexOf('?')
         val basePath = if (queryStart >= 0) trimmedBase.substring(0, queryStart).trimEnd('/') else trimmedBase
         val baseQuery = if (queryStart >= 0) trimmedBase.substring(queryStart) else ""

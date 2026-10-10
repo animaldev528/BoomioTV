@@ -579,7 +579,11 @@ class StreamRepositoryImpl @Inject constructor(
         type: String,
         videoId: String
     ): NetworkResult<List<Stream>> {
-        val cleanBaseUrl = addon.baseUrl.trimEnd('/')
+        // The addon's stored base is a durable record and may name an origin we have retired; the
+        // seam is current. Resolving it here is also what makes the `isBoomioEndpoint` test below
+        // true again for such an addon — and therefore what re-attaches the caps. See
+        // [BoomioConfig.liveBaseUrlFor] for the measured failure this closes.
+        val cleanBaseUrl = BoomioConfig.liveBaseUrlFor(addon.baseUrl).trimEnd('/')
         val queryStart = cleanBaseUrl.indexOf('?')
         val basePath = if (queryStart >= 0) cleanBaseUrl.substring(0, queryStart).trimEnd('/') else cleanBaseUrl
         val baseQuery = if (queryStart >= 0) cleanBaseUrl.substring(queryStart) else ""
@@ -696,7 +700,9 @@ class StreamRepositoryImpl @Inject constructor(
                 videoId
             }
         }
-        val cleanBaseUrl = addon.baseUrl.trimEnd('/')
+        // Same durable-record problem as the direct /stream fetch above — this fallback dials the
+        // addon's stored base too, so it resolves through the same seam.
+        val cleanBaseUrl = BoomioConfig.liveBaseUrlFor(addon.baseUrl).trimEnd('/')
         val queryStart = cleanBaseUrl.indexOf('?')
         val basePath = if (queryStart >= 0) cleanBaseUrl.substring(0, queryStart).trimEnd('/') else cleanBaseUrl
         val baseQuery = if (queryStart >= 0) cleanBaseUrl.substring(queryStart) else ""

@@ -2,6 +2,7 @@ package com.nuvio.tv.data.repository
 
 import android.content.Context
 import android.util.Log
+import com.nuvio.app.features.boomio.BoomioConfig
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.data.mapper.toDomain
 import com.nuvio.tv.data.remote.api.AddonApi
@@ -598,7 +599,13 @@ class MetaRepositoryImpl @Inject constructor(
     }
 
     private fun buildMetaUrl(baseUrl: String, type: String, id: String): String {
-        val (basePath, baseQuery) = splitAddonBaseUrl(baseUrl)
+        // ⚠️ Resolve the RETIRED service host to the live one here, at the DIAL, and nowhere else.
+        //    An addon is a DURABLE RECORD: its stored base was frozen at install time and is synced
+        //    from the user's account, so a service-origin rename never reaches it. [BoomioConfig
+        //    .liveBaseUrlFor] rewrites only the host of a known-retired origin and passes everything
+        //    else through untouched. Cache keys and the Addon identity below still key on the STORED
+        //    base — they must, or a reinstall would strand every cached entry.
+        val (basePath, baseQuery) = splitAddonBaseUrl(BoomioConfig.liveBaseUrlFor(baseUrl))
         val encodedType = encodePathSegment(type)
         val encodedId = encodePathSegment(id)
         return "$basePath/meta/$encodedType/$encodedId.json$baseQuery"

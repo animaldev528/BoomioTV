@@ -1,5 +1,6 @@
 package com.nuvio.app.features.boomio
 
+import com.nuvio.app.core.overlay.hostOf
 import com.nuvio.tv.BuildConfig
 
 /**
@@ -183,6 +184,61 @@ object BoomioConfig {
         iptvBaseUrl = "$origin/bss-iptv"
         boomioBaseUrl = "$origin/bsf"
         bsmBaseUrl = "$origin/bsm"
+    }
+
+    /**
+     * Records the **move** of the service origin, so a durable record of the old one can still be
+     * dialled on today's host.
+     *
+     * ⚠️ **Deliberately a short explicit list, and deliberately not "any host of ours".**
+     * [localServerHosts] also holds `tmdb.`, `usn.` and `nuvioserver.` on the same registrable
+     * domain, and rewriting those to the service origin would point a working addon at the wrong
+     * *service* — a silent wrong answer, which is worse than the stale host this exists to fix.
+     * Only hosts that **were the origin itself** belong here, because only those share the origin's
+     * path contract (`/bsc`, `/bsf`, `/bss-iptv`, `/bsm`).
+     *
+     * ⚠️ **A retirement is a discrete event, so it gets a record rather than an inference.** The
+     * alternative — treating any host that answers like ours as ours — cannot tell the two cases
+     * above apart, and "our domain" is itself derived at runtime from whatever configuration
+     * happens to be loaded.
+     */
+    private val RETIRED_SERVICE_HOSTS = setOf(
+        // The pre-collapse service origin. Retired in favour of BOOMIO_SERVICE_HOST; the edge still
+        // serves it transitionally, which is exactly what hides the staleness below.
+        "boomio.tracemonkey.org",
+    )
+
+    /**
+     * The base URL to actually dial for a **stored** one, which may name an origin we have retired.
+     *
+     * **The problem this exists for.** An addon is a durable record: installing it froze whatever
+     * host was current *then*, and the record is synced from the user's account, so renaming the
+     * service origin never reaches it. The app meanwhile has one live seam, [serviceOrigin].
+     *
+     * Measured 2026-10-10 on the Pi and the Shield, after the re-floor onto the one name: the
+     * `boomio` addon was still stored as `https://boomio.tracemonkey.org/bsf`. That produced two
+     * failures from one cause, and only the first was visible —
+     *
+     *  1. the dial went to the retired host. It still *answered*, through the overlay pin plus the
+     *     transitional vhost, so nothing looked broken; and
+     *  2. `StreamRepositoryImpl` decides whether to attach the boomio caps with
+     *     `basePath.startsWith(boomioBaseUrl)`. Against a stored host that is not the seam's, that
+     *     is **false**, so `max_resolution`, `codecCapsMaxRes` and `mobileCapMbps` were silently
+     *     not attached and the box was offered streams past its decoder's ceiling — with no error
+     *     logged anywhere, on the exact build whose changelog claims this was fixed.
+     *
+     * ⚠️ **Path and query are carried over verbatim.** An addon's path is part of its identity and
+     * can carry a per-install secret segment, so this rewrites the authority and nothing else.
+     * Anything not on a retired host — including a genuine third-party addon — is returned
+     * unchanged, byte for byte.
+     */
+    fun liveBaseUrlFor(storedBaseUrl: String): String {
+        val stored = storedBaseUrl.trim()
+        val host = hostOf(stored) ?: return stored
+        if (host !in RETIRED_SERVICE_HOSTS) return stored
+        val pathStart = stored.indexOf('/', stored.indexOf("://") + 3)
+        val pathAndQuery = if (pathStart < 0) "" else stored.substring(pathStart)
+        return serviceOrigin.trimEnd('/') + pathAndQuery
     }
 
     /**

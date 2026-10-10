@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.nuvio.app.features.boomio.BoomioConfig
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.network.safeApiCall
 import com.nuvio.tv.data.local.AddonPreferences
@@ -364,9 +365,13 @@ class AddonRepositoryImpl(
      * repository scope, independent of any collecting flow that may be cancelled.
      */
     private suspend fun doFetchAddon(cleanBaseUrl: String): NetworkResult<Addon> {
-        val queryStart = cleanBaseUrl.indexOf('?')
-        val basePath = if (queryStart >= 0) cleanBaseUrl.substring(0, queryStart).trimEnd('/') else cleanBaseUrl
-        val baseQuery = if (queryStart >= 0) cleanBaseUrl.substring(queryStart) else ""
+        // Dial the *live* origin — the stored base may name one we have retired. The cache key and
+        // the addon's persisted identity stay [cleanBaseUrl]; rewriting those would orphan the
+        // manifest cache and change what "this addon" means. See [BoomioConfig.liveBaseUrlFor].
+        val dialUrl = BoomioConfig.liveBaseUrlFor(cleanBaseUrl)
+        val queryStart = dialUrl.indexOf('?')
+        val basePath = if (queryStart >= 0) dialUrl.substring(0, queryStart).trimEnd('/') else dialUrl
+        val baseQuery = if (queryStart >= 0) dialUrl.substring(queryStart) else ""
         val manifestUrl = "$basePath/manifest.json$baseQuery"
 
         var attempt = 0
