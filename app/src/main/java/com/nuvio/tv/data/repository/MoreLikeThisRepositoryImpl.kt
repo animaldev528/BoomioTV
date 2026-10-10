@@ -2,6 +2,7 @@ package com.nuvio.tv.data.repository
 
 import android.content.Context
 import android.util.Log
+import com.nuvio.app.features.boomio.BoomioConfig
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.network.safeApiCall
 import com.nuvio.tv.data.mapper.toDomainOrNull
@@ -94,7 +95,13 @@ class MoreLikeThisRepositoryImpl @Inject constructor(
         skip: Int,
         exclude: List<String>
     ): String {
-        val trimmed = baseUrl.trimEnd('/')
+        // ⚠️ Resolve at the DIAL only, exactly as buildCatalogUrl and buildMetaUrl do. An addon is a
+        //    DURABLE RECORD: its stored base keeps the host that was current when it was installed,
+        //    and a service-origin rename never reaches it, because the record is synced from the
+        //    user's account rather than from the build. Without this line the More-Like-This wall
+        //    keeps dialling a retired origin on a device whose every other addon path was
+        //    re-floored — the one path where the stale host would have survived the sweep.
+        val trimmed = BoomioConfig.liveBaseUrlFor(baseUrl).trimEnd('/')
         val queryStart = trimmed.indexOf('?')
         val basePath = if (queryStart >= 0) trimmed.substring(0, queryStart).trimEnd('/') else trimmed
         val baseQuery = if (queryStart >= 0) trimmed.substring(queryStart) else ""
