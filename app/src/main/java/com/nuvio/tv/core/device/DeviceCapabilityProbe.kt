@@ -6,6 +6,7 @@ import android.media.MediaCodecInfo
 import android.media.MediaCodecInfo.CodecProfileLevel
 import android.media.MediaCodecList
 import android.os.Build
+import android.provider.Settings
 import android.util.Log
 import android.view.Display
 import com.nuvio.tv.BuildConfig
@@ -17,6 +18,7 @@ import com.nuvio.tv.data.remote.dto.DeviceInfoDto
 import com.nuvio.tv.data.remote.dto.DisplayCapabilitiesDto
 import com.nuvio.tv.data.remote.dto.DolbyVisionCapabilityDto
 import com.nuvio.tv.data.remote.dto.EffectiveCapabilitiesDto
+import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -53,6 +55,12 @@ object DeviceCapabilityProbe {
     /** build.prop key some ATV builds (Chromecast/Shield-class devices) set to the retail name. */
     private const val PROP_MARKET_NAME = "ro.product.marketname"
 
+    /** Salt for [hardwareFingerprint]. Version-tagged so the scheme can rotate. */
+    private const val FP_SALT = "boomio-devcap-fp-v1|"
+
+    /** The Android 2.2 build that handed every device the SAME ANDROID_ID. */
+    private const val LEGACY_ANDROID_ID_COLLISION = "9774d56d682e549c"
+
     private val ISO_UTC = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply {
         timeZone = java.util.TimeZone.getTimeZone("UTC")
     }
@@ -67,6 +75,47 @@ object DeviceCapabilityProbe {
         (get.invoke(null, name) as? String)?.takeIf { it.isNotBlank() }
     }.getOrNull()
 
+    /**
+     * A per-device fingerprint that survives a reinstall, so clearing the app and
+     * re-enrolling rejoins the existing bsm row instead of duplicating it.
+     *
+     * ⚠️ ANDROID_ID deliberately, and NOT the usual suspects:
+     *  - Build.FINGERPRINT / Build.MODEL are BUILD strings — identical on every
+     *    unit of the same model + firmware, so they name a model, not a box.
+     *  - Build.SERIAL / getSerial() reads "unknown" to an unprivileged app on
+     *    Android 10+; a MAC needs restricted permissions and is randomised or
+     *    stubbed on modern Android. Neither can be relied on.
+     *  - ANDROID_ID is scoped to (app signing key, user, device), which is what
+     *    makes it survive an uninstall/reinstall OF THIS APP — the exact path that
+     *    produced nine identical "NVIDIA SHIELD Android TV" rows.
+     *
+     * ⚠️ Measured scope of "stable": survives a data clear, an uninstall/reinstall
+     * and an app update; does NOT survive a factory reset (ANDROID_ID is
+     * regenerated with the user data). Nothing an unprivileged app can read does.
+     * A factory-reset-stable identity must be written at image/install time —
+     * that is a deployment decision, not a code trick.
+     *
+     * SHA-256'd with a version-tagged salt: bsm only compares it for equality, so
+     * the raw hardware-linked id never reaches the fleet view. Returns "" when the
+     * platform will not supply one, and bsm then falls back to the install id —
+     * so such a box behaves exactly as it does today.
+     */
+    @Suppress("HardwareIds")
+    private fun hardwareFingerprint(context: Context): String = try {
+        val raw = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+        if (raw.isNullOrBlank() || raw == LEGACY_ANDROID_ID_COLLISION) {
+            ""
+        } else {
+            MessageDigest.getInstance("SHA-256")
+                .digest((FP_SALT + raw).toByteArray(Charsets.UTF_8))
+                .joinToString("") { b -> (b.toInt() and 0xff).toString(16).padStart(2, '0') }
+                .take(32)
+        }
+    } catch (t: Throwable) {
+        Log.w(TAG, "ANDROID_ID unavailable — a re-enroll will not rejoin its existing row", t)
+        ""
+    }
+
     fun buildReport(context: Context, installId: String): DeviceCapabilityReportDto {
         val sink = probeSink(context)
         val decode = probeDecode()
@@ -75,6 +124,7 @@ object DeviceCapabilityProbe {
             reportedAt = ISO_UTC.format(Date()),
             device = DeviceInfoDto(
                 installId = installId,
+                hwFingerprint = hardwareFingerprint(context),
                 manufacturer = Build.MANUFACTURER,
                 model = Build.MODEL,
                 // Build.SOC_* only exists as a real field on API 31+; the SDK gate keeps the

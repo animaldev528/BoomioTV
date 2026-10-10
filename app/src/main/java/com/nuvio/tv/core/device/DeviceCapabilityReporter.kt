@@ -168,6 +168,11 @@ class DeviceCapabilityReporter @Inject constructor(
     private fun signatureOf(report: DeviceCapabilityReportDto): String {
         val sb = StringBuilder()
         sb.append(report.device.installId).append('|')
+        // Identity, not just capability: a fingerprint arriving or changing is a
+        // real content change. On an in-place upgrade the installId is unchanged,
+        // so this is what makes the box re-post once and lets bsm backfill
+        // hw_fingerprint onto the row it already has.
+        sb.append(report.device.hwFingerprint).append('|')
         sb.append(report.device.socManufacturer).append('/').append(report.device.socModel)
             .append('/').append(report.device.marketName).append('|')
         sb.append(report.display.sinkWidth).append('x').append(report.display.sinkHeight).append('|')

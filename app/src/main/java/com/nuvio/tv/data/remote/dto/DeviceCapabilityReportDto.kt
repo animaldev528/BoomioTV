@@ -25,11 +25,33 @@ data class DeviceCapabilityReportDto(
     val network: NetworkCapabilitiesDto? = null
 )
 
-/** Identifies the install to the fleet view. */
+/** Identifies the box to the fleet view. */
 @JsonClass(generateAdapter = true)
 data class DeviceInfoDto(
-    /** Install-scoped id from [com.nuvio.tv.core.sync.SyncClientIdentity] — the row key on bsm. */
+    /**
+     * Install-scoped id from [com.nuvio.tv.core.sync.SyncClientIdentity]. Random
+     * per install, so it is the row key on bsm ONLY for a box that cannot supply
+     * [hwFingerprint]; when a fingerprint is present that is the row's identity
+     * and this is what the row's device_id is first stamped with.
+     */
     val installId: String = "",
+    /**
+     * Stable per-device identity, so a REINSTALL rejoins its existing bsm row
+     * instead of minting a new one.
+     *
+     * ⚠️ This REVERSES D2 of the capability-report plan, which deliberately sent
+     * no fingerprint "so a reinstall produces a new row rather than silently
+     * re-merging into the old one". Measured on the live fleet that gave 18 rows
+     * for 6 models — nine of them "NVIDIA SHIELD Android TV" — so the duplicate
+     * was the defect, not the feature. Reversed 2026-10-10.
+     *
+     * A digest, not a raw hardware id: bsm only ever compares it for equality, so
+     * the raw hardware-linked value never reaches the fleet view. Derived from
+     * ANDROID_ID, so it survives an app data clear, an uninstall/reinstall and an
+     * app update — but NOT a factory reset. Empty means "this box cannot be
+     * fingerprinted"; bsm then falls back to [installId], i.e. today's behaviour.
+     */
+    val hwFingerprint: String = "",
     val manufacturer: String = "",
     val model: String = "",
     /** Silicon vendor, e.g. "Amlogic" — the reliable "which box is this" when [model] is a reseller alias. Null below API 31 (Build.SOC_* is not exposed earlier). */
