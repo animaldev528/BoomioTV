@@ -2475,7 +2475,12 @@
     <string name="music_not_playing">Nothing is playing</string>
     <string name="music_not_playing_hint">Start a title on the TV, then ask again.</string>
     <string name="music_not_paired">This TV isn\'t linked yet</string>
-    <string name="music_not_paired_hint">Pair the TV from the Boomio dashboard to use music search.</string>
+    <!-- The fix is on the TV itself: the This TV row in Settings owns Link, and the
+         first-run gate renders the same panel. The old copy sent the viewer to the
+         dashboard, which is where a code is *approved* and not where one is started. -->
+    <string name="music_not_paired_hint">Use Link on the This TV row in Settings to connect it to your Boomio account.</string>
+    <string name="music_session_expired">This TV\'s link has expired</string>
+    <string name="music_session_expired_hint">Link this TV again from the This TV row in Settings to keep using music search.</string>
     <string name="music_not_configured">Music search isn\'t set up</string>
     <string name="music_not_configured_hint">This build has no Boomio server configured.</string>
     <string name="music_unavailable">Couldn\'t reach the music service</string>

@@ -2,6 +2,7 @@ package com.nuvio.tv.core.boomio
 
 import android.util.Log
 import com.nuvio.app.features.boomio.BoomioConfig
+import com.nuvio.app.features.boomio.BoomioSessionRepository
 import com.nuvio.tv.data.remote.dto.MusicIdentifyDto
 import com.squareup.moshi.Moshi
 import kotlinx.coroutines.Dispatchers
@@ -35,8 +36,21 @@ enum class MusicUnavailableReason {
      */
     NOT_PLAYING,
 
-    /** Paired on no TV yet, so there is no session to identify with. */
+    /** This TV holds no session at all — it has never been linked. */
     NOT_PAIRED,
+
+    /**
+     * The device holds a session and the server **rejected** it: the 90-day
+     * lifetime ran out, or the device was unlinked server-side.
+     *
+     * Its own reason rather than folded into [NETWORK], because the two send the
+     * viewer to different places — a network fault is worth retrying, and a
+     * rejected session never will be until the TV is linked again. With a 90-day
+     * lifetime this is the ordinary way a long-lived install eventually fails, so
+     * reporting it as "couldn't reach the music service" would make the common
+     * case the wrong message.
+     */
+    SESSION_EXPIRED,
 
     /**
      * The session carries no user, so there is no library to write into.
@@ -127,9 +141,12 @@ data class MusicIdentifyRequest(
 /**
  * Client for the bsc music endpoints.
  *
- * Session-gated with the same `bs_ses_…` token the IPTV edge uses — one pairing,
- * both services. Reads soft: a dead bsc degrades the button to a message rather
- * than an exception, matching [IptvClient].
+ * Gated on the **device's** `bs_ses_…` session — the one linking mints and
+ * [BoomioSessionRepository] persists. Deliberately not read through the IPTV
+ * surface: music search is not an IPTV feature and must not stop working
+ * because a screen that no longer exists has not been visited. Reads soft: a
+ * dead bsc degrades the button to a message rather than an exception, matching
+ * [IptvClient].
  *
  * The call is genuinely slow (measured 6.5–9.5 s on an 88 GB remux, because the
  * server fetches and decodes a window of the real stream), so callers must show
@@ -149,8 +166,7 @@ class MusicClient @Inject constructor(
     // Reached only through [resolveHttpClientFor]; see its KDoc for the leak that scoping prevents.
     @Named("boomioClientCertificate")
     private val certificateOkHttpClient: OkHttpClient,
-    private val moshi: Moshi,
-    private val authStore: IptvAuthStore
+    private val moshi: Moshi
 ) {
     private val identifyAdapter = moshi.adapter(MusicIdentifyDto::class.java)
     private val jsonType = "application/json; charset=utf-8".toMediaType()
@@ -208,7 +224,7 @@ class MusicClient @Inject constructor(
                 ?: return@withContext MusicIdentifyResult.Unavailable(
                     MusicUnavailableReason.NOT_CONFIGURED
                 )
-            val token = authStore.currentToken()
+            val token = BoomioSessionRepository.bearerToken()
                 ?: return@withContext MusicIdentifyResult.Unavailable(
                     MusicUnavailableReason.NOT_PAIRED
                 )
@@ -236,10 +252,14 @@ class MusicClient @Inject constructor(
                     // 429 is not a failure — it is the daily cap, which is a state
                     // the UI has its own copy for. Parse it like any other answer.
                     if (!response.isSuccessful && response.code != 429) {
-                        return@use MusicIdentifyResult.Unavailable(
-                            MusicUnavailableReason.NETWORK,
-                            "HTTP ${response.code}"
-                        )
+                        // 401 is the server refusing the session itself, which is a
+                        // different errand for the viewer than an unreachable service.
+                        val reason = if (response.code == 401) {
+                            MusicUnavailableReason.SESSION_EXPIRED
+                        } else {
+                            MusicUnavailableReason.NETWORK
+                        }
+                        return@use MusicIdentifyResult.Unavailable(reason, "HTTP ${response.code}")
                     }
 
                     val dto = identifyAdapter.fromJson(text)
@@ -271,7 +291,7 @@ class MusicClient @Inject constructor(
         withContext(Dispatchers.IO) {
             val base = baseUrl()
                 ?: return@withContext MusicSaveResult.Failed(MusicUnavailableReason.NOT_CONFIGURED)
-            val token = authStore.currentToken()
+            val token = BoomioSessionRepository.bearerToken()
                 ?: return@withContext MusicSaveResult.Failed(MusicUnavailableReason.NOT_PAIRED)
 
             val body = JSONObject().apply {
@@ -307,6 +327,11 @@ class MusicClient @Inject constructor(
                         response.code == 409 -> MusicSaveResult.Failed(
                             MusicUnavailableReason.NOT_LINKED,
                             runCatching { JSONObject(text).optString("error").ifBlank { null } }.getOrNull()
+                        )
+
+                        response.code == 401 -> MusicSaveResult.Failed(
+                            MusicUnavailableReason.SESSION_EXPIRED,
+                            "HTTP ${response.code}"
                         )
 
                         else -> MusicSaveResult.Failed(
