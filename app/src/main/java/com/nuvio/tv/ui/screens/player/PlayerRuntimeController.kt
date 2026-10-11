@@ -404,6 +404,12 @@ class PlayerRuntimeController(
             // Live re-evaluation: Media3 reselects decode-to-PCM on the running audio renderer.
             speedSink.notifyAudioProcessingRequirementChanged()
         }
+        // A fork is a two-channel output, so the fold target just became 2.0 and passthrough must
+        // stand down. The notify above only renegotiates the SINK; the renderer's fold target and
+        // the track-selection cap are set here, or the tee keeps carrying the track's own channel
+        // count (5.1 = 485 datagrams/s instead of 2.0's 161). Main-thread-only, like every other
+        // companion command.
+        reapplyRouteDownmixTarget()
         return true
     }
 
@@ -422,6 +428,9 @@ class PlayerRuntimeController(
                 speedSink.notifyAudioProcessingRequirementChanged()
             }
         }
+        // The fork is gone, so the route is no longer a two-channel output. Recomputed AFTER
+        // stopFork(), which is what makes isPhoneAudioForkActive() read false here.
+        reapplyRouteDownmixTarget()
     }
 
     /** True while a private-listening fork is streaming to a phone — the "phone attached" diagnostic. */

@@ -1,10 +1,13 @@
 package com.nuvio.tv.ui.screens.player
 
+import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioSink
 import java.nio.ByteBuffer
+
+private const val TAG = "PrivateListeningSink"
 
 /**
  * Roku-style private-listening tee.
@@ -12,8 +15,9 @@ import java.nio.ByteBuffer
  * Sits between the stock DefaultAudioSink and [PlaybackSpeedAwareAudioSink]
  * (DefaultAudioSink ← this ← PlaybackSpeedAwareAudioSink). While a fork is armed ([startFork]) it
  * mirrors every decoded PCM buffer to a [PrivateListeningAudioSender], which unicasts PCM16 stereo
- * to the companion phone. The phone hears exactly what the TV is decoding — same clock, no second
- * player, no drift.
+ * to the companion phone. Any decoded PCM width is folded down to 16 bits on the wire, so a 24-bit
+ * source plays rather than going silent while the TV's own output keeps its full precision. The
+ * phone hears exactly what the TV is decoding — same clock, no second player, no drift.
  *
  * Because the fork is forced to a decode-to-PCM path by PlaybackSpeedAwareAudioSink (see
  * [PlaybackSpeedAwareAudioSink.setPhoneForcePcm]), this sink is only ever asked to tee PCM, never a
@@ -38,7 +42,7 @@ internal class PrivateListeningAudioSink(
     @Volatile
     private var pcmChannelCount: Int = 2
     @Volatile
-    private var pcmIsFloat: Boolean = false
+    private var pcmEncoding: Int = C.ENCODING_PCM_16BIT
     @Volatile
     private var isPcmConfigured: Boolean = false
 
@@ -66,6 +70,23 @@ internal class PrivateListeningAudioSink(
             val newSender = PrivateListeningAudioSender(phoneIp, port)
             sender = newSender
             newSender.start()
+            // What the wire carries the moment we arm. A fork does not re-pin the renderer, so if
+            // the fold was not already reachable this count stays the track's own for the whole
+            // session. The phone IP is deliberately not logged -- it is not needed for the downmix
+            // question and logcat is a leaking surface.
+            Log.i(
+                TAG,
+                "fork armed; tee carrying ${
+                    PrivateListeningAudioSender.pcmFormatName(pcmEncoding)
+                } " +
+                    "${pcmSampleRate}Hz ${pcmChannelCount}ch " +
+                    "(${
+                        PrivateListeningAudioSender.datagramsPerSecond(
+                            pcmSampleRate,
+                            pcmChannelCount,
+                        )
+                    } datagrams/s) pcmConfigured=$isPcmConfigured",
+            )
             return true
         }
     }
@@ -82,17 +103,42 @@ internal class PrivateListeningAudioSink(
 
     override fun configure(inputFormat: Format, specifiedBufferSize: Int, outputChannels: IntArray?) {
         val encoding = inputFormat.pcmEncoding
-        if ((encoding == C.ENCODING_PCM_16BIT || encoding == C.ENCODING_PCM_FLOAT) &&
+        // ⚠️ Any decoded PCM WIDTH is accepted, not just 16-bit and float. The FFmpeg renderer
+        // hands us whatever the source decoded to, and a PCM 2.0 DVD remux decodes to
+        // C.ENCODING_PCM_24BIT (21). Accepting only 16-bit/float is what made private listening
+        // TOTALLY SILENT on such titles: the sink configured fine, the tee skipped every buffer,
+        // and the phone heard nothing at all. The wire is PCM16 regardless (see the sender), so a
+        // wider width is folded down there -- which also leaves the TV's own output at full 24-bit.
+        if (PrivateListeningAudioSender.pcmBytesPerSample(encoding) > 0 &&
             inputFormat.sampleRate > 0 && inputFormat.channelCount > 0
         ) {
             isPcmConfigured = true
             pcmSampleRate = inputFormat.sampleRate
             pcmChannelCount = inputFormat.channelCount
-            pcmIsFloat = encoding == C.ENCODING_PCM_FLOAT
+            pcmEncoding = encoding
+            // The REALITY half of the downmix log, and the only place it is observable: this sink
+            // sits above DefaultAudioSink, so this count is what the RENDERER produced, not what the
+            // track carried. If a 5.1 track arrives here as 6 channels, the fold did not run -- the
+            // FFmpeg renderer was not the active one -- and the wire will carry ~485 datagrams/s
+            // instead of 2.0's ~161. Pair this with the "downmix ask" line in the route path.
+            Log.i(
+                TAG,
+                "tee configured: ${
+                    PrivateListeningAudioSender.pcmFormatName(encoding)
+                } ${pcmSampleRate}Hz " +
+                    "${pcmChannelCount}ch " +
+                    "(${
+                        PrivateListeningAudioSender.datagramsPerSecond(
+                            pcmSampleRate,
+                            pcmChannelCount,
+                        )
+                    } datagrams/s) fork=${sender != null}",
+            )
         } else {
             // Compressed/passthrough or unknown. While a fork is armed the force-PCM policy in
             // PlaybackSpeedAwareAudioSink drives a reconfigure to decoded PCM; until then, skip.
             isPcmConfigured = false
+            Log.i(TAG, "tee configured with non-PCM encoding=$encoding -- nothing teed yet")
         }
         lastTeedPtsUs = Long.MIN_VALUE
         super.configure(inputFormat, specifiedBufferSize, outputChannels)
@@ -108,7 +154,7 @@ internal class PrivateListeningAudioSink(
             presentationTimeUs != lastTeedPtsUs
         ) {
             lastTeedPtsUs = presentationTimeUs
-            active.offer(buffer, presentationTimeUs, pcmSampleRate, pcmChannelCount, pcmIsFloat)
+            active.offer(buffer, presentationTimeUs, pcmSampleRate, pcmChannelCount, pcmEncoding)
         }
         return super.handleBuffer(buffer, presentationTimeUs, encodedAccessUnitCount)
     }

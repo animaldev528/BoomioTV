@@ -194,6 +194,12 @@ enum class AudioOutputChannels(
     val channelCount: Int,
     val ffmpegLayoutName: String
 ) {
+    /**
+     * No fixed target -- follow the route. A two-channel output (a phone private-listening fork, or
+     * Bluetooth) folds to 2.0; on any other route the selected track is passed through untouched.
+     * This is the default, and it is exactly what the old 7.1 default did, so nothing shifts.
+     */
+    AUTO("auto", "Auto", 0, ""),
     CHANNELS_2_0("2.0", "2.0", 2, "stereo"),
     CHANNELS_2_1("2.1", "2.1", 3, "2.1"),
     CHANNELS_3_0("3.0", "3.0", 3, "3.0"),
@@ -206,7 +212,7 @@ enum class AudioOutputChannels(
     CHANNELS_7_1("7.1", "7.1", 8, "7.1");
 
     companion object {
-        val default = CHANNELS_7_1
+        val default = AUTO
 
         fun fromSettingValue(value: String?): AudioOutputChannels {
             return entries.firstOrNull { it.settingValue == value } ?: default
@@ -310,9 +316,34 @@ data class PlayerSettings(
     val isPreferAppDecoder: Boolean
         get() = decoderPriority == 2
 
-    /** FFmpeg downmix only runs when the app decoder is preferred. */
-    val effectiveDownmixEnabled: Boolean
-        get() = downmixEnabled && isPreferAppDecoder
+    /**
+     * The fold target for a route, or null to pass the selected track through untouched.
+     *
+     * [smallOutputRoute] means a sink that genuinely cannot take multichannel -- in practice a
+     * Bluetooth sink, the one route where the FFmpeg fold is reachable. It folds to 2.0 rather than
+     * trusting the stored layout. ⚠️ A phone private-listening fork is deliberately NOT passed as
+     * true: its receiver folds with Android's own mixer, so capping here would only change which
+     * track is selected. Otherwise the explicit layout wins, and [AudioOutputChannels.AUTO] means
+     * "no fixed target", i.e. no fold at all.
+     */
+    fun downmixTargetFor(smallOutputRoute: Boolean): AudioOutputChannels? = when {
+        smallOutputRoute -> AudioOutputChannels.CHANNELS_2_0
+        audioOutputChannels == AudioOutputChannels.AUTO -> null
+        else -> audioOutputChannels
+    }
+
+    /**
+     * Whether the FFmpeg audio renderer -- the only one that can fold -- is the renderer that will
+     * run. Renderer choice is fixed when the player is built: the factory pins the extension
+     * renderer for a two-channel output, and otherwise obeys the decoder preference. So this answers
+     * the question for a route already known at BUILD time.
+     *
+     * A route that appears later does not get a re-pin. A phone private-listening fork is that case:
+     * it still gets the cap from [downmixTargetFor] (which no renderer choice can defeat) but folds
+     * only if the app decoder is already preferred.
+     */
+    fun isFoldRendererActive(smallOutputRoute: Boolean): Boolean =
+        smallOutputRoute || isPreferAppDecoder
 
     /**
      * Tunneled playback cannot share the FFmpeg audio path. Prefer-app decoder
@@ -1069,6 +1100,10 @@ class PlayerSettingsDataStore @Inject constructor(
         store().edit { prefs ->
             prefs[downmixEnabledKey] = true
             prefs[audioOutputChannelsKey] = channels.settingValue
+            // Choosing a layout IS choosing the fold, and the fold only exists on the app decoder.
+            // Imply it here rather than leaving the user to find `decoder_priority` and wonder why
+            // their choice did nothing.
+            prefs[decoderPriorityKey] = 2
         }
     }
 

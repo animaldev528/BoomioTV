@@ -1,12 +1,12 @@
 package com.nuvio.tv.ui.screens.player
 
 import android.util.Log
+import androidx.media3.common.C
 import java.io.IOException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
 
@@ -16,9 +16,11 @@ import java.util.concurrent.TimeUnit
  * The TV already decodes the audio it is playing for its own speakers; [PrivateListeningAudioSink]
  * memcpys each decoded PCM buffer on the audio thread into a bounded queue, and this sender's own
  * worker thread drains that queue and sends it to the companion phone over UDP as PCM16 in the
- * DECODER'S NATIVE channel layout. The TV never downmixes: it hands 5.1/7.1 through untouched and
- * lets the phone render them with a matching AudioTrack, so Android's own mixer (or a
- * multichannel-capable sink) does whatever fold the earbuds need. An earlier TV-side stereo
+ * DECODER'S NATIVE channel layout. The wire is always 16-bit: the decoder's own PCM *width* is
+ * folded down here (24-bit sources are truncated, never dropped), so a plain stereo PCM remux
+ * reaches the phone instead of going silent. The TV never downmixes: it hands 5.1/7.1 through
+ * untouched and lets the phone render them with a matching AudioTrack, so Android's own mixer (or
+ * a multichannel-capable sink) does whatever fold the earbuds need. An earlier TV-side stereo
  * downmix was the source of an audible artifact on surround content; passthrough is clean. Because
  * it shares the main decode clock it cannot drift from the TV the way a second shadow player could.
  *
@@ -49,7 +51,7 @@ internal class PrivateListeningAudioSender(
         val bytes: ByteArray,
         val sampleRate: Int,
         val channelCount: Int,
-        val isFloat: Boolean,
+        val pcmEncoding: Int,
         val ptsUs: Long,
     )
 
@@ -67,6 +69,51 @@ internal class PrivateListeningAudioSender(
 
         /** Layouts the wire can carry (the phone maps these to AudioFormat channel masks). */
         private val SUPPORTED_CHANNEL_COUNTS = 1..8
+
+        /**
+         * Bytes per sample for a decoded PCM encoding, or 0 when the wire cannot carry it.
+         *
+         * This is the sink's acceptance test as well as the worker's conversion key: the FFmpeg
+         * renderer hands us whatever width the source decoded to (a PCM 2.0 DVD remux decodes to
+         * [C.ENCODING_PCM_24BIT]), so a narrow whitelist silently drops every buffer and the phone
+         * gets nothing. The wire itself is always PCM16 -- see [renderPcm16], which folds any width
+         * down -- so accepting a width here costs only the conversion.
+         */
+        fun pcmBytesPerSample(pcmEncoding: Int): Int = when (pcmEncoding) {
+            C.ENCODING_PCM_8BIT -> 1
+            C.ENCODING_PCM_16BIT -> 2
+            C.ENCODING_PCM_24BIT -> 3
+            C.ENCODING_PCM_32BIT, C.ENCODING_PCM_FLOAT -> 4
+            else -> 0
+        }
+
+        /** Logging only: a short name for the width the decoder produced. */
+        fun pcmFormatName(pcmEncoding: Int): String = when (pcmEncoding) {
+            C.ENCODING_PCM_8BIT -> "pcm8"
+            C.ENCODING_PCM_16BIT -> "pcm16"
+            C.ENCODING_PCM_24BIT -> "pcm24"
+            C.ENCODING_PCM_32BIT -> "pcm32"
+            C.ENCODING_PCM_FLOAT -> "float32"
+            else -> "encoding=$pcmEncoding"
+        }
+
+        /**
+         * Datagrams/second the worker will emit for a PCM layout, derived from the same [MAX_CHUNK]
+         * the send loop uses so a logged figure cannot drift from the wire.
+         *
+         * This is the number that matters for the private-listening crackle. A lost datagram costs
+         * the same *time* whatever the layout -- but 5.1 splits that time into ~3x more datagrams,
+         * so a given loss rate splices ~3x more concealments per second. The send loop converts to
+         * PCM16 first, so a frame is always 2 * channelCount bytes.
+         *
+         * Logging only; never consulted by playback.
+         */
+        fun datagramsPerSecond(sampleRate: Int, channelCount: Int): Int {
+            if (sampleRate <= 0 || channelCount <= 0) return 0
+            val framesPerChunk = MAX_CHUNK / (2 * channelCount)
+            if (framesPerChunk <= 0) return 0
+            return (sampleRate.toDouble() / framesPerChunk + 0.5).toInt()
+        }
     }
 
     @Volatile
@@ -108,6 +155,15 @@ internal class PrivateListeningAudioSender(
         worker?.interrupt()
         worker = null
         queue.clear()
+        // These counters were readable from [PrivateListeningAudioSink] but nothing ever read
+        // them, so a fork the TV itself starved looked identical to one the network ate -- and
+        // the phone's receiver log can only ever see the *result* of both. One line at teardown
+        // is what separates "the TV dropped it" from "Wi-Fi lost it".
+        Log.i(
+            TAG,
+            "fork sender stopped: $sentDatagrams datagrams sent, $droppedFrames frame(s) " +
+                "dropped on a full queue, $sendErrors send error(s)",
+        )
     }
 
     /**
@@ -115,13 +171,13 @@ internal class PrivateListeningAudioSender(
      * for the worker. Never blocks; drops the frame if the queue is full so a stalled phone cannot
      * stall the TV.
      */
-    fun offer(source: ByteBuffer, ptsUs: Long, sampleRate: Int, channelCount: Int, isFloat: Boolean) {
+    fun offer(source: ByteBuffer, ptsUs: Long, sampleRate: Int, channelCount: Int, pcmEncoding: Int) {
         if (!running) return
         val n = source.remaining()
         if (n <= 0) return
         val bytes = ByteArray(n)
         source.duplicate().get(bytes)
-        if (!queue.offer(PcmFrame(bytes, sampleRate, channelCount, isFloat, ptsUs))) {
+        if (!queue.offer(PcmFrame(bytes, sampleRate, channelCount, pcmEncoding, ptsUs))) {
             droppedFrames++
         }
     }
@@ -194,34 +250,58 @@ internal class PrivateListeningAudioSender(
     }
 
     /**
-     * Convert one captured buffer to PCM16 signed little-endian in its native interleaved layout.
-     * Returns null for an unsupported layout (shouldn't happen — the sink only forwards PCM).
+     * Fold one captured buffer down to PCM16 signed little-endian in its native interleaved layout.
+     * Returns null for a layout the wire cannot carry (an unsupported width or channel count).
      *
-     * int16 input is returned untouched (same reference). float input — decoders hand float buffers
-     * for Atmos/E-AC3 folds — is converted sample-by-sample with a clamp to +-1.0; a legal float
-     * never exceeds that, so in practice the clamp is a no-op. The channel ORDER is the decoder's
-     * (the standard MediaCodec layout FL FR FC LFE BL BR [SL SR]), which the phone's channel mask
-     * must match — see the phone-side receiver.
+     * 16-bit input is returned untouched (same reference), so the common path costs nothing. Every
+     * other width converts sample-by-sample: float — decoders hand float buffers for Atmos/E-AC3
+     * folds — with a clamp to +-1.0, which a legal float never exceeds so in practice it is a
+     * no-op; and the wider integer widths (24-/32-bit PCM sources, which is how a plain DVD remux
+     * arrives) by keeping the TOP two bytes of each little-endian sample. That reduction is a pure
+     * shift, so it needs no clamp and cannot clip.
+     *
+     * The channel ORDER is the decoder's (the standard MediaCodec layout
+     * FL FR FC LFE BL BR [SL SR]), which the phone's channel mask must match — see the phone-side
+     * receiver.
      */
     private fun renderPcm16(frame: PcmFrame): ByteArray? {
         val n = frame.channelCount
         if (n !in SUPPORTED_CHANNEL_COUNTS) return null
-        if (!frame.isFloat) {
-            val whole = frame.bytes.size / (2 * n) * (2 * n)
-            if (whole <= 0) return null
+        val bps = pcmBytesPerSample(frame.pcmEncoding)
+        if (bps == 0) return null
+        val whole = frame.bytes.size / (bps * n) * (bps * n)
+        if (whole <= 0) return null
+        if (bps == 2) {
             return if (whole == frame.bytes.size) frame.bytes else frame.bytes.copyOf(whole)
         }
-        val sampleCount = frame.bytes.size / (4 * n)
-        if (sampleCount <= 0) return null
-        val input = ByteBuffer.wrap(frame.bytes).order(ByteOrder.LITTLE_ENDIAN)
-        val out = ByteArray(sampleCount * 2 * n)
+        val out = ByteArray((whole / bps) * 2)
         var o = 0
-        for (i in 0 until sampleCount * n) {
-            writeS16Le(out, o, clampToS16(input.getFloat(i * 4)))
+        var i = 0
+        while (i < whole) {
+            val s16 = when (bps) {
+                // Unsigned 8-bit is biased by 128; the wider widths are signed little-endian.
+                1 -> ((frame.bytes[i].toInt() and 0xFF) - 128) shl 8
+                3 -> (frame.bytes[i + 1].toInt() and 0xFF) or (frame.bytes[i + 2].toInt() shl 8)
+                4 -> if (frame.pcmEncoding == C.ENCODING_PCM_FLOAT) {
+                    clampToS16(Float.fromBits(readLeInt32(frame.bytes, i)))
+                } else {
+                    (frame.bytes[i + 2].toInt() and 0xFF) or (frame.bytes[i + 3].toInt() shl 8)
+                }
+                else -> return null
+            }
+            writeS16Le(out, o, s16)
             o += 2
+            i += bps
         }
         return out
     }
+
+    /** Little-endian int32 at [i] — the bit pattern of a float32 when the decoder handed us float. */
+    private fun readLeInt32(bytes: ByteArray, i: Int): Int =
+        (bytes[i].toInt() and 0xFF) or
+            ((bytes[i + 1].toInt() and 0xFF) shl 8) or
+            ((bytes[i + 2].toInt() and 0xFF) shl 16) or
+            (bytes[i + 3].toInt() shl 24)
 
     private fun clampToS16(v: Float): Int {
         val clamped = if (v > 1f) 1f else if (v < -1f) -1f else v

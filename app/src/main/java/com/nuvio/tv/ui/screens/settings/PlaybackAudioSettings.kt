@@ -210,43 +210,20 @@ internal fun LazyListScope.trailerAndAudioSettingsItems(
             )
         }
 
-        item(key = "audio_enable_downmix") {
-            ToggleSettingsItem(
-                icon = Icons.Default.Tune,
-                title = stringResource(R.string.audio_enable_downmix_title),
-                subtitle = stringResource(R.string.audio_enable_downmix_subtitle),
-                // Show off outside Prefer app decoders so a persisted value doesn't
-                // read as active (same pattern as optical passthrough / DV8.1-only toggles).
-                isChecked = playerSettings.effectiveDownmixEnabled,
-                onCheckedChange = onSetDownmixEnabled,
+        // ONE knob. The old surface needed a walk across three screens (prefer-app decoder, an
+        // enable toggle, then the layout) plus a double-negative "maintain original audio" toggle
+        // that had to be switched OFF before the decoder's limiter would engage. Choosing a layout
+        // now implies both, and "Auto" asks for no fold at all unless a phone or Bluetooth output
+        // is live -- which is what the default already did.
+        item(key = "audio_number_of_channels") {
+            NavigationSettingsItem(
+                icon = Icons.Default.VolumeUp,
+                title = stringResource(R.string.audio_number_of_channels),
+                subtitle = playerSettings.audioOutputChannels.displayLabel,
+                onClick = onShowAudioOutputChannelsDialog,
                 onFocused = onItemFocused,
-                enabled = enabled && playerSettings.isPreferAppDecoder
+                enabled = enabled
             )
-        }
-
-        if (playerSettings.effectiveDownmixEnabled) {
-            item(key = "audio_number_of_channels") {
-                NavigationSettingsItem(
-                    icon = Icons.Default.VolumeUp,
-                    title = stringResource(R.string.audio_number_of_channels),
-                    subtitle = playerSettings.audioOutputChannels.displayLabel,
-                    onClick = onShowAudioOutputChannelsDialog,
-                    onFocused = onItemFocused,
-                    enabled = enabled
-                )
-            }
-
-            item(key = "audio_downmix_normalization") {
-                ToggleSettingsItem(
-                    icon = Icons.Default.Tune,
-                    title = stringResource(R.string.audio_maintain_original_audio_on_downmix_title),
-                    subtitle = stringResource(R.string.audio_maintain_original_audio_on_downmix_subtitle),
-                    isChecked = playerSettings.maintainOriginalAudioOnDownmix,
-                    onCheckedChange = onSetMaintainOriginalAudioOnDownmix,
-                    onFocused = onItemFocused,
-                    enabled = enabled
-                )
-            }
         }
 
         item(key = "audio_tunneled_playback") {

@@ -785,6 +785,17 @@ internal fun PlayerRuntimeController.initializePlayer(
                     setParameters(buildUponParameters().setPreferredAudioLanguages(*preferredAudioLanguages.toTypedArray()))
                 }
 
+                // Prefer a track that already fits the fold target over folding a bigger one.
+                // `smallOutputRoute = false` here on purpose: the audio route is not resolved yet
+                // at construction time (the route-aware target is a local declared further down),
+                // and the route path re-applies the Bluetooth/fork-aware cap as soon as one is
+                // known. A null target (AUTO with no small output) means no cap at all.
+                playerSettings.downmixTargetFor(smallOutputRoute = false)?.let { target ->
+                    setParameters(
+                        buildUponParameters().setMaxAudioChannelCount(target.channelCount)
+                    )
+                }
+
                 val captioningManager = context?.getSystemService(Context.CAPTIONING_SERVICE) as? CaptioningManager
                 if (captioningManager != null) {
                     if (!captioningManager.isEnabled) {
@@ -871,13 +882,18 @@ internal fun PlayerRuntimeController.initializePlayer(
                 playerSettings.decoderPriority
             }
             // A2DP is stereo; force a clean 2.0 downmix so surround content is audible and balanced.
+            // A phone private-listening fork is the same case, and the route path re-applies it.
             val bluetoothStereoDownmix = isBluetoothAudioOutput
-            val effectiveDownmixEnabled = playerSettings.effectiveDownmixEnabled || bluetoothStereoDownmix
-            val effectiveAudioOutputChannels = if (bluetoothStereoDownmix) {
-                com.nuvio.tv.data.local.AudioOutputChannels.CHANNELS_2_0
-            } else {
-                playerSettings.audioOutputChannels
-            }
+            // A two-channel output folds regardless of the decoder preference: the factory already
+            // forces the extension renderer for Bluetooth below (`effectiveDecoderPriority`), so the
+            // fold is reachable. Dropping this half is what silently unfolded a 5.1 track over A2DP.
+            val effectiveDownmixEnabled =
+                playerSettings.isFoldRendererActive(smallOutputRoute = bluetoothStereoDownmix)
+            // AUTO resolves to 7.1 here, which the renderer reads as "no fold": it only folds when
+            // the target is SMALLER than the source, so 7.1 never touches 5.1 or 7.1 content.
+            val effectiveAudioOutputChannels =
+                playerSettings.downmixTargetFor(smallOutputRoute = bluetoothStereoDownmix)
+                    ?: com.nuvio.tv.data.local.AudioOutputChannels.CHANNELS_7_1
             if (isBluetoothAudioOutput) {
                 Log.i(
                     PlayerRuntimeController.TAG,
@@ -908,7 +924,8 @@ internal fun PlayerRuntimeController.initializePlayer(
                 gainAudioProcessor = gainAudioProcessor,
                 downmixEnabled = effectiveDownmixEnabled,
                 audioOutputChannels = effectiveAudioOutputChannels,
-                downmixNormalizationEnabled = !playerSettings.maintainOriginalAudioOnDownmix,
+                // Always normalized; the toggle that could disable the limiter is retired.
+                downmixNormalizationEnabled = true,
                 forceOpticalPassthrough = isForcePassthroughActive,
                 bluetoothForcePcm = isBluetoothAudioOutput,
                 playbackSpeedProvider = { _uiState.value.playbackSpeed },
@@ -921,7 +938,7 @@ internal fun PlayerRuntimeController.initializePlayer(
                     renderer?.applyDownmixSettings(
                         downmixEnabled = effectiveDownmixEnabled,
                         audioOutputChannels = effectiveAudioOutputChannels,
-                        downmixNormalizationEnabled = !playerSettings.maintainOriginalAudioOnDownmix,
+                        downmixNormalizationEnabled = true,
                         forceOpticalPassthrough = isForcePassthroughActive
                     )
                     applyCenterMixLevel(_uiState.value.centerMixLevelDb)
