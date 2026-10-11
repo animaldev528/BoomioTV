@@ -74,11 +74,17 @@ class IptvAuthStore @Inject constructor(
      * A service rejected this device's token. **The session is deliberately kept.**
      *
      * This used to delete the token outright, and that is the wrong shape for a
-     * credential the whole device shares: one IPTV 401 unlinked the device for
-     * cert registration, policy refresh and music search alike, silently, with
-     * nothing logged to say it had happened. Dropping a session is a decision a
-     * person makes — Unlink on the This TV row ([BoomioSessionRepository.unlink])
-     * — not a side effect of one feature's request failing.
+     * credential the whole device shares. ⚠️ Be precise about what it did: the
+     * old body removed the key from *this* class's private `iptv_auth` DataStore,
+     * and nothing else — so it dropped the session that readers of this store
+     * saw (music search among them), silently, with nothing logged. It could
+     * **not** have touched cert registration or policy refresh: those read
+     * [BoomioSessionRepository] directly and never saw this copy at all.
+     * Now that this class delegates to the repository, keeping the delete would
+     * be worse than the original bug — one IPTV 401 would become a device-wide
+     * logout. Dropping a session is a decision a person makes — Unlink on the
+     * This TV row ([BoomioSessionRepository.unlink]) — not a side effect of one
+     * feature's request failing.
      */
     suspend fun clearSession() {
         Log.w(
