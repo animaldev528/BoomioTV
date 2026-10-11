@@ -80,6 +80,18 @@ for entry in $ABIS; do
   [ -x "$CC" ] || { echo "FATAL: no compiler at $CC"; exit 1; }
 
   mkdir -p "$OUT/$ABI"
+
+  # --- -lm IS LOAD-BEARING: do not read it as redundant and delete it -----------------
+  # bionic folded the math functions into libc.so for years, so a .so calling exp()/
+  # cos()/log() with no libm in DT_NEEDED still loaded. Android 15 moved them back out
+  # into libm.so, and on API 35+ that same .so now dies at dlopen:
+  #   "dlopen failed: cannot locate symbol "exp" referenced by .../libboomioopus.so"
+  # The only symptom is a bare UnsatisfiedLinkError from the first JNI call, because
+  # System.loadLibrary's throwable is swallowed by the caller.
+  # Measured 2026-10-11: the phone (Android 16) could not load the arm64 slice while the
+  # Shield (Android 11) loaded its byte-identical-in-spirit v7a twin fine -- one ABI on
+  # two OS releases, which is what made it look ABI-specific. Linking libm.so is harmless
+  # on every older release: the stub exists and the symbols still resolve through libc.
   "$CC" -shared -O2 -fPIC -fvisibility=hidden \
     -DNDEBUG \
     -I"$SRC/include" \
@@ -87,6 +99,7 @@ for entry in $ABIS; do
     "$HERE/jni_bridge.c" \
     "$LIBOPUS_A" \
     -llog \
+    -lm \
     -Wl,--gc-sections \
     -Wl,-z,max-page-size=$MAX_PAGE_SIZE \
     -Wl,-z,relro,-z,now \
@@ -103,6 +116,15 @@ for entry in $ABIS; do
   printf '  %-14s %9s bytes  %s\n' "$ABI" "$(stat -c %s "$f")" \
     "$(readelf -h "$f" | awk -F: '/Machine/{gsub(/^ +/,"",$2); print $2}')"
 done
+
+echo
+echo "=== DT_NEEDED (libm.so MUST be here or API 35+ cannot dlopen this) ==="
+if readelf -dW "$OUT/arm64-v8a/libboomioopus.so" | command grep -q 'NEEDED.*libm\.so'; then
+  echo "  libm.so present -- OK"
+else
+  echo "  FATAL: libm.so missing from DT_NEEDED; the client will fail to load this." >&2
+  exit 1
+fi
 
 echo
 echo "=== exported JNI symbols (arm64-v8a) ==="
