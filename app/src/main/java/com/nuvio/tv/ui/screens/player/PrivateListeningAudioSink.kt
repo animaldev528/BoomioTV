@@ -5,6 +5,7 @@ import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioSink
+import com.nuvio.tv.core.boomio.ForkCodec
 import java.nio.ByteBuffer
 
 private const val TAG = "PrivateListeningSink"
@@ -14,8 +15,9 @@ private const val TAG = "PrivateListeningSink"
  *
  * Sits between the stock DefaultAudioSink and [PlaybackSpeedAwareAudioSink]
  * (DefaultAudioSink ← this ← PlaybackSpeedAwareAudioSink). While a fork is armed ([startFork]) it
- * mirrors every decoded PCM buffer to a [PrivateListeningAudioSender], which unicasts PCM16 stereo
- * to the companion phone. Any decoded PCM width is folded down to 16 bits on the wire, so a 24-bit
+ * mirrors every decoded PCM buffer to a [PrivateListeningAudioSender], which unicasts it to the
+ * companion phone as PCM16 -- or as Opus when the phone asked for it and the track fits that path
+ * ([ForkCodec]). Any decoded PCM width is folded down to 16 bits on the wire, so a 24-bit
  * source plays rather than going silent while the TV's own output keeps its full precision. The
  * phone hears exactly what the TV is decoding — same clock, no second player, no drift.
  *
@@ -63,11 +65,15 @@ internal class PrivateListeningAudioSink(
     /**
      * Arm the tee to unicast to [phoneIp]:[port]. Returns false (and leaves the existing fork
      * running) if a fork is already active.
+     *
+     * [codec] is what the phone said it can decode ([ForkCodec.PCM] when it said nothing, i.e. a
+     * client that predates Opus). The sender falls back to PCM on its own for a track the codec
+     * cannot carry, and logs why.
      */
-    fun startFork(phoneIp: String, port: Int): Boolean {
+    fun startFork(phoneIp: String, port: Int, codec: ForkCodec = ForkCodec.PCM): Boolean {
         synchronized(lock) {
             if (sender != null) return false
-            val newSender = PrivateListeningAudioSender(phoneIp, port)
+            val newSender = PrivateListeningAudioSender(phoneIp, port, codec)
             sender = newSender
             newSender.start()
             // What the wire carries the moment we arm. A fork does not re-pin the renderer, so if
@@ -76,16 +82,17 @@ internal class PrivateListeningAudioSink(
             // question and logcat is a leaking surface.
             Log.i(
                 TAG,
-                "fork armed; tee carrying ${
+                "fork armed (asked for ${codec.wireName}); tee carrying ${
                     PrivateListeningAudioSender.pcmFormatName(pcmEncoding)
                 } " +
                     "${pcmSampleRate}Hz ${pcmChannelCount}ch " +
-                    "(${
+                    "(pcm ${
                         PrivateListeningAudioSender.datagramsPerSecond(
                             pcmSampleRate,
                             pcmChannelCount,
                         )
-                    } datagrams/s) pcmConfigured=$isPcmConfigured",
+                    }/s, opus ${ForkOpusWire.PACKETS_PER_SECOND}/s) " +
+                    "pcmConfigured=$isPcmConfigured",
             )
             return true
         }

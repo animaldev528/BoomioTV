@@ -2,6 +2,8 @@ package com.nuvio.tv.ui.screens.player
 
 import android.util.Log
 import androidx.media3.common.C
+import com.boomio.opus.OpusCodec
+import com.nuvio.tv.core.boomio.ForkCodec
 import java.io.IOException
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -24,7 +26,13 @@ import java.util.concurrent.TimeUnit
  * downmix was the source of an audible artifact on surround content; passthrough is clean. Because
  * it shares the main decode clock it cannot drift from the TV the way a second shadow player could.
  *
- * Wire format (one datagram each, from the TV to phoneIp:port):
+ * Two wire formats share one datagram header, and bytes 0..3 discriminate them: a plausible
+ * sample rate means PCM (below), and [ForkOpusWire.MAGIC] means one Opus packet, whose header
+ * [ForkOpusWire] defines. A receiver that knows only the PCM format drops an Opus datagram instead
+ * of playing it as noise, which is what lets the codec change without a handshake in either
+ * direction -- and lets this sender fall back to PCM for one track and back to Opus for the next.
+ *
+ * PCM wire format (one datagram each, from the TV to phoneIp:port):
  *   bytes 0..3  sample rate in Hz, big-endian int32   — phone (re)inits its AudioTrack from this,
  *   bytes 4..5  sequence number, big-endian uint16    — increments per datagram; lets the phone
  *                                                       detect loss and gap bytes,
@@ -44,6 +52,13 @@ import java.util.concurrent.TimeUnit
 internal class PrivateListeningAudioSender(
     private val phoneIp: String,
     private val phonePort: Int,
+    /**
+     * Which payload to put on the wire. [ForkCodec.PCM] is the original transport and the default,
+     * so a caller that negotiated nothing -- or a phone that predates Opus -- is unchanged. The
+     * codec is a request rather than a promise: [opusFallbackReason] records the case where the
+     * track could not be carried as Opus after all.
+     */
+    private val codec: ForkCodec = ForkCodec.PCM,
 ) {
 
     /** One decoded PCM buffer captured on the audio thread. */
@@ -133,6 +148,31 @@ internal class PrivateListeningAudioSender(
     var sendErrors: Long = 0
         private set
 
+    /** True once an encoder was really created -- i.e. the wire is carrying Opus, not just asked to. */
+    @Volatile
+    var opusActive: Boolean = false
+        private set
+
+    /** Opus datagrams emitted: one per codec frame, so one per 20 ms. */
+    @Volatile
+    var opusPackets: Long = 0
+        private set
+
+    /**
+     * Non-null once the fork asked for Opus and is carrying PCM instead, with the reason. See
+     * [noteOpusFallback] for why a silent fallback must not be possible.
+     */
+    @Volatile
+    var opusFallbackReason: String? = null
+        private set
+
+    /**
+     * Set by [clearQueue] on the audio thread and consumed by the worker, which owns the encoder.
+     * A seek must not let pre-seek samples into the first post-seek packet.
+     */
+    @Volatile
+    private var flushPending = false
+
     private var worker: Thread? = null
 
     val isRunning: Boolean get() = running
@@ -155,14 +195,22 @@ internal class PrivateListeningAudioSender(
         worker?.interrupt()
         worker = null
         queue.clear()
-        // These counters were readable from [PrivateListeningAudioSink] but nothing ever read
-        // them, so a fork the TV itself starved looked identical to one the network ate -- and
-        // the phone's receiver log can only ever see the *result* of both. One line at teardown
-        // is what separates "the TV dropped it" from "Wi-Fi lost it".
+        // The honest total for the session, and the only place two things are recorded: which side
+        // lost the audio, and which codec ACTUALLY ran. These counters were readable from
+        // [PrivateListeningAudioSink] but nothing ever read them, so a fork the TV itself starved
+        // looked identical to one the network ate -- and the phone's receiver log can only ever see
+        // the *result* of both. Likewise a codec fallback is logged once as a warning, and that
+        // scrolls out of logcat long before a long session ends; this line cannot.
+        val carried = when {
+            opusActive -> "opus"
+            opusFallbackReason != null -> "pcm, opus fell back: $opusFallbackReason"
+            codec == ForkCodec.OPUS -> "pcm, opus never started"
+            else -> "pcm"
+        }
         Log.i(
             TAG,
-            "fork sender stopped: $sentDatagrams datagrams sent, $droppedFrames frame(s) " +
-                "dropped on a full queue, $sendErrors send error(s)",
+            "fork sender stopped: $sentDatagrams datagrams sent ($carried), $droppedFrames frame(s) " +
+                "dropped on a full queue, $sendErrors send error(s), $opusPackets opus packet(s)",
         )
     }
 
@@ -185,6 +233,23 @@ internal class PrivateListeningAudioSender(
     /** Drop all queued frames (seek / discontinuity / flush) so the phone resyncs to the next PTS. */
     fun clearQueue() {
         queue.clear()
+        // The encoder lives on the worker thread, so a half-filled frame is dropped there.
+        flushPending = true
+    }
+
+    /**
+     * Record -- once -- that the fork asked for Opus and is carrying PCM instead, and say why.
+     *
+     * A silent fallback is the failure this exists to prevent: the fork would work, sound worse,
+     * and look in the log exactly like one that never negotiated Opus at all. The reason arrives as
+     * a lambda because this is called from the per-frame path, and the early return must skip the
+     * string build too.
+     */
+    private fun noteOpusFallback(reason: () -> String) {
+        if (opusFallbackReason != null) return
+        val text = reason()
+        opusFallbackReason = text
+        Log.w(TAG, "fork asked for opus, carrying pcm: $text")
     }
 
     private fun runWorker() {
@@ -205,46 +270,146 @@ internal class PrivateListeningAudioSender(
         }
         socket.use {
             var seq = 0
-            while (running) {
-                val frame = try {
-                    queue.poll(POLL_TIMEOUT_MS, TimeUnit.MILLISECONDS)
-                } catch (e: InterruptedException) {
-                    null
-                }
-                if (!running || frame == null) continue
-                try {
-                    val pcm16 = renderPcm16(frame)
-                    if (pcm16 == null) {
-                        droppedFrames++
-                        continue
+            var encoder: ForkOpusEncoder? = null
+            var encoderChannels = 0
+            var encoderFailed = false
+            try {
+                while (running) {
+                    if (flushPending) {
+                        // A flush / discontinuity / seek. Whatever the encoder has staged belongs to
+                        // audio the phone has just been told to forget, so drop it: gluing it onto
+                        // the first frame after the jump splices two unrelated points of the
+                        // timeline together, which is a click at exactly the wrong moment.
+                        flushPending = false
+                        encoder?.reset()
                     }
-                    val channels = frame.channelCount
-                    // Chunk on whole frames so the phone's AudioTrack write never splits a sample
-                    // (a misaligned tail would be silently dropped by write's frame rounding).
-                    val frameBytes = 2 * channels
-                    val chunkMax = (MAX_CHUNK / frameBytes) * frameBytes
-                    var offset = 0
-                    while (offset < pcm16.size) {
-                        val chunk = minOf(chunkMax, pcm16.size - offset)
-                        // Rebuild the preamble each datagram: rate is constant per frame, seq advances.
-                        val datagram = ByteArray(PREAMBLE_BYTES + chunk)
-                        datagram[0] = (frame.sampleRate ushr 24).toByte()
-                        datagram[1] = (frame.sampleRate ushr 16).toByte()
-                        datagram[2] = (frame.sampleRate ushr 8).toByte()
-                        datagram[3] = frame.sampleRate.toByte()
-                        datagram[4] = (seq ushr 8).toByte()
-                        datagram[5] = seq.toByte()
-                        datagram[6] = channels.toByte()
-                        System.arraycopy(pcm16, offset, datagram, PREAMBLE_BYTES, chunk)
-                        offset += chunk
-                        seq = (seq + 1) and 0xFFFF
-                        socket.send(DatagramPacket(datagram, datagram.size, address, phonePort))
-                        sentDatagrams++
+                    val frame = try {
+                        queue.poll(POLL_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+                    } catch (e: InterruptedException) {
+                        null
                     }
-                } catch (e: IOException) {
-                    sendErrors++
-                    if (sendErrors <= 3) Log.w(TAG, "UDP send to $phoneIp:$phonePort failed", e)
+                    if (!running || frame == null) continue
+                    try {
+                        val pcm16 = renderPcm16(frame)
+                        if (pcm16 == null) {
+                            droppedFrames++
+                            continue
+                        }
+                        val channels = frame.channelCount
+
+                        if (codec == ForkCodec.OPUS) {
+                            // Opus carries 48 kHz mono/stereo only -- libopus mapping family 0,
+                            // because the bridge exposes no multistream encoder. A 5.1/7.1 track,
+                            // or any other rate, keeps the PCM path: cutting the datagram count is
+                            // not worth folding or dropping channels for, and the phone is the end
+                            // that folds anyway.
+                            //
+                            // OpusCodec.available is part of the test so a per-ABI APK that shipped
+                            // without the native library falls back on its first frame instead of
+                            // allocating an encoder per frame forever.
+                            if (OpusCodec.available &&
+                                frame.sampleRate == ForkOpusWire.SAMPLE_RATE &&
+                                channels in 1..ForkOpusWire.MAX_CHANNELS
+                            ) {
+                                if (encoder != null && encoderChannels != channels) {
+                                    encoder.close()
+                                    encoder = null
+                                }
+                                if (encoder == null && !encoderFailed) {
+                                    val fresh = ForkOpusEncoder(channels)
+                                    if (fresh.isUsable) {
+                                        encoder = fresh
+                                        encoderChannels = channels
+                                        opusActive = true
+                                        // The on-device proof: which codec, how many datagrams/s. A
+                                        // fork still emitting ~161/s here never took this path.
+                                        Log.i(
+                                            TAG,
+                                            "fork carrying opus ${ForkOpusWire.BITRATE / 1000}kbps " +
+                                                "${ForkOpusWire.FRAME_MS}ms ${channels}ch " +
+                                                "(${ForkOpusWire.PACKETS_PER_SECOND} datagrams/s, " +
+                                                "fec=off) libopus ${OpusCodec.versionOrUnavailable()}",
+                                        )
+                                    } else {
+                                        encoderFailed = true
+                                        noteOpusFallback { "libopus could not create an encoder" }
+                                    }
+                                }
+                                val enc = encoder
+                                if (enc != null) {
+                                    enc.encode(pcm16) { packet, length ->
+                                        // The encoder's packet buffer is reused, so its bytes are
+                                        // copied into a fresh datagram here.
+                                        val datagram = ByteArray(ForkOpusWire.HEADER_BYTES + length)
+                                        datagram[0] = (ForkOpusWire.MAGIC ushr 24).toByte()
+                                        datagram[1] = (ForkOpusWire.MAGIC ushr 16).toByte()
+                                        datagram[2] = (ForkOpusWire.MAGIC ushr 8).toByte()
+                                        datagram[3] = ForkOpusWire.MAGIC.toByte()
+                                        datagram[4] = (seq ushr 8).toByte()
+                                        datagram[5] = seq.toByte()
+                                        datagram[6] = channels.toByte()
+                                        datagram[7] = ForkOpusWire.FRAME_MS.toByte()
+                                        // Format version in the high nibble. Bit 0 would say the
+                                        // packet carries in-band FEC, which this encoder never adds.
+                                        datagram[8] = (ForkOpusWire.VERSION shl 4).toByte()
+                                        System.arraycopy(
+                                            packet,
+                                            0,
+                                            datagram,
+                                            ForkOpusWire.HEADER_BYTES,
+                                            length,
+                                        )
+                                        seq = (seq + 1) and 0xFFFF
+                                        socket.send(
+                                            DatagramPacket(
+                                                datagram,
+                                                datagram.size,
+                                                address,
+                                                phonePort,
+                                            ),
+                                        )
+                                        sentDatagrams++
+                                        opusPackets++
+                                    }
+                                    continue
+                                }
+                            } else {
+                                noteOpusFallback {
+                                    "${frame.sampleRate}Hz ${channels}ch is outside the opus path"
+                                }
+                            }
+                        }
+
+                        // Chunk on whole frames so the phone's AudioTrack write never splits a
+                        // sample (a misaligned tail would be silently dropped by write's frame
+                        // rounding).
+                        val frameBytes = 2 * channels
+                        val chunkMax = (MAX_CHUNK / frameBytes) * frameBytes
+                        var offset = 0
+                        while (offset < pcm16.size) {
+                            val chunk = minOf(chunkMax, pcm16.size - offset)
+                            // Rebuild the preamble each datagram: rate is constant per frame, seq advances.
+                            val datagram = ByteArray(PREAMBLE_BYTES + chunk)
+                            datagram[0] = (frame.sampleRate ushr 24).toByte()
+                            datagram[1] = (frame.sampleRate ushr 16).toByte()
+                            datagram[2] = (frame.sampleRate ushr 8).toByte()
+                            datagram[3] = frame.sampleRate.toByte()
+                            datagram[4] = (seq ushr 8).toByte()
+                            datagram[5] = seq.toByte()
+                            datagram[6] = channels.toByte()
+                            System.arraycopy(pcm16, offset, datagram, PREAMBLE_BYTES, chunk)
+                            offset += chunk
+                            seq = (seq + 1) and 0xFFFF
+                            socket.send(DatagramPacket(datagram, datagram.size, address, phonePort))
+                            sentDatagrams++
+                        }
+                    } catch (e: IOException) {
+                        sendErrors++
+                        if (sendErrors <= 3) Log.w(TAG, "UDP send to $phoneIp:$phonePort failed", e)
+                    }
                 }
+            } finally {
+                encoder?.close()
             }
         }
     }

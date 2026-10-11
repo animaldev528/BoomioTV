@@ -1,6 +1,7 @@
 package com.nuvio.tv.ui.screens.player
 
 import com.nuvio.tv.core.activity.ActivityEventReporter
+import com.nuvio.tv.core.boomio.ForkCodec
 import com.nuvio.tv.core.boomio.MusicClient
 import com.nuvio.tv.core.boomio.MusicIdentifyResult
 import com.nuvio.tv.core.sync.SyncClientIdentity
@@ -386,15 +387,22 @@ class PlayerRuntimeController(
      * unicast fork. Fails fast — and leaves no state behind — when no Exo sink is live, the active
      * engine is not ExoPlayer (mpv has no decoded-audio seam), or a fork is already running.
      *
+     * [codec] is the payload the phone advertised in `audio_fork_start`. It is a request, not a
+     * promise: the sender carries PCM for any track Opus cannot represent, and logs why.
+     *
      * @return true when a fork is now active; false with no state change otherwise.
      */
-    internal fun startPhoneAudioFork(phoneIp: String, port: Int): Boolean {
+    internal fun startPhoneAudioFork(
+        phoneIp: String,
+        port: Int,
+        codec: ForkCodec = ForkCodec.PCM,
+    ): Boolean {
         val teeSink = privateListeningAudioSink ?: return false
         val speedSink = playbackSpeedAwareAudioSink ?: return false
         if (currentInternalPlayerEngine != InternalPlayerEngine.EXOPLAYER) return false
         if (teeSink.isForkActive) return false
         val policyChanged = speedSink.setPhoneForcePcm(true)
-        if (!teeSink.startFork(phoneIp, port)) {
+        if (!teeSink.startFork(phoneIp, port, codec)) {
             if (policyChanged) {
                 speedSink.setPhoneForcePcm(false)
             }

@@ -361,6 +361,11 @@ class BoomioCompanionManager @Inject constructor(
         }
         val phoneIp = msg.optString("phoneIp")
         val port = msg.optInt("port", -1)
+        // Which payload the phone can decode. Absent means a client that predates Opus, and the
+        // fork then carries the PCM it always has. The TV honours this only as far as the track
+        // allows, and the phone's receiver auto-detects the format from the datagram header either
+        // way -- so a TV that falls back mid-session needs no renegotiation and sends no reply.
+        val codec = ForkCodec.fromWire(msg.optString("codec"))
         // "Play on the TV too" from the phone's private-listening screen. Absent means a client that
         // predates the switch: leave this TV's speakers alone rather than guessing at them.
         val keepTvAudio = if (msg.has("keepTvAudio")) msg.optBoolean("keepTvAudio") else null
@@ -396,11 +401,11 @@ class BoomioCompanionManager @Inject constructor(
             player.stopPhoneAudioFork()
         }
         activeForkEndpoint = null
-        if (player.startPhoneAudioFork(phoneIp, port)) {
+        if (player.startPhoneAudioFork(phoneIp, port, codec)) {
             activeForkEndpoint = phoneIp to port
             // The phone's choice governs for the life of this fork. Unstated leaves the TV audible.
             keepTvAudio?.let { player.setTvSpeakersEnabled(it) }
-            Log.i(TAG, "Private listening started -> $phoneIp:$port")
+            Log.i(TAG, "Private listening started -> $phoneIp:$port (codec=${codec.wireName})")
             sendAudioForkStatus(status = "started")
         } else {
             // Engine not Exo, or the audio sink is not fork-capable for this playback.

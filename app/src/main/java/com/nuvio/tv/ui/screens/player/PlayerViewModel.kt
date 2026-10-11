@@ -5,6 +5,7 @@ import com.nuvio.tv.core.boomio.ActiveCompanionPlayer
 import com.nuvio.tv.core.boomio.BoomioCompanionManager
 import com.nuvio.tv.core.boomio.CompanionPlaybackBridge
 import com.nuvio.tv.core.boomio.CompanionPlaybackSnapshot
+import com.nuvio.tv.core.boomio.ForkCodec
 import com.nuvio.tv.core.boomio.MusicClient
 import com.nuvio.tv.core.boomio.MusicIdentifyResult
 import com.nuvio.tv.core.boomio.TrickplayClient
@@ -243,12 +244,14 @@ class PlayerViewModel @Inject constructor(
             // the slider instead of being overwritten by it.
             controller.setPlayerVolume(fraction)
         }
-        override fun startPhoneAudioFork(phoneIp: String, port: Int): Boolean =
+        // No default on `codec`: Kotlin forbids an override from restating a default value, and
+        // the interface's declaration is the one the callers bind to.
+        override fun startPhoneAudioFork(phoneIp: String, port: Int, codec: ForkCodec): Boolean =
             // No mute here: the phone's private-listening screen owns the TV-speaker
             // switch, and sends it on the same frame. A fork the phone asked for
             // without stating a preference leaves this TV audible — never silence a
             // room on a guess.
-            controller.startPhoneAudioFork(phoneIp, port)
+            controller.startPhoneAudioFork(phoneIp, port, codec)
 
         override fun setTvSpeakersEnabled(enabled: Boolean) {
             // Main-thread-only, like every companion command. Routed through the

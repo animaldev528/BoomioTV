@@ -106,9 +106,18 @@ interface ActiveCompanionPlayer {
      * (never server-derived — the hub relays `phoneIp`/`port` as-is). Fails when the player can't
      * fork (e.g. running on the mpv engine, which has no decoded-audio seam).
      *
+     * [codec] is the payload the phone advertised (`"opus"`, or nothing at all for a client
+     * that predates it). It is a request, not a promise: a player that cannot carry it for the
+     * current track sends PCM instead and says so in its own log, and the phone's receiver
+     * auto-detects the format from the datagram header either way.
+     *
      * @return true when a fork is now streaming; false with no state change otherwise.
      */
-    fun startPhoneAudioFork(phoneIp: String, port: Int): Boolean = false
+    fun startPhoneAudioFork(
+        phoneIp: String,
+        port: Int,
+        codec: ForkCodec = ForkCodec.PCM,
+    ): Boolean = false
 
     /**
      * Whether this TV keeps playing through its own speakers while a fork is live.
