@@ -36,19 +36,32 @@ enum class MusicUnavailableReason {
      */
     NOT_PLAYING,
 
-    /** This TV holds no session at all — it has never been linked. */
+    /**
+     * This TV holds no session at all — it has never been linked.
+     *
+     * ⚠️ Reported by `saveToLibrary` only. `identify` deliberately does **not**
+     * require a session: it proceeds on the enrolled device certificate, so a TV
+     * the operator enrolled can name a song without ever having been paired to a
+     * user. See the note in `identify`.
+     */
     NOT_PAIRED,
 
     /**
-     * The device holds a session and the server **rejected** it: the 90-day
-     * lifetime ran out, or the device was unlinked server-side.
+     * The server refused the credentials this device offered — its session *and*
+     * its enrolled certificate — so the problem is with the device's standing,
+     * not with the network.
+     *
+     * ⚠️ Not only "the session expired": [identify] may be refused without ever
+     * having held a session, when the certificate is not in the server's
+     * allow-list. Both cases are a linking problem with a fix, which is what the
+     * reason is for.
      *
      * Its own reason rather than folded into [NETWORK], because the two send the
      * viewer to different places — a network fault is worth retrying, and a
-     * rejected session never will be until the TV is linked again. With a 90-day
-     * lifetime this is the ordinary way a long-lived install eventually fails, so
-     * reporting it as "couldn't reach the music service" would make the common
-     * case the wrong message.
+     * refused credential never will be until the TV is linked again. With a
+     * 90-day session lifetime this is the ordinary way a long-lived install
+     * eventually fails, so reporting it as "couldn't reach the music service"
+     * would make the common case the wrong message.
      */
     SESSION_EXPIRED,
 
@@ -224,10 +237,24 @@ class MusicClient @Inject constructor(
                 ?: return@withContext MusicIdentifyResult.Unavailable(
                     MusicUnavailableReason.NOT_CONFIGURED
                 )
+            // ⚠️ A session is deliberately **optional** here, and this is the
+            // difference between naming a song and not being able to.
+            //
+            // Naming a song is device-scoped work: nothing is attributed to
+            // anyone until the viewer keeps a result, and the TV doing the asking
+            // is the one already showing the film. The server authorizes it on
+            // *either* a session *or* the enrolled certificate this device
+            // presents (bsc `requireSessionOrEnrolledDevice`), and `clientFor`
+            // below already attaches that certificate for our own hosts — so
+            // requiring a token here would refuse a device the server would
+            // happily answer, which is exactly the bug this replaces: a TV
+            // enrolled by the operator but paired to no user reported
+            // "This TV isn't linked yet" for work that never needed it.
+            //
+            // `saveToLibrary` still requires a session — it writes a row with an
+            // owner. The rule: if the row you are about to write has an owner,
+            // the call needs a session.
             val token = BoomioSessionRepository.bearerToken()
-                ?: return@withContext MusicIdentifyResult.Unavailable(
-                    MusicUnavailableReason.NOT_PAIRED
-                )
 
             val body = JSONObject().apply {
                 put("deviceId", request.deviceId)
@@ -241,7 +268,7 @@ class MusicClient @Inject constructor(
 
             val httpRequest = Request.Builder()
                 .url(base.newBuilder().addPathSegments("api/music/identify").build())
-                .header("Authorization", "Bearer $token")
+                .apply { token?.let { header("Authorization", "Bearer $it") } }
                 .post(body)
                 .build()
 
