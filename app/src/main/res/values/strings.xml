@@ -2169,7 +2169,7 @@
     <string name="auth_qr_finishing">Finishing sign in\u2026</string>
     <string name="auth_qr_code_label">Code: %1$s</string>
     <string name="auth_qr_expires">Expires in %1$s</string>
-    <string name="auth_qr_scan_instruction">Scan the QR code or enter the short code in your browser.</string>
+    <string name="auth_qr_scan_instruction">Enter this code in the Nuvio app on your phone, under Settings &gt; Add a TV.</string>
     <string name="auth_qr_code_display">Code: %1$s</string>
     <string name="auth_qr_manual_instruction">Or go to %1$s and enter</string>
     <string name="auth_qr_refresh">Refresh QR</string>
