@@ -159,10 +159,25 @@ class ProfileSyncService @Inject constructor(
                 val currentUserId = (authManager.authState.value as? AuthState.FullAccount)?.userId
                 if (userId != null && currentUserId == userId) {
                     lastPulledProfiles = effectiveProfiles
-                    pullFreshness = ProfilePullFreshness(
-                        userId = userId,
-                        pulledAtMs = SystemClock.elapsedRealtime()
-                    )
+                    // Only a pull that actually carried the SERVER's rows may satisfy the
+                    // freshness window. When the remote range was empty we seeded it from the
+                    // LOCAL list, whose taste/kids flags still hold client defaults and are not
+                    // what the server ends up storing (sync_push_profiles omits those columns, so
+                    // the row takes the column default). Reporting that local list as "fresh"
+                    // serves it to every pull for the next PROFILE_PULL_MIN_INTERVAL_MS — and on a
+                    // first login the whole onboarding sequence (retried pulls, then
+                    // requestSyncNow) lands inside that window, so the account would run its
+                    // entire first session without its server-side flags: no like-bootstrap, no
+                    // taste hint, until a cold start re-pulled. Leaving the window unstamped
+                    // forces the next pull to fetch the row the seed just created.
+                    pullFreshness = if (profiles.isNotEmpty()) {
+                        ProfilePullFreshness(
+                            userId = userId,
+                            pulledAtMs = SystemClock.elapsedRealtime()
+                        )
+                    } else {
+                        ProfilePullFreshness()
+                    }
                 }
                 Result.success(effectiveProfiles)
             } catch (e: Exception) {
