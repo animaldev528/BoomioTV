@@ -1,5 +1,7 @@
 package com.nuvio.tv.core.di
 
+import com.nuvio.app.core.mtls.MtlsSsl
+
 import android.content.Context
 import android.util.Log
 import com.nuvio.app.core.mtls.withClientCertificate
@@ -112,7 +114,7 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideOkHttpClient(@ApplicationContext context: Context): OkHttpClient {
-        return OkHttpClient.Builder().withOverlayProxy()
+        val client = OkHttpClient.Builder().withOverlayProxy()
             .dns(IPv4FirstDns())
             // Keep separate from the old trust-all cache. Cached responses bypass a new TLS handshake.
             .cache(Cache(File(context.cacheDir, "http_cache_v2"), 50L * 1024 * 1024)) // 50 MB disk cache
@@ -143,6 +145,21 @@ object NetworkModule {
                         else HttpLoggingInterceptor.Level.NONE
             })
             .build()
+
+        // ⚠️ **A pooled connection's TLS identity is fixed when its socket is opened, and OkHttp does
+        // not re-consult the socket factory for a connection it already holds.** So a re-minted
+        // client certificate reaches the wire only if the pool is dropped, and until this existed
+        // nothing dropped it: the SHIELD, 2026-10-12, spent a whole session presenting a certificate
+        // the edge's allow-list no longer held, and `bsf` — which compares raw DER — answered
+        // `no device identity — using declared caps (permissive)` on every `/find`. The operator's
+        // own resolution and bandwidth policy was stored correctly the entire time.
+        //
+        // Registered on this client because the pool is shared: [provideBoomioClientCertificateOkHttpClient]
+        // is `newBuilder()`, which keeps the same `ConnectionPool` by reference, so evicting here
+        // evicts the certificate-bearing twin's connections too — which are the ones that go stale.
+        MtlsSsl.onCertificateReplaced { client.connectionPool.evictAll() }
+
+        return client
     }
 
     /**

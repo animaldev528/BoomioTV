@@ -265,19 +265,59 @@ internal object MtlsRegistration {
         val keyPair = MtlsIdentity.loadOrCreate()
         val certificate = MtlsCertificate.selfSign(name, keyPair, System.currentTimeMillis())
         MtlsIdentity.installCertificate(keyPair, certificate)
+        // ⚠️ A mint is the ONLY thing that changes this device's identity, so it is the only place
+        // this has to be said — and it has to be said here rather than at a call site, because the
+        // clients that must react were built before this ran and cannot be reached from here.
+        // Without it the session keeps presenting the previous certificate on every pooled
+        // connection: see [MtlsSsl.certificateReplaced] for what that cost in practice.
+        MtlsSsl.certificateReplaced()
         Log.i(TAG, "Minted a client certificate for $name (${certificate.fingerprintSha256.take(16)}…)")
         return certificate
     }
 
     private fun read(store: SharedPreferences): HeldCertificate? {
-        val pem = store.getString(KEY_CERT_PEM, null)?.takeIf { it.isNotBlank() } ?: return null
-        val name = store.getString(KEY_CERT_NAME, null)?.takeIf { it.isNotBlank() } ?: return null
+        val pem = store.getString(KEY_CERT_PEM, null)?.takeIf { it.isNotBlank() }
+        val name = store.getString(KEY_CERT_NAME, null)?.takeIf { it.isNotBlank() }
+        if (pem != null && name != null) {
+            return HeldCertificate(
+                assignedName = name,
+                pem = pem,
+                matchesCurrentKey = isBoundToCurrentKey(pem),
+                registered = store.getBoolean(KEY_REGISTERED, false),
+                registeredFingerprintSha256 = store.getString(KEY_REGISTERED_FINGERPRINT, null),
+            )
+        }
+        return heldInKeystore()
+    }
+
+    /**
+     * What the **keystore** says this device holds, for when the record has nothing to say.
+     *
+     * ⚠️ **Without this the plan answers [CertPlan.Mint] whenever the record is missing**, and that
+     * is the one outcome [CertPlan]'s own header forbids: a mint writes a **new file** into the
+     * edge's registration directory. Here it does worse than add one — the device's entry is
+     * overwritten, so a certificate the server acknowledged seconds ago stops being the certificate
+     * the server holds, while the session goes on presenting it. Measured on the SHIELD,
+     * 2026-10-12: `Minted …` twice, 27 s apart, on one cold start, with the allow-list file
+     * rewritten each time; that session was `unidentified` at `bsf` from then on.
+     *
+     * The keystore is the thing that has to be true — it is what a handshake presents — so it is
+     * read as a source of the identity rather than only as somewhere to install one. `registered =
+     * false` routes this down [CertPlan.Reuse]: the same bytes go back to the server, which is
+     * idempotent, costs one ledger row, and rewrites the record from what is actually held.
+     *
+     * A key whose certificate has not been installed yet answers with AndroidKeyStore's placeholder,
+     * whose CN is not the server-assigned name. The plan sees the two disagree and mints — which is
+     * correct, and means this cannot resurrect a placeholder as a real identity.
+     */
+    private fun heldInKeystore(): HeldCertificate? {
+        val certificate = runCatching { MtlsIdentity.certificate() }.getOrNull() ?: return null
+        val commonName = commonNameOf(certificate) ?: return null
         return HeldCertificate(
-            assignedName = name,
-            pem = pem,
-            matchesCurrentKey = isBoundToCurrentKey(pem),
-            registered = store.getBoolean(KEY_REGISTERED, false),
-            registeredFingerprintSha256 = store.getString(KEY_REGISTERED_FINGERPRINT, null),
+            assignedName = commonName,
+            pem = MtlsCertificate.toPem(certificate.encoded),
+            matchesCurrentKey = true,
+            registered = false,
         )
     }
 
@@ -308,6 +348,22 @@ internal object MtlsRegistration {
         MtlsIdentity.certificate()?.publicKey == parsed.publicKey
     }.getOrDefault(false)
 }
+
+/**
+ * The `CN` of a certificate's subject, or `null` if it cannot be read.
+ *
+ * The subject is an RFC 2253 string and the device names this app deals in are `[A-Za-z0-9-]`, so a
+ * plain split is enough. A CN that did contain a comma would parse short, disagree with the
+ * server-assigned name, and be re-minted — the safe direction, and not a case the enrollment path
+ * can produce.
+ */
+private fun commonNameOf(certificate: X509Certificate): String? =
+    certificate.subjectX500Principal.name
+        .split(',')
+        .firstOrNull { it.startsWith("CN=", ignoreCase = true) }
+        ?.substring(3)
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
 
 /** A stored PEM as a certificate, or `null` if it will not parse. An unparseable PEM is unusable. */
 private fun parseCertificate(pem: String): X509Certificate? = runCatching {

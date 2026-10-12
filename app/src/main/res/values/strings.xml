@@ -523,8 +523,12 @@
     <string name="overlay_link_cancel">Cancel</string>
     <string name="overlay_link_retry">Try again</string>
     <string name="overlay_link_code_title">Approve this TV</string>
-    <string name="overlay_link_code_subtitle">Code %1$s \u2014 approve at %2$s</string>
-    <string name="overlay_link_code_no_uri">the Boomio portal</string>
+    <!-- The approver is the owner's NUVIO ACCOUNT, from the Nuvio app on their phone
+         (Settings > Enroll TV) \u2014 not a browser. The pairing channel does hand this TV a
+         verification_uri, but it is a URL a person would have to retype on a TV remote, and
+         the app approves the same code without a browser at all. So the string names the app
+         and %2$s is gone; overlay_link_code_no_uri went with it. -->
+    <string name="overlay_link_code_subtitle">Code %1$s \u2014 enter it in the Nuvio app on your phone</string>
     <string name="overlay_link_failed_start">Linking failed</string>
     <string name="overlay_link_failed_detail">Linking failed: %1$s</string>
     <string name="overlay_link_failed_unreachable">Couldn\'t reach the server to start pairing. Check this TV\'s connection and try again.</string>
@@ -2169,7 +2173,7 @@
     <string name="auth_qr_finishing">Finishing sign in\u2026</string>
     <string name="auth_qr_code_label">Code: %1$s</string>
     <string name="auth_qr_expires">Expires in %1$s</string>
-    <string name="auth_qr_scan_instruction">Enter this code in the Nuvio app on your phone, under Settings &gt; Add a TV.</string>
+    <string name="auth_qr_scan_instruction">Enter this code in the Nuvio app on your phone, under Settings &gt; Sign in to TV.</string>
     <string name="auth_qr_code_display">Code: %1$s</string>
     <string name="auth_qr_manual_instruction">Or go to %1$s and enter</string>
     <string name="auth_qr_refresh">Refresh QR</string>

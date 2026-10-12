@@ -6,6 +6,7 @@ import java.net.InetAddress
 import java.net.Socket
 import java.security.KeyStore
 import java.security.MessageDigest
+import java.util.concurrent.CopyOnWriteArrayList
 import java.security.Principal
 import javax.net.ssl.KeyManager
 import javax.net.ssl.KeyManagerFactory
@@ -128,6 +129,47 @@ internal object MtlsSsl {
 
     @Volatile
     private var cached: TlsContext? = null
+
+    /**
+     * Told the fingerprint of every **replacement** of the certificate a handshake would present.
+     *
+     * ⚠️ **The cache below is not the only thing holding a stale identity.** [context] is consulted
+     * when OkHttp opens a *connection*, and a connection already pooled is never re-consulted — so a
+     * client that re-mints keeps presenting the previous certificate on every socket it holds. The
+     * argument under [context] ("re-minting ... takes effect without anything being rebuilt") is
+     * true of the *next* connection and false of the ones already open, and nothing said so.
+     *
+     * Measured on the SHIELD, 2026-10-12: two mints 27 s apart on one cold start. The second
+     * overwrote the device's single allow-list file while the session went on presenting the first —
+     * so the bytes `bsf` compared were never the bytes the box held, it answered `no device
+     * identity — using declared caps (permissive)` for the rest of the session, and the operator's
+     * stored 1080p/25 Mbps policy never applied. That is the whole of the reported symptom.
+     *
+     * A listener is a **connection owner**: whoever built a client for this certificate must throw
+     * its pool away here, or the bytes it sends stop being the bytes it registered.
+     */
+    private val replacementListeners = CopyOnWriteArrayList<(String) -> Unit>()
+
+    /** Register [listener] to be told the fingerprint of every replacement. Never unregistered. */
+    internal fun onCertificateReplaced(listener: (String) -> Unit) {
+        replacementListeners += listener
+    }
+
+    /**
+     * The device's certificate has been replaced: drop the cache, then tell the connection owners.
+     *
+     * ⚠️ Must not throw. A listener runs after the caller has already installed the new certificate,
+     * so an exception escaping here would report a failure for a mint that succeeded — and would
+     * leave the identity changed with nobody told.
+     */
+    internal fun certificateReplaced() {
+        cached = null
+        val fingerprint = source.fingerprint() ?: return
+        replacementListeners.forEach { listener ->
+            runCatching { listener(fingerprint) }
+                .onFailure { Log.w(TAG, "A certificate-replacement listener failed", it) }
+        }
+    }
 
     /** The context to attach, or `null` when this device has nothing to present. */
     internal fun context(): TlsContext? {

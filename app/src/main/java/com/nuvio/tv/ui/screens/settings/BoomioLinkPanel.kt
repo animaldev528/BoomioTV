@@ -50,11 +50,14 @@ internal fun BoomioLinkPanel(
         when (val link = linkState) {
             is BoomioLinkState.AwaitingApproval -> SettingsActionRow(
                 title = stringResource(R.string.overlay_link_code_title),
+                // The subtitle names the Nuvio app, not a URL: the approver is the owner's own
+                // account, approving from their phone. `link.verificationUri` is still carried on
+                // the state (the pairing channel supplies it) but is deliberately not shown — it is
+                // a browser URL nobody is going to retype with a TV remote, and the app path
+                // replaced it.
                 subtitle = stringResource(
                     R.string.overlay_link_code_subtitle,
                     link.userCode,
-                    link.verificationUri
-                        ?: stringResource(R.string.overlay_link_code_no_uri)
                 ),
                 value = stringResource(R.string.overlay_link_cancel),
                 onClick = { BoomioSessionRepository.cancelLink() },
