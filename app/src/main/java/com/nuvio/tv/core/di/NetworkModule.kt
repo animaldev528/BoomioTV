@@ -1,7 +1,5 @@
 package com.nuvio.tv.core.di
 
-import com.nuvio.app.core.mtls.MtlsSsl
-
 import android.content.Context
 import android.util.Log
 import com.nuvio.app.core.mtls.withClientCertificate
@@ -148,16 +146,27 @@ object NetworkModule {
 
         // ⚠️ **A pooled connection's TLS identity is fixed when its socket is opened, and OkHttp does
         // not re-consult the socket factory for a connection it already holds.** So a re-minted
-        // client certificate reaches the wire only if the pool is dropped, and until this existed
-        // nothing dropped it: the SHIELD, 2026-10-12, spent a whole session presenting a certificate
-        // the edge's allow-list no longer held, and `bsf` — which compares raw DER — answered
+        // client certificate reaches the wire only if the pool is dropped, and until something
+        // dropped it the SHIELD, 2026-10-12, spent a whole session presenting a certificate the
+        // edge's allow-list no longer held while `bsf` — which compares raw DER — answered
         // `no device identity — using declared caps (permissive)` on every `/find`. The operator's
         // own resolution and bandwidth policy was stored correctly the entire time.
         //
-        // Registered on this client because the pool is shared: [provideBoomioClientCertificateOkHttpClient]
-        // is `newBuilder()`, which keeps the same `ConnectionPool` by reference, so evicting here
-        // evicts the certificate-bearing twin's connections too — which are the ones that go stale.
-        MtlsSsl.onCertificateReplaced { client.connectionPool.evictAll() }
+        // ⚠️ **Nothing is registered here, and that is the repair rather than an omission.** This
+        // client used to register `MtlsSsl.onCertificateReplaced` on the reasoning that
+        // [provideBoomioClientCertificateOkHttpClient] shares its `ConnectionPool` by reference —
+        // true when it was written, and no longer true, because `withClientCertificate()` now
+        // installs a pool of its own (it has to: an OkHttp interceptor cannot reach the pool of the
+        // client it runs on, so owning the pool at that seam is what lets the eviction happen
+        // without a registration nobody can be relied on to make). Eviction is now
+        // `MtlsCertificatePoolGuard`'s job, and it rides every certificate-bearing client, this
+        // one's twin included.
+        //
+        // A listener here would also have been the wrong one twice over: the listener that *was*
+        // here never ran at all. `certificateReplaced()` looked the new fingerprint up through
+        // `presentableCertificate()`, which at that moment — after the keystore is written and
+        // before the prefs record is — answers `null`, so the function returned before reaching any
+        // listener. See `MtlsSsl.certificateReplaced`.
 
         return client
     }
@@ -190,11 +199,16 @@ object NetworkModule {
      * so a pin-gated client would stop presenting the certificate exactly when the device is at
      * home, which is the opposite of the intent.
      *
-     * ⚠️ **Sharing [provideOkHttpClient]'s connection pool is safe, and it is not a leak path.**
-     * `newBuilder()` keeps the same pool, but OkHttp only reuses a pooled connection when the new
+     * ⚠️ **This client ends up with its own connection pool, and that costs nothing.** `newBuilder()`
+     * starts it on [provideOkHttpClient]'s pool by reference, and
+     * [com.nuvio.app.core.mtls.withClientCertificate] then installs one of its own — it has to, so
+     * that the certificate-replacement eviction can reach the pool without a per-site registration.
+     * The exchange is free in both directions: OkHttp only reuses a pooled connection when the new
      * address's `sslSocketFactory` matches the one the connection was opened with
-     * (`RealConnection.supportsUrl`), so a connection opened by one of these two clients can never be
-     * handed to the other.
+     * (`RealConnection.supportsUrl`), and this client's factory differs from
+     * [provideOkHttpClient]'s, so **no connection was ever crossing between them anyway**. A pool of
+     * its own is what the separation already was in practice, now made explicit — and it means an
+     * eviction here cannot disturb the plain client's connections.
      */
     @Provides
     @Singleton

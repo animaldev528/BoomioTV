@@ -150,13 +150,47 @@ internal class MtlsRegistrar(
     private val mintAndInstall: (String) -> ClientCertificate,
     private val remember: (HeldCertificate) -> Unit,
     private val sleep: suspend (Long) -> Unit = { delay(it) },
+    /**
+     * Where the plan's decisions are reported, if anywhere.
+     *
+     * ⚠️ **A no-op by default, and injected rather than called directly, because this class must
+     * stay free of Android** — it is the one part of the registration path that is unit-tested on
+     * the JVM, and an `android.util.Log` here would drag a mocked framework into those tests.
+     *
+     * ⚠️ **A `Mint` used to be logged without its reason, and that is what made the churn on the
+     * SHIELD take an evening to explain.** The registrar logs the OUTCOME (`Registered(name=…)`),
+     * which says a registration happened but never says *why a fresh certificate was minted for a
+     * device that already held one*. [CertPlan.Mint.reason] is computed here and discarded, so the
+     * only evidence was the certificate's fingerprint changing, which reads the same whether the key
+     * was lost, the name changed, or the stored PEM stopped matching the keystore. This reports the
+     * plan and the shape of what was held, which is what distinguishes those three.
+     */
+    private val note: (String) -> Unit = {},
     private val maxAttempts: Int = MAX_ATTEMPTS,
 ) {
 
     suspend fun register(force: Boolean = false): MtlsRegistrationState {
         val client = api() ?: return MtlsRegistrationState.Skipped("this device has no server session")
 
-        val pem = when (val plan = planCertificate(assignedName(), held(), force)) {
+        val heldNow = held()
+        val plan = planCertificate(assignedName(), heldNow, force)
+        // One line per attempt, and deliberately one: the reason and the state that produced it are
+        // the two halves of every question this path raises, and separating them across two log
+        // lines makes them impossible to correlate once a retry or a second trigger interleaves.
+        note(
+            "mTLS plan: ${plan::class.simpleName}" +
+                (plan as? CertPlan.Mint)?.let { " (${it.reason})" }.orEmpty() +
+                " — held: " + (
+                heldNow?.let {
+                    "name=${it.assignedName} boundToKey=${it.matchesCurrentKey} " +
+                        "registered=${it.registered} pem=${it.pem.hashCode()}"
+                } ?: "nothing"
+                ) + ", assigned=${
+                assignedName() ?: "none"
+            }, force=$force",
+        )
+
+        val pem = when (plan) {
             is CertPlan.Unavailable -> return MtlsRegistrationState.Skipped(plan.reason)
             is CertPlan.AlreadyRegistered ->
                 return MtlsRegistrationState.AlreadyRegistered(plan.fingerprintSha256)

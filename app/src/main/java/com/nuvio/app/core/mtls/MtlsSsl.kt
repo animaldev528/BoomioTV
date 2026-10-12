@@ -1,7 +1,10 @@
 package com.nuvio.app.core.mtls
 
 import android.util.Log
+import okhttp3.ConnectionPool
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import okhttp3.Response
 import java.net.InetAddress
 import java.net.Socket
 import java.security.KeyStore
@@ -131,6 +134,25 @@ internal object MtlsSsl {
     private var cached: TlsContext? = null
 
     /**
+     * How many times the device's certificate has been replaced.
+     *
+     * ⚠️ **This exists so that no client has to remember to register anything.** [certificateReplaced]
+     * can only reach a pool whose owner thought to register a listener, and the pools that carry the
+     * certificate are built in four different places (`NetworkModule`'s pair, `NuvioApplication`'s
+     * image twin, `createSupabaseHttpEngine`, and `createBoomioHttpClient`) — three of which cannot
+     * even reach the built `OkHttpClient`, because Ktor and supabase-kt hand us a *builder*. An
+     * obligation that cannot be met at three of four sites is not an obligation, it is a bug waiting
+     * to be reported as "the policy stopped applying again".
+     *
+     * So the counter is read by [MtlsCertificatePoolGuard], which [withClientCertificate] attaches to
+     * **every** certificate-bearing client without exception — the same "there is no per-site
+     * decision" property the socket factory and the trust manager are built on.
+     */
+    @Volatile
+    internal var certificateGeneration: Long = 0L
+        private set
+
+    /**
      * Told the fingerprint of every **replacement** of the certificate a handshake would present.
      *
      * ⚠️ **The cache below is not the only thing holding a stale identity.** [context] is consulted
@@ -147,26 +169,54 @@ internal object MtlsSsl {
      *
      * A listener is a **connection owner**: whoever built a client for this certificate must throw
      * its pool away here, or the bytes it sends stop being the bytes it registered.
+     *
+     * ⚠️ **A listener is a head start, not the guarantee.** The guarantee is
+     * [MtlsCertificatePoolGuard], which rides every certificate-bearing client automatically; this
+     * exists so that a pool which *can* be reached at mint time (the `/find` pair in `NetworkModule`,
+     * which shares one `ConnectionPool`) is dropped immediately rather than at its next request. A
+     * client that registers nothing is still correct.
      */
-    private val replacementListeners = CopyOnWriteArrayList<(String) -> Unit>()
+    private val replacementListeners = CopyOnWriteArrayList<(String?) -> Unit>()
 
     /** Register [listener] to be told the fingerprint of every replacement. Never unregistered. */
-    internal fun onCertificateReplaced(listener: (String) -> Unit) {
+    internal fun onCertificateReplaced(listener: (String?) -> Unit) {
         replacementListeners += listener
     }
 
     /**
      * The device's certificate has been replaced: drop the cache, then tell the connection owners.
      *
+     * ⚠️ **[fingerprint] is a parameter for a reason — do not "simplify" it back to a lookup.** The
+     * obvious body is `val fingerprint = source.fingerprint() ?: return`, and that body is what this
+     * function was, and it **could never notify anyone**. Its only caller is
+     * [MtlsRegistration.mintAndInstall], which runs *before* `MtlsRegistrar.register` calls
+     * `remember` — so at this instant the keystore holds the new certificate while the prefs record
+     * still holds the previous PEM (or nothing at all, on a first registration).
+     * [MtlsRegistration.presentableCertificate] answers only when those two are byte-equal, so it
+     * returned `null`, `source.fingerprint()` returned `null`, and the `?: return` fired **every
+     * single time**. The pool eviction below was registered, wired, shipped, and never once ran —
+     * which is exactly what the measurement said: the SHIELD kept presenting a superseded
+     * certificate across two further mints, and the "fix" that added the eviction changed nothing.
+     *
+     * The caller that just minted the certificate already knows its fingerprint, so it is handed
+     * over rather than re-derived from a source that is, at this moment, guaranteed to disagree with
+     * itself. The `?: source.fingerprint()` fallback is for a caller that does not know it — it is
+     * best effort, and a `null` fingerprint is **not** a reason to stay silent: the listeners are
+     * connection owners being told "throw your pool away", and only one of them reads the argument.
+     *
      * ⚠️ Must not throw. A listener runs after the caller has already installed the new certificate,
      * so an exception escaping here would report a failure for a mint that succeeded — and would
      * leave the identity changed with nobody told.
      */
-    internal fun certificateReplaced() {
+    internal fun certificateReplaced(fingerprint: String? = null) {
         cached = null
-        val fingerprint = source.fingerprint() ?: return
+        // Bumped before the listeners, so that a listener which throws (or a client that has no
+        // listener at all) still leaves the generation moved on and [MtlsCertificatePoolGuard] able
+        // to notice. The counter is the guarantee; the listeners are the head start.
+        certificateGeneration++
+        val resolved = fingerprint ?: source.fingerprint()
         replacementListeners.forEach { listener ->
-            runCatching { listener(fingerprint) }
+            runCatching { listener(resolved) }
                 .onFailure { Log.w(TAG, "A certificate-replacement listener failed", it) }
         }
     }
@@ -242,9 +292,69 @@ internal object MtlsSsl {
  * observes the failure the caller will actually see rather than one of the internally-retried
  * attempts along the way.
  */
-internal fun OkHttpClient.Builder.withClientCertificate(): OkHttpClient.Builder =
-    sslSocketFactory(DeferredClientCertSocketFactory(), platformTrustManager())
+internal fun OkHttpClient.Builder.withClientCertificate(): OkHttpClient.Builder {
+    // ⚠️ **The pool this client uses is installed here, and that is part of the attach rather than a
+    // side effect of it.** `OkHttpClient.Builder` does not expose the pool it is holding (the field
+    // is `internal`) and the OkHttp this app resolves to — 4.12.0 — declares no `client()` on
+    // `okhttp3.Call`, so **an interceptor has no way to reach the pool of the client it is running
+    // on**. Owning the pool at the one seam every certificate-bearing client passes through is what
+    // lets [MtlsCertificatePoolGuard] evict it with nobody having to remember to register anything —
+    // and "somebody must remember to register" is precisely the obligation whose failure produced
+    // this whole class of bug.
+    //
+    // The cost is nil, and worth stating because it looks like a change to how connections are
+    // shared: OkHttp will not reuse a connection across clients whose `sslSocketFactory` differs
+    // (`RealConnection.supportsUrl`), and every client that comes through here has a different one
+    // from every client that does not. So no connection was ever being shared across this boundary,
+    // and a pool of its own takes away nothing. Three of the four call sites already had one.
+    val pool = ConnectionPool()
+    return connectionPool(pool)
+        // ⚠️ The guard goes on **first**, so that a request on a client whose certificate has been
+        // replaced drops the pool *before* [MtlsHandshakeWatchInterceptor] attempts it — otherwise
+        // the first call after a mint travels on the superseded connection and is the one that gets
+        // mis-identified, and the watch would see a handshake the edge never refused.
+        .addInterceptor(MtlsCertificatePoolGuard(pool))
+        .sslSocketFactory(DeferredClientCertSocketFactory(), platformTrustManager())
         .addInterceptor(MtlsHandshakeWatchInterceptor(MtlsHandshakeWatch.instance))
+}
+
+/**
+ * Drops this client's connection pool the first time it is used after the certificate changed.
+ *
+ * ⚠️ **This is the mechanism, and [MtlsSsl.onCertificateReplaced] is only a head start.** A pooled
+ * connection's `SSLContext` — and therefore its certificate — is fixed when its socket is opened, and
+ * OkHttp never re-consults the socket factory for a connection it already holds. So a client that
+ * re-mints keeps presenting the superseded certificate on every socket it pooled. Eviction is the
+ * only cure, and it has to happen on a client that may have been built, and pooled, before the mint:
+ * [MtlsSsl.DeferredClientCertSocketFactory] makes the *next connection* correct, and this makes there
+ * be a next connection.
+ *
+ * It evicts lazily, at the next request, rather than eagerly at the mint — because being attached to
+ * **every** client through [withClientCertificate] is worth more than being immediate, and a request
+ * that evicts and then proceeds is already on a fresh connection. A client that registers a listener
+ * as well simply evicts twice, the second time on an empty pool.
+ *
+ * [pool] is the one [withClientCertificate] installed, and it is held rather than discovered because
+ * an interceptor cannot reach its own client's pool — see the note there. The generation is captured
+ * per instance, and an instance is built per `withClientCertificate()` call, so this cannot evict a
+ * pool it does not own.
+ */
+internal class MtlsCertificatePoolGuard(private val pool: ConnectionPool) : Interceptor {
+
+    private var seen: Long = MtlsSsl.certificateGeneration
+
+    override fun intercept(chain: Interceptor.Chain): Response {
+        val generation = MtlsSsl.certificateGeneration
+        if (generation != seen) {
+            seen = generation
+            // Never fatal: the request is still worth making on the connection we have. Throwing
+            // here would turn a hygiene action into a failed request.
+            runCatching { pool.evictAll() }
+                .onFailure { Log.w("BoomioMtls", "Could not evict the connection pool", it) }
+        }
+        return chain.proceed(chain.request())
+    }
+}
 
 /**
  * A socket factory whose identity is chosen when a **connection** is opened, not when the client is

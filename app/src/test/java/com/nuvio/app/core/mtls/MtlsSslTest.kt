@@ -1,6 +1,10 @@
 package com.nuvio.app.core.mtls
 
+import okhttp3.Interceptor
 import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
 import java.io.ByteArrayInputStream
 import java.net.Socket
 import java.security.KeyPair
@@ -29,7 +33,7 @@ import kotlin.test.assertTrue
 /**
  * Attaching the client certificate to an HTTP client — `MtlsSsl`, P2.4 and P2.5.
  *
- * Four things, and the last two are the ones with a decision in them:
+ * Five things, and the last three are the ones with a decision in them:
  *
  * 1. **The key manager** is driven through a **real** `KeyStore` holding a real RSA-2048 keypair and
  *    a real certificate minted by `MtlsCertificate`, so the assertions are about the provider that
@@ -45,6 +49,10 @@ import kotlin.test.assertTrue
  *    opening resolves, and that a certificate arriving *between* two connections is picked up
  *    without anything being rebuilt. The last of those is the property the whole design turns on,
  *    and it is the reason `withClientCertificate()` has no early return.
+ * 5. **The replacement reaching the wire**, which is P2.6 and the half deferral does *not* cover: a
+ *    connection already pooled is never re-resolved, so a re-mint needs the pool dropped. The three
+ *    tests at the end pin the notification (which used to fire into an empty room — see them) and
+ *    the guard that makes it unnecessary for any client to remember to listen.
  *
  * ⚠️ Also covered here: that attaching a client certificate did not disable server verification.
  * That is the one thing an mTLS change can break silently and expensively, and the assertion is
@@ -250,6 +258,87 @@ class MtlsSslTest {
         val trustManager = assertNotNull(client.x509TrustManager)
         assertFailsWith<CertificateException> {
             trustManager.checkServerTrusted(arrayOf(testIdentity().certificate), "RSA")
+        }
+    }
+
+    // ── the replacement, and the pool that has to be dropped for it to reach the wire ──
+
+    @Test
+    fun `a replacement is announced even though the source has nothing to present`() {
+        // ⚠️ **This is the regression, and it is state-for-state the one `mintAndInstall` is in.**
+        // That call sits *after* the new certificate is bound into the keystore and *before* the
+        // registrar writes the record, so the keystore and the stored PEM disagree,
+        // `MtlsRegistration.presentableCertificate()` answers `null`, and the source follows it
+        // there. A body opening `val fingerprint = source.fingerprint() ?: return` — which is what
+        // this function was — therefore notified **nobody, ever**. The pool eviction that was
+        // shipped for exactly this defect was registered, wired, and never once ran.
+        MtlsSsl.source = FakeSource(fingerprint = null)
+        val told = mutableListOf<String?>()
+        MtlsSsl.onCertificateReplaced { told += it }
+
+        MtlsSsl.certificateReplaced("fp-minted")
+
+        assertEquals(listOf<String?>("fp-minted"), told)
+    }
+
+    @Test
+    fun `a replacement moves the generation even when the source cannot answer`() {
+        // The listeners are a head start; the generation is the guarantee `MtlsCertificatePoolGuard`
+        // rides on. Neither may depend on the source being able to describe an identity it is, at
+        // this instant, by definition unable to describe.
+        MtlsSsl.source = FakeSource(fingerprint = null)
+        val before = MtlsSsl.certificateGeneration
+
+        MtlsSsl.certificateReplaced()
+
+        assertEquals(before + 1, MtlsSsl.certificateGeneration)
+    }
+
+    @Test
+    fun `the pool is dropped before the first request after a replacement, and only then`() {
+        val server = MockWebServer()
+        server.start()
+        try {
+            repeat(3) { server.enqueue(MockResponse().setBody("ok")) }
+
+            // The pool is read back off the built client rather than installed by the test:
+            // `withClientCertificate()` owns it precisely because nothing else can reach it, and a
+            // test that supplied its own would be asserting about a pool the client does not use.
+            var client: OkHttpClient? = null
+            val pooledAtRequest = mutableListOf<Int>()
+            val generationBefore = MtlsSsl.certificateGeneration
+            client = OkHttpClient.Builder()
+                .withClientCertificate()
+                // Added *after* the guard, so application-interceptor order puts it inside it and
+                // what it observes is the pool the guard left behind.
+                .addInterceptor { chain ->
+                    pooledAtRequest += requireNotNull(client).connectionPool.connectionCount()
+                    chain.proceed(chain.request())
+                }
+                .build()
+            val built = requireNotNull(client)
+            val url = server.url("/")
+            fun call() = built.newCall(Request.Builder().url(url).build()).execute().close()
+
+            call()
+            assertEquals(listOf(0), pooledAtRequest, "nothing can be pooled before the first call")
+            assertEquals(1, built.connectionPool.connectionCount(), "the connection was not kept alive, so nothing is at stake")
+
+            // Re-minting. Nothing rebuilds the client and nothing is closed.
+            MtlsSsl.certificateReplaced("fp-guard")
+            assertEquals(generationBefore + 1, MtlsSsl.certificateGeneration)
+            call()
+            // ⚠️ The assertion this test exists for. Without the guard the connection opened above
+            // is still in the pool here and this request rides it — presenting the superseded
+            // certificate, which is the whole of the reported defect.
+            assertEquals(0, pooledAtRequest.last(), "the guard did not drop the pool")
+
+            call()
+            // And **only** then: with no further replacement the pooled connection is reused, so the
+            // guard is not quietly turning off keep-alive and making the slow path the normal one.
+            assertEquals(1, pooledAtRequest.last(), "the pool was dropped without a replacement")
+        } finally {
+            server.shutdown()
         }
     }
 

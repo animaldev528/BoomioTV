@@ -117,6 +117,7 @@ internal object MtlsRegistration {
             held = { read(store) },
             mintAndInstall = ::mintAndInstall,
             remember = { write(store, it) },
+            note = { Log.i(TAG, it) },
         )
 
         // ── the trigger for the FIRST registration, which nothing else provides ──────────────
@@ -270,7 +271,14 @@ internal object MtlsRegistration {
         // clients that must react were built before this ran and cannot be reached from here.
         // Without it the session keeps presenting the previous certificate on every pooled
         // connection: see [MtlsSsl.certificateReplaced] for what that cost in practice.
-        MtlsSsl.certificateReplaced()
+        //
+        // ⚠️ **The fingerprint is passed, not looked up, and that is the whole repair.** This call
+        // sits between [MtlsIdentity.installCertificate] and the registrar's `remember`, so the
+        // keystore holds the new certificate while the prefs record still holds the old PEM —
+        // `presentableCertificate()` requires those to agree, answers `null`, and a lookup-based
+        // [MtlsSsl.certificateReplaced] therefore returned before telling anyone. Every mint this
+        // app has ever performed announced itself to nobody.
+        MtlsSsl.certificateReplaced(certificate.fingerprintSha256)
         Log.i(TAG, "Minted a client certificate for $name (${certificate.fingerprintSha256.take(16)}…)")
         return certificate
     }
@@ -331,21 +339,36 @@ internal object MtlsRegistration {
     }
 
     /**
-     * Whether the stored certificate belongs to the key the keystore holds now.
+     * Whether the stored certificate is the one the keystore holds now.
      *
      * ⚠️ This is the check that catches a **lost key behind a kept certificate**, and the reason it
      * exists is that the server cannot catch it: `parseClientCertificate` validates the certificate
      * alone and never asks the device to prove it holds the private half. So a mismatched pair
      * registers with a `200` and then fails the TLS handshake on the *edge*.
      *
-     * AndroidKeyStore returns its own placeholder certificate (`CN=Unverified…`) for an alias whose
-     * key was replaced, so the comparison is against whatever is bound now, not against a stub
-     * assumption. A stored PEM that will not parse answers `false` — treated as unusable, which is
-     * what it is.
+     * ⚠️ **The comparison is on the DER, and comparing the two `publicKey` objects instead is a bug
+     * that re-mints forever.** The keystore's certificate comes from `AndroidKeyStore`, whose key
+     * classes are `AndroidKeyStoreKey`s, and that type's `equals` opens with
+     * `if (getClass() != obj.getClass()) return false` — so `AndroidKeyStoreRSAPublicKey.equals(…)`
+     * is `false` for *any* key that did not also come out of the keystore, including a
+     * `CertificateFactory`-parsed one holding identical key material. The predicate therefore
+     * answered `false` for a device whose stored PEM was byte-for-byte the certificate the keystore
+     * was serving, and every plan became a `Mint`: measured on the SHIELD, 2026-10-12, two mints per
+     * cold start on a key that never changed (`Generated RSA-2048 client key` never logged once),
+     * with `boundToKey=false` in the plan line both times.
+     *
+     * Comparing the certificates also catches the state a public-key comparison is blind to by
+     * design — see [presentableCertificate]: `AndroidKeyStore` installs a **placeholder**
+     * certificate (`CN=Unverified…`) that carries the *same* public key as the real one, so a
+     * key-material comparison answers "usable" for an alias whose real certificate was never
+     * installed. This is [presentableCertificate]'s test, deliberately: the two now cannot disagree.
+     *
+     * A stored PEM that will not parse answers `false` — treated as unusable, which is what it is.
      */
     private fun isBoundToCurrentKey(pem: String): Boolean = runCatching {
         val parsed = parseCertificate(pem) ?: return@runCatching false
-        MtlsIdentity.certificate()?.publicKey == parsed.publicKey
+        val bound = MtlsIdentity.certificate() ?: return@runCatching false
+        bound.encoded.contentEquals(parsed.encoded)
     }.getOrDefault(false)
 }
 
