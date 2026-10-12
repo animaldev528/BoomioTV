@@ -712,13 +712,17 @@ class TmdbMetadataService(
                 val voteCount = rec.voteCount ?: 0
                 val voteAverage = rec.voteAverage ?: 0.0
                 val localized = rec.originalLanguage?.equals(languageCode, ignoreCase = true) == true
-                localized || voteCount >= 20 || voteAverage >= 6.0
+                localized ||
+                    voteCount >= MLT_MIN_VOTE_COUNT ||
+                    voteAverage >= MLT_MIN_VOTE_AVERAGE
             }
-            val recommendationResults = (if (qualityFilteredResults.isNotEmpty()) {
-                qualityFilteredResults
-            } else {
-                sortedResults
-            }).take(itemLimit)
+            // This used to fall back to the *unfiltered* list whenever the bar emptied
+            // it, which padded a thin result set with unrated titles — the reason these
+            // rows read as junk. Relax the bar once instead, and let the row come back
+            // short rather than fill it with whatever TMDB happened to return.
+            val recommendationResults = qualityFilteredResults.ifEmpty {
+                sortedResults.filter { rec -> (rec.voteCount ?: 0) >= MLT_RELAXED_VOTE_COUNT }
+            }.take(itemLimit)
 
             val items = coroutineScope {
                 recommendationResults.map { rec ->
@@ -1275,6 +1279,17 @@ class TmdbMetadataService(
         )
         private const val ENTITY_RAIL_MAX_ITEMS = 20
         private const val TOP_RATED_VOTE_COUNT_FLOOR = 200
+
+        /** More-like-this quality bar: same-language, or enough votes, or well rated. */
+        private const val MLT_MIN_VOTE_COUNT = 20
+        private const val MLT_MIN_VOTE_AVERAGE = 6.0
+
+        /**
+         * The one relaxed retry when nothing clears [MLT_MIN_VOTE_COUNT]. Low enough to
+         * keep an obscure title's row populated, high enough to exclude the unrated
+         * entries the old unfiltered fallback used to admit.
+         */
+        private const val MLT_RELAXED_VOTE_COUNT = 5
 
         /**
          * One full page of TMDB `/recommendations` (the endpoint is 20-per-page and the

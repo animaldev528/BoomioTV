@@ -615,7 +615,16 @@ internal class PostPlayRecommendationController(
         val candidates = withTimeoutOrNull(10_000L) {
             val sourcePreference = traktSettingsDataStore.moreLikeThisSource.first()
             val traktAuthenticated = traktAuthDataStore.isAuthenticated.first()
-            if (sourcePreference == MoreLikeThisSourcePreference.TRAKT && traktAuthenticated) {
+            val settings = tmdbSettingsDataStore.settings.first()
+            val tmdbAvailable = settings.enabled && settings.useMoreLikeThis
+            // Honour the preference, but when the preferred source cannot serve, use the
+            // other one rather than returning nothing: Trakt needs an authenticated
+            // session and TMDB needs its enrichment switched on, which is off by default
+            // — and TMDB is now the default preference, so without this an untouched
+            // profile would get no post-play recommendations at all.
+            val useTrakt = traktAuthenticated &&
+                (sourcePreference == MoreLikeThisSourcePreference.TRAKT || !tmdbAvailable)
+            if (useTrakt) {
                 runCatching {
                     traktRelatedService.getRelated(
                         meta = meta,
@@ -624,8 +633,7 @@ internal class PostPlayRecommendationController(
                     )
                 }.getOrDefault(emptyList())
             } else {
-                val settings = tmdbSettingsDataStore.settings.first()
-                if (!settings.enabled || !settings.useMoreLikeThis) return@withTimeoutOrNull emptyList()
+                if (!tmdbAvailable) return@withTimeoutOrNull emptyList()
                 val lookupType = tmdbContentType.toApiString(playbackController.contentType)
                 val tmdbId = tmdbService.ensureTmdbId(meta.id, lookupType, fallbackImdbId = meta.imdbId)
                     ?: playbackController.contentId?.let { tmdbService.ensureTmdbId(it, lookupType, fallbackImdbId = meta.imdbId) }

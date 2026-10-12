@@ -20,6 +20,13 @@ import javax.inject.Singleton
 private const val RELATED_LIMIT = 20
 private const val RELATED_CACHE_TTL_MS = 10 * 60_000L
 
+/**
+ * How many rated titles the related list must hold before the unrated tail is
+ * dropped. Half of [RELATED_LIMIT]: enough to fill the row without falling back
+ * to entries that carry no rating signal at all.
+ */
+private const val MIN_RATED_RELATED = RELATED_LIMIT / 2
+
 internal enum class TraktRelatedType(val apiValue: String) {
     MOVIE("movie"),
     SHOW("show")
@@ -112,7 +119,15 @@ class TraktRelatedService @Inject constructor(
             }
         }
 
-        val distinctItems = items.distinctBy { "${it.apiType}:${it.id}" }
+        // Trakt returns this list in no meaningful order, so rank it by the rating
+        // Trakt attaches to each entry. There is no vote count on this endpoint — a
+        // true vote floor would need a TMDB enrichment per title — so the ranking is
+        // the whole of the quality signal available here.
+        val rankedItems = items
+            .distinctBy { "${it.apiType}:${it.id}" }
+            .sortedByDescending { it.imdbRating ?: 0f }
+        val ratedItems = rankedItems.filter { (it.imdbRating ?: 0f) > 0f }
+        val distinctItems = if (ratedItems.size >= MIN_RATED_RELATED) ratedItems else rankedItems
         cache[cacheKey] = TimedCache(items = distinctItems, updatedAtMs = System.currentTimeMillis())
         return distinctItems
     }
