@@ -58,6 +58,7 @@ import com.nuvio.tv.ui.screens.account.AuthQrSignInScreen
 import com.nuvio.tv.ui.screens.cast.CastDetailScreen
 import com.nuvio.tv.ui.screens.profile.ProfileSelectionMode
 import com.nuvio.tv.ui.screens.profile.ProfileSelectionScreen
+import com.nuvio.tv.ui.screens.publiclists.PublicListsScreen
 import com.nuvio.tv.ui.screens.tmdb.TmdbEntityBrowseScreen
 import com.nuvio.tv.ui.screens.home.HeroBackdropState
 import com.nuvio.tv.ui.screens.hub.HubKind
@@ -1638,6 +1639,36 @@ private fun PlaybackNavHost(
                 onNavigateToDetail = { detailId, detailType, addonBaseUrl ->
                     navController.navigate(Screen.Detail.createRoute(detailId, detailType, addonBaseUrl))
                 },
+                onBackPress = { navController.popBackStack() }
+            )
+        }
+
+        composable(
+            route = Screen.PublicLists.route,
+            arguments = listOf(
+                navArgument("itemType") { type = NavType.StringType },
+                navArgument("itemId") { type = NavType.StringType },
+                navArgument("title") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("imdbId") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) {
+            // The route arguments are read by the ViewModel out of SavedStateHandle, the same
+            // way TmdbEntityBrowse does it, so there is no per-argument plumbing here.
+            PublicListsScreen(
+                onNavigateToDetail = { detailId, detailType, addonBaseUrl ->
+                    navController.navigate(Screen.Detail.createRoute(detailId, detailType, addonBaseUrl))
+                },
+                // A plain pop, not a navigate-to-home: the screen is a normal back-stack
+                // entry pushed from whatever wall the long-press happened on, so Back lands
+                // the user back on that wall, at the tile they pressed.
                 onBackPress = { navController.popBackStack() }
             )
         }

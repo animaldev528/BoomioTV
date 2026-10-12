@@ -4,7 +4,6 @@ import com.nuvio.tv.ui.theme.NuvioTheme
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,6 +26,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.LocalMoreLikeThisNavigator
+import com.nuvio.tv.LocalPublicListsNavigator
 import com.nuvio.tv.R
 import com.nuvio.tv.core.tracking.TrackingMembershipRemovalImpact
 import com.nuvio.tv.core.tracking.TrackingMembershipRemovalConfirmation
@@ -35,7 +35,6 @@ import com.nuvio.tv.core.tracking.supportsMembershipFor
 import com.nuvio.tv.domain.model.LibraryListTab
 import com.nuvio.tv.domain.model.localizedTitle
 import com.nuvio.tv.domain.model.LibrarySourceMode
-import com.nuvio.tv.domain.model.TraktPublicListRef
 import com.nuvio.tv.ui.components.NuvioDialog
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -259,128 +258,6 @@ fun PosterListPickerDialog(
     }
 }
 
-/**
- * Read-only: the public Trakt lists that contain this title.
- *
- * Deliberately not built on [PosterListPickerDialog] — that one is a toggle-and-save surface
- * over the caller's OWN lists, and there is nothing to save here. Rows are plain focusable
- * rows rather than buttons, so there is no misleading "press me" affordance; focus rests on
- * Close, which is the only action the screen has.
- */
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-fun ItemPublicListsDialog(
-    title: String,
-    lists: List<TraktPublicListRef>,
-    totalAvailable: Int,
-    isPending: Boolean,
-    error: String?,
-    onDismiss: () -> Unit
-) {
-    val closeFocusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(Unit) {
-        closeFocusRequester.requestFocus()
-    }
-
-    NuvioDialog(
-        onDismiss = onDismiss,
-        title = title,
-        subtitle = stringResource(R.string.poster_options_public_lists_subtitle),
-        width = 500.dp
-    ) {
-        when {
-            !error.isNullOrBlank() -> Text(
-                text = error,
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color(0xFFFFB6B6)
-            )
-
-            isPending -> Text(
-                text = stringResource(R.string.poster_options_public_lists_loading),
-                style = MaterialTheme.typography.bodyMedium,
-                color = NuvioTheme.colors.TextPrimary
-            )
-
-            lists.isEmpty() -> Text(
-                text = stringResource(R.string.poster_options_public_lists_none),
-                style = MaterialTheme.typography.bodyMedium,
-                color = NuvioTheme.colors.TextPrimary
-            )
-
-            else -> {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 300.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(lists, key = { it.traktListId ?: it.name }) { list ->
-                        ListRow(list)
-                    }
-                }
-                // Trakt's page is capped, but the header says how many lists exist in total,
-                // so say so rather than letting the page read as the whole set.
-                if (totalAvailable > lists.size) {
-                    Text(
-                        text = stringResource(
-                            R.string.poster_options_public_lists_more,
-                            totalAvailable
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = NuvioTheme.colors.TextSecondary
-                    )
-                }
-            }
-        }
-
-        Divider(color = NuvioTheme.colors.Border, thickness = NuvioTheme.spacing.hairline)
-
-        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-            Button(
-                onClick = onDismiss,
-                modifier = Modifier.focusRequester(closeFocusRequester),
-                colors = ButtonDefaults.colors(
-                    containerColor = NuvioTheme.colors.BackgroundCard,
-                    contentColor = NuvioTheme.colors.TextPrimary
-                )
-            ) {
-                Text(stringResource(R.string.action_close))
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun ListRow(list: TraktPublicListRef) {
-    val owner = list.ownerUsername
-    val itemCount = list.itemCount
-    val details = listOfNotNull(
-        owner?.let { stringResource(R.string.poster_options_public_lists_owner, it) },
-        itemCount?.let { stringResource(R.string.poster_options_public_lists_titles_count, it) }
-    ).joinToString(" · ")
-
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = if (list.isOfficial) "★ ${list.name}" else list.name,
-            style = MaterialTheme.typography.bodyLarge,
-            color = NuvioTheme.colors.TextPrimary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        if (details.isNotEmpty()) {
-            Text(
-                text = details,
-                style = MaterialTheme.typography.bodySmall,
-                color = NuvioTheme.colors.TextSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-    }
-}
-
 @Composable
 fun PosterOptionsHost(
     state: PosterOptionsState,
@@ -400,6 +277,9 @@ fun PosterOptionsHost(
         // profile's curated universe). Titles outside that universe get a friendly
         // empty wall ("Not on one of our lists").
         val navigateMoreLikeThis = LocalMoreLikeThisNavigator.current
+        // "Public Lists": the public Trakt lists this title appears on, on a screen of
+        // their own rather than in a dialog, so Back returns here.
+        val navigatePublicLists = LocalPublicListsNavigator.current
         val onMoreLikeThis = if (navigateMoreLikeThis != null && (isMovie || isSeries)) {
             {
                 // Entry point from a wall/library: no parent wall to hide yet. When this
@@ -452,22 +332,24 @@ fun PosterOptionsHost(
             },
             // Offered regardless of the library source: the reverse lookup is a public
             // Trakt API, so a local-only (or signed-out) profile still gets it.
-            onShowPublicLists = if (isMovie || isSeries) {
-                { controller.openPublicLists() }
+            //
+            // This is a navigation, not a dialog — the action lands on Screen.PublicLists,
+            // which loads the lists as browsable rows and pops back to this wall on Back.
+            // The tile's own IMDb id rides along because the lookup must not be handed a
+            // bare TMDB id. A null navigator (a preview or a test host) hides the action.
+            onShowPublicLists = if (navigatePublicLists != null && (isMovie || isSeries)) {
+                {
+                    navigatePublicLists(
+                        if (isMovie) "movie" else "series",
+                        target.id,
+                        target.name,
+                        target.imdbId
+                    )
+                    controller.dismiss()
+                }
             } else {
                 null
             }
-        )
-    }
-
-    if (state.publicListsActive) {
-        ItemPublicListsDialog(
-            title = state.publicListsTitle.orEmpty(),
-            lists = state.publicLists,
-            totalAvailable = state.publicListsTotal,
-            isPending = state.publicListsPending,
-            error = state.publicListsError,
-            onDismiss = { controller.dismissPublicLists() }
         )
     }
 

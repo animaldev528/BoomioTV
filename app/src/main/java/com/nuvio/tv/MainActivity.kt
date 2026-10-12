@@ -254,6 +254,20 @@ val LocalSplashBackground = compositionLocalOf { SplashBackground() }
 val LocalMoreLikeThisNavigator =
     compositionLocalOf<((type: String, id: String, title: String, exclude: List<String>) -> Unit)?> { null }
 
+/**
+ * Opens the public-lists screen for a tile (see `Screen.PublicLists`).
+ *
+ * A composition local rather than a callback threaded through every wall: poster options are
+ * shown from Home, Library, search, the kids walls and More-like-this alike, and every one of
+ * them would otherwise have to pass the same lambda down. `null` hides the action, which is
+ * what a preview or a test host gets for free.
+ *
+ * [imdbId] is the tile's own IMDb id when it has one separate from [id] — the Trakt reverse
+ * lookup needs a real id space and must not be handed a bare TMDB id.
+ */
+val LocalPublicListsNavigator =
+    compositionLocalOf<((type: String, id: String, title: String, imdbId: String?) -> Unit)?> { null }
+
 private const val SIDEBAR_AUTO_COLLAPSE_DELAY_MS = 3_000L
 
 private const val MAX_SUPPORTED_FONT_SCALE = 1.15f
@@ -1877,6 +1891,9 @@ private fun LegacySidebarScaffold(
                 LocalContentFocusRequester provides contentFocusRequester,
                 LocalMoreLikeThisNavigator provides { type, id, title, exclude ->
                     navController.navigate(Screen.MoreLikeThis.createRoute(type, id, title, exclude))
+                },
+                LocalPublicListsNavigator provides { type, id, title, imdbId ->
+                    navController.navigate(Screen.PublicLists.createRoute(type, id, title, imdbId))
                 }
             ) {
                 NuvioNavHost(
@@ -2275,6 +2292,9 @@ private fun ModernSidebarScaffold(
                 LocalContentFocusRequester provides contentFocusRequester,
                 LocalMoreLikeThisNavigator provides { type, id, title, exclude ->
                     navController.navigate(Screen.MoreLikeThis.createRoute(type, id, title, exclude))
+                },
+                LocalPublicListsNavigator provides { type, id, title, imdbId ->
+                    navController.navigate(Screen.PublicLists.createRoute(type, id, title, imdbId))
                 }
             ) {
                 NuvioNavHost(
