@@ -142,7 +142,8 @@ class MetaDetailsViewModel @Inject constructor(
     private var hideUnreleasedContent = false
     private var traktCommentsEnabled = false
     private var traktAuthenticated = false
-    private var moreLikeThisSourcePreference = com.nuvio.tv.data.local.MoreLikeThisSourcePreference.TRAKT
+    private var moreLikeThisSourcePreference =
+        com.nuvio.tv.data.local.TraktSettingsDataStore.DEFAULT_MORE_LIKE_THIS_SOURCE
 
     /** Content ID used for watch-progress and watched-items lookups.
      *  Starts as the navigation [itemId] (which may be "tmdb:123") and is
@@ -1224,15 +1225,25 @@ class MetaDetailsViewModel @Inject constructor(
     private fun loadMoreLikeThisAsync(meta: Meta) {
         moreLikeThisJob?.cancel()
         moreLikeThisJob = viewModelScope.launch {
-            val source = if (shouldLoadTraktMoreLikeThis(meta)) {
-                MoreLikeThisSource.TRAKT
-            } else {
-                val settings = tmdbSettingsDataStore.settings.first()
-                if (!shouldLoadMoreLikeThis(settings)) {
-                    _uiState.update { it.copy(moreLikeThis = emptyList(), moreLikeThisSource = null) }
-                    return@launch
-                }
-                MoreLikeThisSource.TMDB
+            val settings = tmdbSettingsDataStore.settings.first()
+            val tmdbAvailable = shouldLoadMoreLikeThis(settings)
+            val traktAvailable = isTraktRelatedAvailable(meta)
+            // Either source can be unusable on its own — Trakt needs an authenticated
+            // session, TMDB needs its enrichment switched on — so honour the profile's
+            // preference but fall back to the other one rather than leaving the row
+            // empty. The preference stopped being a reliable proxy for "usable" when
+            // the default moved to TMDB.
+            val preferTrakt = moreLikeThisSourcePreference ==
+                com.nuvio.tv.data.local.MoreLikeThisSourcePreference.TRAKT
+            val source = when {
+                preferTrakt && traktAvailable -> MoreLikeThisSource.TRAKT
+                tmdbAvailable -> MoreLikeThisSource.TMDB
+                traktAvailable -> MoreLikeThisSource.TRAKT
+                else -> null
+            }
+            if (source == null) {
+                _uiState.update { it.copy(moreLikeThis = emptyList(), moreLikeThisSource = null) }
+                return@launch
             }
 
             val rawRecommendations = when (source) {
@@ -1250,7 +1261,6 @@ class MetaDetailsViewModel @Inject constructor(
                 }
 
                 MoreLikeThisSource.TMDB -> {
-                    val settings = tmdbSettingsDataStore.settings.first()
                     val tmdbContentType = resolveTmdbContentType(meta)
                     val tmdbLookupType = tmdbContentType.toApiString()
                     val tmdbId = tmdbService.ensureTmdbId(meta.id, tmdbLookupType, fallbackImdbId = meta.imdbId)
@@ -1297,9 +1307,16 @@ class MetaDetailsViewModel @Inject constructor(
         return settings.enabled && settings.useMoreLikeThis
     }
 
-    private fun shouldLoadTraktMoreLikeThis(meta: Meta): Boolean {
+    /**
+     * Whether Trakt can serve a related list for this title at all — it needs an
+     * authenticated session and a media type it recognises. The profile's source
+     * *preference* is deliberately NOT consulted here: the caller has to weigh the
+     * preference against what each source can actually deliver, and folding the
+     * preference in made "Trakt is usable" false in precisely the case where the
+     * fallback needs it.
+     */
+    private fun isTraktRelatedAvailable(meta: Meta): Boolean {
         if (!traktAuthenticated) return false
-        if (moreLikeThisSourcePreference == com.nuvio.tv.data.local.MoreLikeThisSourcePreference.TMDB) return false
         return when (meta.type) {
             ContentType.MOVIE -> true
             ContentType.SERIES, ContentType.TV -> true
