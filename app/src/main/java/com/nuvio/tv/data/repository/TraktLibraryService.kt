@@ -22,6 +22,8 @@ import com.nuvio.tv.domain.model.LibraryListTab
 import com.nuvio.tv.domain.model.ListMembershipChanges
 import com.nuvio.tv.domain.model.ListMembershipSnapshot
 import com.nuvio.tv.domain.model.TraktListPrivacy
+import com.nuvio.tv.domain.model.TraktPublicListRef
+import com.nuvio.tv.domain.model.TraktPublicLists
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -112,6 +114,68 @@ class TraktLibraryService @Inject constructor(
             tab.key to memberships.contains(tab.key)
         }
         return ListMembershipSnapshot(listMembership = map)
+    }
+
+    /**
+     * The PUBLIC Trakt lists that contain [item] — other people's lists, plus the caller's
+     * own public ones. The complement of [getMembershipSnapshot]: that one answers "which of
+     * MY lists is this on" out of the cached snapshot and needs a signed-in Trakt account,
+     * while this is a live lookup over everybody's.
+     *
+     * Because the endpoint is public it goes through [TraktAuthService.executePublicRequest]
+     * rather than the authorized path: it works signed out, and on a local-only profile. It
+     * still gets the rate-limit slot, the retry ladder and the circuit breaker for free.
+     *
+     * `id` is resolved to an IMDb or Trakt id — deliberately **not** a bare TMDB id, which
+     * Trakt would read as a Trakt id and quietly answer about a different title (see
+     * [TraktApi.getMoviePublicLists]). A row with no IMDb and no Trakt id cannot be looked
+     * up safely, so it is refused rather than guessed at.
+     */
+    suspend fun getPublicListsContaining(
+        item: LibraryEntryInput,
+        type: String = "personal",
+        sort: String = "popular",
+        limit: Int = 20
+    ): TraktPublicLists {
+        val ids = resolveIds(item)
+        val idPath = ids.imdb?.takeIf { it.isNotBlank() }
+            ?: ids.trakt?.toString()
+            ?: throw IllegalStateException(
+                appContext.getString(com.nuvio.tv.R.string.poster_options_public_lists_no_id)
+            )
+        val isSeries = normalizeItemType(item.itemType) == "series"
+
+        val response = traktAuthService.executePublicRequest {
+            if (isSeries) {
+                traktApi.getShowPublicLists(id = idPath, type = type, sort = sort, limit = limit)
+            } else {
+                traktApi.getMoviePublicLists(id = idPath, type = type, sort = sort, limit = limit)
+            }
+        } ?: throw IllegalStateException(
+            appContext.getString(com.nuvio.tv.R.string.trakt_error_public_request_failed)
+        )
+
+        if (!response.isSuccessful) {
+            throw IllegalStateException(
+                "${appContext.getString(com.nuvio.tv.R.string.poster_options_public_lists_failed)} (${response.code()})"
+            )
+        }
+
+        val lists = response.body().orEmpty().mapNotNull { dto ->
+            val name = dto.name?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            TraktPublicListRef(
+                traktListId = dto.ids?.trakt?.toLong(),
+                name = name,
+                ownerUsername = dto.user?.username?.takeIf { it.isNotBlank() },
+                itemCount = dto.itemCount,
+                likes = dto.likes,
+                isOfficial = dto.type.equals("official", ignoreCase = true)
+            )
+        }
+        // Trakt reports the full set size in a header, so a capped page can still say how
+        // many lists there really are rather than implying the page is all of them.
+        val total = response.headers()["x-pagination-item-count"]?.toIntOrNull() ?: lists.size
+        return TraktPublicLists(lists = lists, totalAvailable = total)
     }
 
     suspend fun applyMembershipChanges(

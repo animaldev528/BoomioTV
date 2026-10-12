@@ -248,6 +248,53 @@ interface TraktApi {
         @Query("limit") limit: Int = 20
     ): Response<List<TraktProminentListDto>>
 
+    /**
+     * The PUBLIC lists that contain this movie — Trakt's reverse list lookup.
+     *
+     * ⚠️ `id` must be an IMDb id, a Trakt id, or a Trakt slug. **Never a bare TMDB id.**
+     * Trakt reads a bare number as a *Trakt* id, and the two id spaces do not agree:
+     * `movies/603` resolves to "The Mad Adventures of Rabbi Jacob" (trakt 603), not to
+     * TMDB 603 (The Matrix, trakt 481). Verified 2026-10-12 against the live API. Callers
+     * canonicalize through TmdbService first, because a wrong id here returns a **200 with
+     * the wrong title's lists**, which is worse than an error.
+     *
+     * Public: no `Authorization` header is needed and an unauthenticated call returns the
+     * same rows — so this is usable signed out, and on a local-only profile.
+     *
+     * ⚠️ Trakt sits behind Cloudflare, which answers a request carrying **no User-Agent**
+     * with a 403 HTML interstitial rather than a JSON error. This must therefore go out on
+     * the shared OkHttp client (which sets one), never a bare one-off connection.
+     *
+     * `type` ∈ personal|official|all|watchlist, `sort` ∈ popular|likes|comments|added|title.
+     * ⚠️ An unrecognised value is **not** rejected — Trakt falls back to a default and still
+     * answers 200, so a typo degrades quietly instead of surfacing.
+     *
+     * How many lists exist in total is in the `x-pagination-item-count` response header,
+     * which [page]/[limit] paginate over.
+     */
+    @GET("movies/{id}/lists/{type}/{sort}")
+    suspend fun getMoviePublicLists(
+        @Header("Authorization") authorization: String? = null,
+        @Path("id") id: String,
+        @Path("type") type: String = "personal",
+        @Path("sort") sort: String = "popular",
+        @Query("extended") extended: String = "full",
+        @Query("page") page: Int = 1,
+        @Query("limit") limit: Int = 20
+    ): Response<List<TraktListSummaryDto>>
+
+    /** Shows variant of [getMoviePublicLists]. All of that method's caveats apply. */
+    @GET("shows/{id}/lists/{type}/{sort}")
+    suspend fun getShowPublicLists(
+        @Header("Authorization") authorization: String? = null,
+        @Path("id") id: String,
+        @Path("type") type: String = "personal",
+        @Path("sort") sort: String = "popular",
+        @Query("extended") extended: String = "full",
+        @Query("page") page: Int = 1,
+        @Query("limit") limit: Int = 20
+    ): Response<List<TraktListSummaryDto>>
+
     @GET("lists/{id}")
     suspend fun getPublicList(
         @Header("Authorization") authorization: String? = null,
