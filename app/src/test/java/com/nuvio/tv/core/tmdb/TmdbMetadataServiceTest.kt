@@ -1019,11 +1019,11 @@ class TmdbMetadataServiceTest {
         // The card has to say WHY the person is there — the phrase gave no name to show.
         assertEquals("Actor · The Terminator", people.first().knownForLabel)
         assertEquals("https://image.tmdb.org/t/p/w342/arnold.jpg", people.first().profilePhotoUrl)
-        // Every tail is scored, longest first, before any winner is picked.
-        assertEquals(
-            listOf("the guy from terminator", "guy from terminator", "from terminator", "terminator"),
-            titlesSearched
-        )
+        // Tails are walked longest-first and the walk stops at the winner, so only the
+        // candidates ahead of it cost a lookup. "the guy from terminator" and "from
+        // terminator" are fragments — they open with a leftover word — and are held back for
+        // the second pass, which this query never needs.
+        assertEquals(listOf("guy from terminator", "terminator"), titlesSearched)
     }
 
     @Test
