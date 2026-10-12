@@ -103,6 +103,33 @@ data class ListMembershipChanges(
     val desiredMembership: Map<String, Boolean>
 )
 
+/**
+ * One PUBLIC list that contains a title — someone else's list, or a public list of the
+ * caller's own. The complement of [ListMembershipSnapshot], which answers "which of MY
+ * lists is this on" from the local cache; this one is a live lookup over everybody's.
+ */
+@Immutable
+data class TraktPublicListRef(
+    val traktListId: Long? = null,
+    val name: String,
+    val ownerUsername: String? = null,
+    val itemCount: Int? = null,
+    val likes: Int? = null,
+    /** Trakt's own curated lists ("official") rather than a user's ("personal"). */
+    val isOfficial: Boolean = false
+)
+
+/**
+ * [TraktPublicListRef]s for one title. [totalAvailable] is the size of the whole result
+ * set, which is usually far larger than the single page fetched — The Matrix is on 771
+ * public lists — so it is worth showing even when the rows themselves are capped.
+ */
+@Immutable
+data class TraktPublicLists(
+    val lists: List<TraktPublicListRef> = emptyList(),
+    val totalAvailable: Int = 0
+)
+
 @Immutable
 data class LibraryEntryInput(
     val itemId: String,

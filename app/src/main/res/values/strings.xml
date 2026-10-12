@@ -2990,6 +2990,15 @@
     <string name="detail_error_update_episode_watched_failed">Failed to update episode watched status</string>
     <string name="poster_options_error_load_lists_failed">Failed to load lists</string>
     <string name="poster_options_error_update_lists_failed">Failed to update lists</string>
+    <string name="poster_options_public_lists">Public Lists</string>
+    <string name="poster_options_public_lists_subtitle">Public Trakt lists that include this title.</string>
+    <string name="poster_options_public_lists_loading">Loading public lists…</string>
+    <string name="poster_options_public_lists_none">Not on any public list.</string>
+    <string name="poster_options_public_lists_failed">Failed to load public lists</string>
+    <string name="poster_options_public_lists_no_id">This title can\'t be looked up on Trakt</string>
+    <string name="poster_options_public_lists_more">%1$d public lists include this title</string>
+    <string name="poster_options_public_lists_owner">by %1$s</string>
+    <string name="poster_options_public_lists_titles_count">%1$d titles</string>
 
     <!-- Search errors -->
     <string name="search_error_load_addons_failed">Failed to load addons</string>

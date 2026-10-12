@@ -5,6 +5,7 @@ import com.nuvio.tv.domain.model.LibraryListTab
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.TastePick
+import com.nuvio.tv.domain.model.TraktPublicListRef
 import com.nuvio.tv.core.tracking.TrackingMembershipRemovalConfirmation
 
 @Immutable
@@ -32,5 +33,15 @@ data class PosterOptionsState(
     val listPickerMembership: Map<String, Boolean> = emptyMap(),
     val listPickerPending: Boolean = false,
     val listPickerError: String? = null,
+    // Public-list lookup ("which public Trakt lists is this on"). Deliberately separate
+    // from the listPicker* block above: that one is the caller's OWN lists and is editable,
+    // this one is read-only and covers everybody's. It is a public API, so unlike the
+    // picker it needs neither a Trakt sign-in nor a non-local library source.
+    val publicListsActive: Boolean = false,
+    val publicListsTitle: String? = null,
+    val publicListsPending: Boolean = false,
+    val publicListsError: String? = null,
+    val publicLists: List<TraktPublicListRef> = emptyList(),
+    val publicListsTotal: Int = 0,
     val removalConfirmations: List<TrackingMembershipRemovalConfirmation> = emptyList()
 )
