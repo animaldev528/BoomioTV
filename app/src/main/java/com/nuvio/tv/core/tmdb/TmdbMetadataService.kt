@@ -47,6 +47,35 @@ private const val TMDB_TRAILER_FALLBACK_LANGUAGE = "en-US"
 private const val TMDB_SEASON_REQUEST_CONCURRENCY = 4
 private val YOUTUBE_VIDEO_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
 
+// Bounds for searchPeople's descriptive-query bridge — see its KDoc.
+private const val MAX_BRIDGE_SHRINK_STEPS = 4
+private const val MIN_BRIDGE_CANDIDATE_CHARS = 3
+
+/**
+ * A resolved candidate must be at least this popular to be believed. TMDB's fuzzy search will
+ * match a leftover fragment against almost anything: "from die hard" resolves to a 2026 film
+ * ("Chernobyl: 48 Hours To Escape", popularity 3.11) whose entire cast is one person, and
+ * "from gone girl" resolves to a 1968 film at 1.60. Real titles people describe this way —
+ * "die hard" at 24.07, "gone girl" at 41.44 — clear this by a wide margin.
+ */
+private const val MIN_BRIDGE_POPULARITY = 5.0
+
+/**
+ * Words that, at the FRONT of a shrink tail, mark it as a fragment of the phrase it was chopped
+ * out of rather than a title anyone typed. Counted over fourteen real descriptions, this is the
+ * signal that separates a working bridge from a random one: "from die hard" → a 2026 film,
+ * "from the office" → an isekai series, "from gone girl" → a 1968 film, "from john wick" →
+ * Ballerina. Every one of those is a tail whose first word is a word the user was not naming a
+ * title with. Tails like these are only consulted after the rest have failed.
+ */
+private val BRIDGE_LEAD_STOPWORDS = setOf(
+    "from", "the", "a", "an", "of", "in", "on", "at", "to", "for", "with",
+    "that", "this", "and", "or", "is", "was", "who", "what", "where", "his", "her", "their"
+)
+private const val MEDIA_TYPE_MOVIE = "movie"
+private const val MEDIA_TYPE_TV = "tv"
+private val WHITESPACE = Regex("\\s+")
+
 @Singleton
 class TmdbMetadataService(
     private val tmdbApi: TmdbApi,
@@ -1326,11 +1355,11 @@ class TmdbMetadataService(
             val trimmed = query.trim()
             if (trimmed.isEmpty()) return@withContext emptyList()
             try {
-                val response = tmdbApi
+                val people = tmdbApi
                     .searchPerson(TMDB_API_KEY, trimmed, normalizedLanguage)
                     .body()
-                    ?: return@withContext emptyList()
-                response.results.orEmpty()
+                    ?.results
+                    .orEmpty()
                     .asSequence()
                     .filter { !it.name.isNullOrBlank() }
                     .take(limit)
@@ -1346,11 +1375,149 @@ class TmdbMetadataService(
                         )
                     }
                     .toList()
+                // TMDB matches person NAMES, so a description ("the guy from terminator")
+                // lands zero hits and the strip simply vanishes with no name to retry from.
+                // Read the phrase as a title instead.
+                if (people.isNotEmpty()) people
+                else peopleByDescription(trimmed, normalizedLanguage, limit)
             } catch (e: Exception) {
                 Log.w(TAG, "searchPeople failed for \"$trimmed\"", e)
                 emptyList()
             }
         }
+
+    /**
+     * The fallback behind [searchPeople]: read a DESCRIPTION as a title, then answer with
+     * that title's cast.
+     *
+     * TMDB's person search matches names, so "the guy from terminator" returns nothing at all
+     * — there is no name to retry with, and the device has no model to ask (a per-keystroke
+     * LLM call in the search path would be the wrong trade regardless). What the phrase does
+     * contain is a title, so we go looking for it: drop leading words one at a time and
+     * multi-search each tail —
+     *
+     *     "the guy from terminator" → "guy from terminator" → "from terminator" → "terminator"
+     *
+     * — then return the top-billed cast of the tail that wins.
+     *
+     * Picking the winner takes two rules, and both are load-bearing.
+     *
+     * Longest first. The tail that keeps the most of what the user said is the most faithful
+     * reading of it, so tails are walked from the top of the phrase down. Stopping at the first
+     * tail that resolves *at all* was the original bug and it is not the same rule: a tail can
+     * still be carrying words the user was not naming a title with, and TMDB fuzzy-matches such
+     * a fragment against unrelated titles. "the guy from die hard" stopped at "from die hard"
+     * — a 2026 film whose entire cast is one person — and never reached "die hard" at all,
+     * answering with Ralph Ineson instead of Bruce Willis.
+     *
+     * [BRIDGE_LEAD_STOPWORDS] first, fragments last. The fragment above is recognisable: it
+     * opens with a function word. Over fourteen measured descriptions, "resolve whichever tail
+     * is most popular" and "resolve the longest tail" each fix die hard and each break
+     * something else — most popular turns "the woman from gone girl" into "A Girl's Guide to
+     * 21st Century Sex" (popularity 93.46 beats Gone Girl's 41.44) and "the guy from fight
+     * club" into "Club Friday"; longest-first turns "the guy from john wick" into Ballerina,
+     * a spinoff at 24.72 that resolves ahead of John Wick: Chapter 4 at 31.03. Ordering by
+     * leading stopword instead gets all fourteen right, because a tail that opens with one is
+     * a fragment by construction rather than by popularity. They are not discarded — a phrase
+     * whose only resolution is a fragment (an actual title beginning with "The", say) still
+     * answers — but only once nothing outside the set has resolved.
+     *
+     * [MIN_BRIDGE_POPULARITY] is the backstop for that second pass: where fragments are all
+     * that is left, an unpopular one is discarded rather than rendered as a one-person cast
+     * from a film nobody meant.
+     *
+     * Deliberately conservative: a single word is left alone (that is a name or a title
+     * search already, not a description), and this is only ever reached once the person
+     * search has come back empty, so an ordinary name query pays nothing. Best-effort
+     * throughout — any failure here still renders no People row, exactly as before.
+     */
+    private suspend fun peopleByDescription(
+        query: String,
+        language: String,
+        limit: Int
+    ): List<PersonSearchPreview> {
+        val words = query.split(WHITESPACE).filter { it.isNotBlank() }
+        if (words.size < 2) return emptyList()
+        val maxDrop = minOf(words.size - 1, MAX_BRIDGE_SHRINK_STEPS)
+        // Candidates below arrive in drop order, i.e. longest tail first. Splitting them and
+        // concatenating the fragments onto the end preserves that order within each group —
+        // `filter` keeps the order it is given.
+        val candidates = (0..maxDrop).mapNotNull { drop ->
+            val candidate = words.drop(drop).joinToString(" ")
+            if (candidate.length < MIN_BRIDGE_CANDIDATE_CHARS) null else candidate
+        }
+        val ordered = candidates.filterNot(::isBridgeFragment) + candidates.filter(::isBridgeFragment)
+        val best = ordered.firstNotNullOfOrNull { candidate ->
+            bestTitleMatch(candidate, language)?.takeIf { it.popularity >= MIN_BRIDGE_POPULARITY }
+        } ?: return emptyList()
+        // Credits for the winner only — the losing candidates are never looked up.
+        return castFor(best, language).take(limit)
+    }
+
+    /** True when [candidate] opens with a word left over from the phrase it was chopped out of. */
+    private fun isBridgeFragment(candidate: String): Boolean =
+        candidate.substringBefore(' ').lowercase() in BRIDGE_LEAD_STOPWORDS
+
+    /**
+     * The most popular movie/TV hit for [query], or null when nothing but people matched.
+     * [TitleMatch.popularity] is carried out so the caller can hold candidates to
+     * [MIN_BRIDGE_POPULARITY]; the popularity that picks a hit within one query is also the
+     * number that decides whether the query is believable at all.
+     */
+    private suspend fun bestTitleMatch(query: String, language: String): TitleMatch? {
+        val results = tmdbApi.searchMulti(TMDB_API_KEY, query, language).body()?.results.orEmpty()
+        return results
+            .asSequence()
+            .filter { it.mediaType == MEDIA_TYPE_MOVIE || it.mediaType == MEDIA_TYPE_TV }
+            .maxByOrNull { it.popularity ?: 0.0 }
+            ?.let { hit ->
+                val title = (hit.title ?: hit.name).orEmpty()
+                if (title.isBlank()) null
+                else TitleMatch(
+                    id = hit.id,
+                    isMovie = hit.mediaType == MEDIA_TYPE_MOVIE,
+                    title = title,
+                    popularity = hit.popularity ?: 0.0
+                )
+            }
+    }
+
+    /** The top-billed cast of [match], in the shape the People strip renders. */
+    private suspend fun castFor(match: TitleMatch, language: String): List<PersonSearchPreview> {
+        val credits = try {
+            if (match.isMovie) {
+                tmdbApi.getMovieCredits(match.id, TMDB_API_KEY, language).body()
+            } else {
+                tmdbApi.getTvCredits(match.id, TMDB_API_KEY, language).body()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "cast lookup failed for \"${match.title}\"", e)
+            return emptyList()
+        } ?: return emptyList()
+        return credits.cast.orEmpty()
+            .asSequence()
+            .filter { it.id != null && !it.name.isNullOrBlank() }
+            .distinctBy { it.id }
+            .mapNotNull { member ->
+                val id = member.id ?: return@mapNotNull null
+                PersonSearchPreview(
+                    tmdbId = id,
+                    name = member.name.orEmpty(),
+                    profilePhotoUrl = buildImageUrl(member.profilePath, "w342"),
+                    // Carry the matched title so the card says WHY this person is here.
+                    knownForLabel = "Actor · ${match.title}"
+                )
+            }
+            .toList()
+    }
+
+    /** A movie/TV hit the descriptive-query bridge resolved a phrase down to. */
+    private data class TitleMatch(
+        val id: Int,
+        val isMovie: Boolean,
+        val title: String,
+        val popularity: Double
+    )
 
     private fun buildPersonKnownForLabel(
         department: String?,

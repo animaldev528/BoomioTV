@@ -18,11 +18,15 @@ import com.nuvio.tv.data.remote.api.TmdbDiscoverResult
 import com.nuvio.tv.data.remote.api.TmdbEpisode
 import com.nuvio.tv.data.remote.api.TmdbImagesResponse
 import com.nuvio.tv.data.remote.api.TmdbMovieReleaseDatesResponse
+import com.nuvio.tv.data.remote.api.TmdbMultiSearchResponse
+import com.nuvio.tv.data.remote.api.TmdbMultiSearchResult
 import com.nuvio.tv.data.remote.api.TmdbNetwork
 import com.nuvio.tv.data.remote.api.TmdbNetworkDetailsResponse
 import com.nuvio.tv.data.remote.api.TmdbPersonCreditCast
 import com.nuvio.tv.data.remote.api.TmdbPersonCreditsResponse
 import com.nuvio.tv.data.remote.api.TmdbPersonResponse
+import com.nuvio.tv.data.remote.api.TmdbPersonSearchResponse
+import com.nuvio.tv.data.remote.api.TmdbPersonSearchResult
 import com.nuvio.tv.data.remote.api.TmdbSeasonResponse
 import com.nuvio.tv.data.remote.api.TmdbTvContentRatingsResponse
 import com.nuvio.tv.data.remote.api.TmdbVideosResponse
@@ -958,6 +962,253 @@ class TmdbMetadataServiceTest {
         assertEquals("チェンソーマン総集篇 前篇", collection.items.single().name)
         coVerify(exactly = 0) { api.getCollectionDetails(10, any(), "en") }
     }
+
+    // ---- searchPeople: the descriptive-query bridge ---------------------------------
+    //
+    // TMDB's person search matches names, so a description returns nothing and the People
+    // strip used to just vanish. The bridge reads the phrase as a title instead. It must
+    // stay strictly a FALLBACK — a query that already has person hits may not pay for it.
+
+    @Test
+    fun `searchPeople returns person hits without consulting the title bridge`() = runTest {
+        val api = mockk<TmdbApi>()
+        coEvery { api.searchPerson(any(), "arnold", any(), any(), any()) } returns Response.success(
+            TmdbPersonSearchResponse(results = listOf(personHit(1100, "Arnold Schwarzenegger")))
+        )
+
+        val people = TmdbMetadataService(api).searchPeople("arnold", language = "en")
+
+        assertEquals(listOf("Arnold Schwarzenegger"), people.map { it.name })
+        coVerify(exactly = 0) { api.searchMulti(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `searchPeople resolves a description to a title and returns its top-billed cast`() = runTest {
+        val api = mockk<TmdbApi>()
+        val titlesSearched = mutableListOf<String>()
+        coEvery { api.searchPerson(any(), any(), any(), any(), any()) } returns Response.success(
+            TmdbPersonSearchResponse(results = emptyList())
+        )
+        coEvery { api.searchMulti(any(), any(), any(), any(), any()) } answers {
+            val query = arg<String>(1)
+            titlesSearched += query
+            val hits = if (query == "terminator") {
+                listOf(multiHit(id = 218, mediaType = "movie", title = "The Terminator", popularity = 64.28))
+            } else {
+                emptyList()
+            }
+            Response.success(TmdbMultiSearchResponse(results = hits))
+        }
+        coEvery { api.getMovieCredits(218, any(), any()) } returns Response.success(
+            TmdbCreditsResponse(
+                cast = listOf(
+                    TmdbCastMember(
+                        id = 1100,
+                        name = "Arnold Schwarzenegger",
+                        character = "The Terminator",
+                        profilePath = "/arnold.jpg"
+                    ),
+                    TmdbCastMember(id = 1101, name = "Michael Biehn", character = "Kyle Reese")
+                )
+            )
+        )
+
+        val people = TmdbMetadataService(api).searchPeople("the guy from terminator", language = "en")
+
+        assertEquals(listOf("Arnold Schwarzenegger", "Michael Biehn"), people.map { it.name })
+        // The card has to say WHY the person is there — the phrase gave no name to show.
+        assertEquals("Actor · The Terminator", people.first().knownForLabel)
+        assertEquals("https://image.tmdb.org/t/p/w342/arnold.jpg", people.first().profilePhotoUrl)
+        // Tails are walked longest-first and the walk stops at the winner, so only the
+        // candidates ahead of it cost a lookup. "the guy from terminator" and "from
+        // terminator" are fragments — they open with a leftover word — and are held back for
+        // the second pass, which this query never needs.
+        assertEquals(listOf("guy from terminator", "terminator"), titlesSearched)
+    }
+
+    @Test
+    fun `searchPeople uses tv credits when the matched title is a series`() = runTest {
+        val api = mockk<TmdbApi>()
+        coEvery { api.searchPerson(any(), any(), any(), any(), any()) } returns Response.success(
+            TmdbPersonSearchResponse(results = emptyList())
+        )
+        coEvery { api.searchMulti(any(), any(), any(), any(), any()) } answers {
+            // TV hits carry `name`, not `title` — the bridge has to read either.
+            val hits = if (arg<String>(1) == "the office") {
+                listOf(multiHit(id = 2316, mediaType = "tv", name = "The Office", popularity = 30.0))
+            } else {
+                emptyList()
+            }
+            Response.success(TmdbMultiSearchResponse(results = hits))
+        }
+        coEvery { api.getTvCredits(2316, any(), any()) } returns Response.success(
+            TmdbCreditsResponse(cast = listOf(TmdbCastMember(id = 1, name = "Steve Carell")))
+        )
+
+        val people = TmdbMetadataService(api).searchPeople("the guy from the office", language = "en")
+
+        assertEquals(listOf("Steve Carell"), people.map { it.name })
+        assertEquals("Actor · The Office", people.first().knownForLabel)
+        coVerify(exactly = 1) { api.getTvCredits(2316, any(), any()) }
+        coVerify(exactly = 0) { api.getMovieCredits(any(), any(), any()) }
+    }
+
+    @Test
+    fun `searchPeople leaves a single-word query to the person search`() = runTest {
+        val api = mockk<TmdbApi>()
+        coEvery { api.searchPerson(any(), any(), any(), any(), any()) } returns Response.success(
+            TmdbPersonSearchResponse(results = emptyList())
+        )
+
+        val people = TmdbMetadataService(api).searchPeople("terminator", language = "en")
+
+        assertTrue(people.isEmpty())
+        coVerify(exactly = 0) { api.searchMulti(any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun `searchPeople returns nothing when no phrase resolves to a title`() = runTest {
+        val api = mockk<TmdbApi>()
+        coEvery { api.searchPerson(any(), any(), any(), any(), any()) } returns Response.success(
+            TmdbPersonSearchResponse(results = emptyList())
+        )
+        coEvery { api.searchMulti(any(), any(), any(), any(), any()) } returns Response.success(
+            TmdbMultiSearchResponse(results = emptyList())
+        )
+
+        val people = TmdbMetadataService(api).searchPeople("what was that show about", language = "en")
+
+        assertTrue(people.isEmpty())
+    }
+
+    // Regression, from live TMDB. "the guy from die hard" used to answer with Ralph Ineson:
+    // the tail "from die hard" still opens with the preposition "from", which TMDB fuzzy-matches
+    // against an unrelated 2026 film whose entire cast is one person, and the old loop returned
+    // the first tail that resolved at all — so "die hard" was never even tried. Numbers below
+    // are the measured ones.
+    @Test
+    fun `searchPeople skips a tail that opens with a leftover word and names the real title`() = runTest {
+        val api = mockk<TmdbApi>()
+        coEvery { api.searchPerson(any(), any(), any(), any(), any()) } returns Response.success(
+            TmdbPersonSearchResponse(results = emptyList())
+        )
+        coEvery { api.searchMulti(any(), any(), any(), any(), any()) } answers {
+            val hits = when (arg<String>(1)) {
+                "from die hard" -> listOf(
+                    multiHit(
+                        id = 1655751,
+                        mediaType = "movie",
+                        title = "Chernobyl: 48 Hours To Escape",
+                        popularity = 3.11
+                    )
+                )
+                "die hard" -> listOf(
+                    multiHit(id = 562, mediaType = "movie", title = "Die Hard", popularity = 24.07)
+                )
+                else -> emptyList()
+            }
+            Response.success(TmdbMultiSearchResponse(results = hits))
+        }
+        coEvery { api.getMovieCredits(562, any(), any()) } returns Response.success(
+            TmdbCreditsResponse(cast = listOf(TmdbCastMember(id = 62, name = "Bruce Willis")))
+        )
+
+        val people = TmdbMetadataService(api).searchPeople("the guy from die hard", language = "en")
+
+        assertEquals(listOf("Bruce Willis"), people.map { it.name })
+        assertEquals("Actor · Die Hard", people.first().knownForLabel)
+        // Credits are looked up for the winner only — never for the junk tail.
+        coVerify(exactly = 0) { api.getMovieCredits(1655751, any(), any()) }
+        coVerify(exactly = 1) { api.getMovieCredits(562, any(), any()) }
+    }
+
+    @Test
+    fun `searchPeople ignores a candidate too unpopular to be what was meant`() = runTest {
+        val api = mockk<TmdbApi>()
+        coEvery { api.searchPerson(any(), any(), any(), any(), any()) } returns Response.success(
+            TmdbPersonSearchResponse(results = emptyList())
+        )
+        // The only thing that resolves at all is the 2026 film, at popularity 3.11.
+        coEvery { api.searchMulti(any(), any(), any(), any(), any()) } answers {
+            val hits = if (arg<String>(1) == "from die hard") {
+                listOf(
+                    multiHit(
+                        id = 1655751,
+                        mediaType = "movie",
+                        title = "Chernobyl: 48 Hours To Escape",
+                        popularity = 3.11
+                    )
+                )
+            } else {
+                emptyList()
+            }
+            Response.success(TmdbMultiSearchResponse(results = hits))
+        }
+
+        val people = TmdbMetadataService(api).searchPeople("the guy from die hard", language = "en")
+
+        // Better no row at all than a one-person cast from a film nobody meant.
+        assertTrue(people.isEmpty())
+        coVerify(exactly = 0) { api.getMovieCredits(any(), any(), any()) }
+    }
+
+    // Regression, from live TMDB, and the case that decides HOW the winner is picked. Chopping
+    // one more word off "gone girl" leaves "girl", which resolves to a vastly more popular
+    // series (93.46 against 41.44), so a rule that simply keeps the most popular candidate
+    // answers with an empty cast from a show nobody named. Preferring the longest tail outside
+    // the leftover-word set answers with the film the phrase actually contains. Numbers are
+    // the measured ones.
+    @Test
+    fun `searchPeople prefers the longest real title over a shorter but far more popular one`() = runTest {
+        val api = mockk<TmdbApi>()
+        coEvery { api.searchPerson(any(), any(), any(), any(), any()) } returns Response.success(
+            TmdbPersonSearchResponse(results = emptyList())
+        )
+        coEvery { api.searchMulti(any(), any(), any(), any(), any()) } answers {
+            val hits = when (arg<String>(1)) {
+                "gone girl" -> listOf(
+                    multiHit(id = 27205, mediaType = "movie", title = "Gone Girl", popularity = 41.44)
+                )
+                "girl" -> listOf(
+                    multiHit(
+                        id = 9999,
+                        mediaType = "tv",
+                        name = "A Girl's Guide to 21st Century Sex",
+                        popularity = 93.46
+                    )
+                )
+                else -> emptyList()
+            }
+            Response.success(TmdbMultiSearchResponse(results = hits))
+        }
+        coEvery { api.getMovieCredits(27205, any(), any()) } returns Response.success(
+            TmdbCreditsResponse(cast = listOf(TmdbCastMember(id = 62, name = "Ben Affleck")))
+        )
+
+        val people = TmdbMetadataService(api).searchPeople("the woman from gone girl", language = "en")
+
+        assertEquals(listOf("Ben Affleck"), people.map { it.name })
+        assertEquals("Actor · Gone Girl", people.first().knownForLabel)
+        // The more popular tail is never even credited.
+        coVerify(exactly = 0) { api.getTvCredits(9999, any(), any()) }
+        coVerify(exactly = 1) { api.getMovieCredits(27205, any(), any()) }
+    }
+
+    private fun personHit(id: Int, name: String) = TmdbPersonSearchResult(id = id, name = name)
+
+    private fun multiHit(
+        id: Int,
+        mediaType: String,
+        title: String? = null,
+        name: String? = null,
+        popularity: Double = 1.0
+    ) = TmdbMultiSearchResult(
+        id = id,
+        mediaType = mediaType,
+        title = title,
+        name = name,
+        popularity = popularity
+    )
 
     private data class MovieDiscoverCall(
         val sortBy: String?,
