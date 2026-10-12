@@ -32,5 +32,14 @@ data class PosterOptionsState(
     val listPickerMembership: Map<String, Boolean> = emptyMap(),
     val listPickerPending: Boolean = false,
     val listPickerError: String? = null,
+    // Read-only "Lists" overview (long-press → Lists). Deliberately separate from
+    // the picker above: the picker EDITS membership and has a Save, this only
+    // reports which lists already contain the title and has a Close.
+    val listsOverviewActive: Boolean = false,
+    val listsOverviewTitle: String? = null,
+    val listsOverviewContentType: String? = null,
+    val listsOverviewPending: Boolean = false,
+    val listsOverviewError: String? = null,
+    val listsOverviewMembership: Map<String, Boolean> = emptyMap(),
     val removalConfirmations: List<TrackingMembershipRemovalConfirmation> = emptyList()
 )

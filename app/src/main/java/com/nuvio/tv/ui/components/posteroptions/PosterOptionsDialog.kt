@@ -2,12 +2,16 @@ package com.nuvio.tv.ui.components.posteroptions
 
 import com.nuvio.tv.ui.theme.NuvioTheme
 
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Divider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -50,6 +54,9 @@ fun PosterOptionsDialog(
     onDismiss: () -> Unit,
     onDetails: () -> Unit,
     onMoreLikeThis: (() -> Unit)? = null,
+    // Read-only "which lists is this on" view. Non-null only for movie/series
+    // tiles — the reverse lookup has no meaning for an episode or a person.
+    onLists: (() -> Unit)? = null,
     onToggleLibrary: () -> Unit,
     onToggleWatched: () -> Unit,
     // Like-bootstrap row: present only for movie/series on an opted-in,
@@ -93,6 +100,19 @@ fun PosterOptionsDialog(
                 )
             ) {
                 Text(stringResource(R.string.detail_tab_more_like_this))
+            }
+        }
+
+        if (onLists != null) {
+            Button(
+                onClick = onLists,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.colors(
+                    containerColor = NuvioTheme.colors.BackgroundCard,
+                    contentColor = NuvioTheme.colors.TextPrimary
+                )
+            ) {
+                Text(stringResource(R.string.poster_options_lists))
             }
         }
 
@@ -240,6 +260,103 @@ fun PosterListPickerDialog(
     }
 }
 
+/**
+ * Read-only counterpart to [PosterListPickerDialog]: names the user's OWN lists
+ * that already contain this title.
+ *
+ * Deliberately not a mode of the picker. The picker's checkmark is a toggle
+ * affordance and its button commits a write; reusing it with the click stubbed
+ * out would render a control that looks editable and is not. Here the rows are
+ * plain text inside one focusable, scrollable container, so DPAD can scroll a
+ * long list without any row pretending to be a button.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun PosterListsOverviewDialog(
+    title: String,
+    tabs: List<LibraryListTab>,
+    membership: Map<String, Boolean>,
+    isPending: Boolean,
+    error: String?,
+    onDismiss: () -> Unit
+) {
+    val containing = tabs.filter { membership[it.key] == true }
+    val listFocusRequester = remember { FocusRequester() }
+    val closeFocusRequester = remember { FocusRequester() }
+    val hasRows = !isPending && containing.isNotEmpty()
+
+    // DPAD must always land on something. A read-only dialog whose only
+    // focusable element is a conditional row would leave the remote dead in the
+    // loading and empty states, so those fall back to Close.
+    LaunchedEffect(hasRows) {
+        if (hasRows) listFocusRequester.requestFocus() else closeFocusRequester.requestFocus()
+    }
+
+    NuvioDialog(
+        onDismiss = onDismiss,
+        title = title,
+        subtitle = stringResource(R.string.poster_lists_subtitle),
+        width = 500.dp
+    ) {
+        if (!error.isNullOrBlank()) {
+            Text(
+                text = error,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFFFFB6B6)
+            )
+        }
+
+        when {
+            isPending -> Text(
+                text = stringResource(R.string.poster_lists_loading),
+                style = MaterialTheme.typography.bodyMedium,
+                color = NuvioTheme.colors.TextPrimary
+            )
+
+            containing.isEmpty() -> Text(
+                text = stringResource(R.string.poster_lists_none),
+                style = MaterialTheme.typography.bodyMedium,
+                color = NuvioTheme.colors.TextPrimary
+            )
+
+            else -> Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 300.dp)
+                    .verticalScroll(rememberScrollState())
+                    .focusRequester(listFocusRequester)
+                    .focusable(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                containing.forEach { tab ->
+                    Text(
+                        text = "✓ ${tab.localizedTitle()}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = NuvioTheme.colors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+
+        Divider(color = NuvioTheme.colors.Border, thickness = NuvioTheme.spacing.hairline)
+
+        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+            Button(
+                onClick = onDismiss,
+                modifier = Modifier.focusRequester(closeFocusRequester),
+                colors = ButtonDefaults.colors(
+                    containerColor = NuvioTheme.colors.BackgroundCard,
+                    contentColor = NuvioTheme.colors.TextPrimary
+                )
+            ) {
+                Text(stringResource(R.string.action_close))
+            }
+        }
+    }
+}
+
 @Composable
 fun PosterOptionsHost(
     state: PosterOptionsState,
@@ -285,6 +402,11 @@ fun PosterOptionsHost(
                 controller.dismiss()
             },
             onMoreLikeThis = onMoreLikeThis,
+            onLists = if (isMovie || isSeries) {
+                { controller.openListsOverview() }
+            } else {
+                null
+            },
             onToggleLibrary = {
                 if (state.librarySourceMode != LibrarySourceMode.LOCAL) {
                     controller.openListPicker()
@@ -331,6 +453,28 @@ fun PosterOptionsHost(
             onToggle = { key -> controller.toggleListMembership(key) },
             onSave = { controller.saveListPicker() },
             onDismiss = { controller.dismissListPicker() }
+        )
+    }
+
+    // Read-only sibling of the picker above. Same tab set and same membership
+    // source, minus the toggles and the Save.
+    if (state.listsOverviewActive) {
+        val localTab = LibraryListTab(
+            key = LOCAL_LIBRARY_LIST_KEY,
+            title = stringResource(R.string.trakt_library_source_nuvio),
+            type = LibraryListTab.Type.WATCHLIST
+        )
+        val contentType = state.listsOverviewContentType.orEmpty()
+        val destinationTabs = state.libraryListTabs.filter { tab ->
+            tab.supportsMembershipFor(contentType)
+        }
+        PosterListsOverviewDialog(
+            title = state.listsOverviewTitle.orEmpty(),
+            tabs = listOf(localTab) + destinationTabs,
+            membership = state.listsOverviewMembership,
+            isPending = state.listsOverviewPending,
+            error = state.listsOverviewError,
+            onDismiss = { controller.dismissListsOverview() }
         )
     }
 

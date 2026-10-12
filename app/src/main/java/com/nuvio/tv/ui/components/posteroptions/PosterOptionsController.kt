@@ -474,6 +474,79 @@ class PosterOptionsController @Inject constructor(
         }
     }
 
+    /**
+     * Opens the READ-ONLY "Lists" overview for the current target: which of the
+     * user's own lists already contain this title.
+     *
+     * This is the informational counterpart to [openListPicker], not a variant of
+     * it — there are no toggles and no Save. It reuses the same membership snapshot
+     * that the picker seeds itself from ([LibraryRepository.getMembershipSnapshot]),
+     * which already spans every AUTHENTICATED tracking provider, so a Simkl-only
+     * user sees their Simkl status buckets and a signed-out user sees the local
+     * "Nuvio" tab with no special casing here.
+     */
+    fun openListsOverview() {
+        val state = _state.value
+        val item = state.target ?: return
+        val scope = this.scope ?: return
+
+        _state.update { current ->
+            current.copy(
+                target = null,
+                listsOverviewActive = true,
+                listsOverviewTitle = item.name,
+                listsOverviewContentType = item.apiType,
+                listsOverviewPending = true,
+                listsOverviewError = null,
+                listsOverviewMembership = emptyMap()
+            )
+        }
+        targetFlow.value = null
+
+        scope.launch {
+            val canonical = canonicalize(item)
+            val input = canonical.toLibraryEntryInput(state.addonBaseUrl.takeIf { it.isNotBlank() })
+            runCatching {
+                libraryRepository.getMembershipSnapshot(input)
+            }.onSuccess { snapshot ->
+                _state.update { current ->
+                    current.copy(
+                        listsOverviewPending = false,
+                        listsOverviewError = null,
+                        // Merge (not replace) so every tab key is present in the map;
+                        // the dialog then filters to the ones that are true.
+                        listsOverviewMembership = mergeTrackingMembershipWithTabs(
+                            tabs = current.libraryListTabs,
+                            membership = snapshot.listMembership
+                        )
+                    )
+                }
+            }.onFailure { error ->
+                Log.w(TAG, "Failed to load lists overview for ${canonical.id}: ${error.message}")
+                _state.update { current ->
+                    current.copy(
+                        listsOverviewPending = false,
+                        listsOverviewError = error.message
+                            ?: appContext.getString(com.nuvio.tv.R.string.poster_options_error_load_lists_failed)
+                    )
+                }
+            }
+        }
+    }
+
+    fun dismissListsOverview() {
+        _state.update {
+            it.copy(
+                listsOverviewActive = false,
+                listsOverviewPending = false,
+                listsOverviewError = null,
+                listsOverviewTitle = null,
+                listsOverviewContentType = null,
+                listsOverviewMembership = emptyMap()
+            )
+        }
+    }
+
     fun toggleMovieWatched() {
         val state = _state.value
         val item = state.target ?: return

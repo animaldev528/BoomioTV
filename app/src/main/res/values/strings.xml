@@ -315,6 +315,10 @@
     <string name="movie_status_post_production">Post Production</string>
     <string name="detail_lists_fallback">Lists</string>
     <string name="detail_lists_subtitle">Select which lists should include this title.</string>
+    <string name="poster_options_lists">Lists</string>
+    <string name="poster_lists_subtitle">Lists this title is on.</string>
+    <string name="poster_lists_none">Not on any of your lists.</string>
+    <string name="poster_lists_loading">Loading lists…</string>
     <string name="action_save">Save</string>
     <string name="action_saving">Saving…</string>
 
