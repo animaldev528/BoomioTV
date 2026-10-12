@@ -45,6 +45,32 @@ sealed class Screen(val route: String) {
             return "kids_more_like_this/${encode(itemType)}/${encode(itemId)}?title=$encodedTitle&exclude=$encodedExclude"
         }
     }
+    // The public Trakt lists a title appears on, rendered as browsable rows: one row per
+    // list, each row being that list's titles. Reached from the long-press "Public Lists"
+    // action on a movie/series tile. It is a real back-stack entry (not a dialog), so Back
+    // returns to the wall/library the user pressed from.
+    //
+    // [imdbId] rides along because the reverse lookup must NOT be handed a bare TMDB id:
+    // Trakt reads a bare number as a *Trakt* id and the id spaces disagree, so `movies/603`
+    // answers 200 about a different title. Tiles carrying an IMDb id separately from
+    // [itemId] therefore stay accurate; with neither id the screen refuses rather than
+    // guesses at one.
+    data object PublicLists : Screen("public_lists/{itemType}/{itemId}?title={title}&imdbId={imdbId}") {
+        private fun encode(value: String): String =
+            URLEncoder.encode(value, "UTF-8").replace("+", "%20")
+
+        fun createRoute(
+            itemType: String,
+            itemId: String,
+            title: String? = null,
+            imdbId: String? = null
+        ): String {
+            val encodedTitle = title?.let { encode(it) } ?: ""
+            val encodedImdbId = imdbId?.let { encode(it) } ?: ""
+            return "public_lists/${encode(itemType)}/${encode(itemId)}?title=$encodedTitle&imdbId=$encodedImdbId"
+        }
+    }
+
     data object Detail : Screen("detail/{itemId}/{itemType}?addonBaseUrl={addonBaseUrl}&returnFocusSeason={returnFocusSeason}&returnFocusEpisode={returnFocusEpisode}&returnToHomeOnBack={returnToHomeOnBack}&heroBackdropUrl={heroBackdropUrl}&playOnLoad={playOnLoad}&manualSelection={manualSelection}") {
         private fun encode(value: String): String =
             URLEncoder.encode(value, "UTF-8").replace("+", "%20")

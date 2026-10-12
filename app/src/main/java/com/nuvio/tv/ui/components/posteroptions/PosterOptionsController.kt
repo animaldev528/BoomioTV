@@ -12,7 +12,6 @@ import com.nuvio.tv.core.tracking.mergeTrackingMembershipWithTabs
 import com.nuvio.tv.core.tracking.toggleTrackingMembershipSelection
 import com.nuvio.tv.data.local.WatchedSeriesStateHolder
 import com.nuvio.tv.data.repository.parseContentIds
-import com.nuvio.tv.data.repository.TraktLibraryService
 import com.nuvio.tv.domain.model.LibraryEntryInput
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.ListMembershipChanges
@@ -54,7 +53,6 @@ class PosterOptionsController @Inject constructor(
     private val tmdbService: TmdbService,
     private val likePreferences: LikePreferences,
     private val likeSyncService: LikeSyncService,
-    private val traktLibraryService: TraktLibraryService,
     private val profileManager: ProfileManager
 ) {
     private val _state = MutableStateFlow(PosterOptionsState())
@@ -229,86 +227,7 @@ class PosterOptionsController @Inject constructor(
         showJob = null
         targetFlow.value = null
         _state.update {
-            it.copy(
-                target = null,
-                likeTarget = null,
-                isLiked = false,
-                isLikePending = false,
-                // The public-lists dialog is driven off the same target, so dismissing the
-                // options menu must clear it too or it would outlive the tile it describes.
-                publicListsActive = false,
-                publicListsPending = false,
-                publicListsError = null,
-                publicLists = emptyList(),
-                publicListsTotal = 0
-            )
-        }
-    }
-
-    /**
-     * Which PUBLIC Trakt lists contain the current target.
-     *
-     * Unlike [openListPicker] this is offered to everyone: the lookup is a public API, so it
-     * neither needs a Trakt sign-in nor a non-local library source, and a local-only profile
-     * gets it. The target is canonicalized to an IMDb id first — Trakt would otherwise read a
-     * bare TMDB id as a Trakt id and answer about a different title.
-     */
-    fun openPublicLists() {
-        val state = _state.value
-        val item = state.target ?: return
-        val scope = this.scope ?: return
-        val addonBaseUrl = state.addonBaseUrl
-
-        _state.update { current ->
-            current.copy(
-                target = null,
-                publicListsActive = true,
-                publicListsTitle = item.name,
-                publicListsPending = true,
-                publicListsError = null,
-                publicLists = emptyList(),
-                publicListsTotal = 0
-            )
-        }
-        targetFlow.value = null
-
-        scope.launch {
-            val canonical = canonicalize(item)
-            runCatching {
-                traktLibraryService.getPublicListsContaining(
-                    item = canonical.toLibraryEntryInput(addonBaseUrl.takeIf { it.isNotBlank() })
-                )
-            }.onSuccess { result ->
-                _state.update { current ->
-                    current.copy(
-                        publicListsPending = false,
-                        publicListsError = null,
-                        publicLists = result.lists,
-                        publicListsTotal = result.totalAvailable
-                    )
-                }
-            }.onFailure { error ->
-                Log.w(TAG, "Failed to load public lists for ${canonical.id}: ${error.message}")
-                _state.update { current ->
-                    current.copy(
-                        publicListsPending = false,
-                        publicListsError = error.message
-                            ?: appContext.getString(com.nuvio.tv.R.string.poster_options_public_lists_failed)
-                    )
-                }
-            }
-        }
-    }
-
-    fun dismissPublicLists() {
-        _state.update {
-            it.copy(
-                publicListsActive = false,
-                publicListsPending = false,
-                publicListsError = null,
-                publicLists = emptyList(),
-                publicListsTotal = 0
-            )
+            it.copy(target = null, likeTarget = null, isLiked = false, isLikePending = false)
         }
     }
 

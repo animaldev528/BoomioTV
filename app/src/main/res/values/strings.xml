@@ -2999,6 +2999,10 @@
     <string name="poster_options_public_lists_more">%1$d public lists include this title</string>
     <string name="poster_options_public_lists_owner">by %1$s</string>
     <string name="poster_options_public_lists_titles_count">%1$d titles</string>
+    <!-- The browsable Public Lists screen (Screen.PublicLists): the same lookup as the
+         long-press action, but rendered as one row per list instead of a dialog. -->
+    <string name="public_lists_loading_named">Loading %1$s…</string>
+    <string name="public_lists_unavailable">%1$d lists couldn\'t be shown</string>
 
     <!-- Search errors -->
     <string name="search_error_load_addons_failed">Failed to load addons</string>
