@@ -47,6 +47,13 @@ private const val TMDB_TRAILER_FALLBACK_LANGUAGE = "en-US"
 private const val TMDB_SEASON_REQUEST_CONCURRENCY = 4
 private val YOUTUBE_VIDEO_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
 
+// Bounds for searchPeople's descriptive-query bridge — see its KDoc.
+private const val MAX_BRIDGE_SHRINK_STEPS = 4
+private const val MIN_BRIDGE_CANDIDATE_CHARS = 3
+private const val MEDIA_TYPE_MOVIE = "movie"
+private const val MEDIA_TYPE_TV = "tv"
+private val WHITESPACE = Regex("\\s+")
+
 @Singleton
 class TmdbMetadataService(
     private val tmdbApi: TmdbApi,
@@ -1326,11 +1333,11 @@ class TmdbMetadataService(
             val trimmed = query.trim()
             if (trimmed.isEmpty()) return@withContext emptyList()
             try {
-                val response = tmdbApi
+                val people = tmdbApi
                     .searchPerson(TMDB_API_KEY, trimmed, normalizedLanguage)
                     .body()
-                    ?: return@withContext emptyList()
-                response.results.orEmpty()
+                    ?.results
+                    .orEmpty()
                     .asSequence()
                     .filter { !it.name.isNullOrBlank() }
                     .take(limit)
@@ -1346,11 +1353,100 @@ class TmdbMetadataService(
                         )
                     }
                     .toList()
+                // TMDB matches person NAMES, so a description ("the guy from terminator")
+                // lands zero hits and the strip simply vanishes with no name to retry from.
+                // Read the phrase as a title instead.
+                if (people.isNotEmpty()) people
+                else peopleByDescription(trimmed, normalizedLanguage, limit)
             } catch (e: Exception) {
                 Log.w(TAG, "searchPeople failed for \"$trimmed\"", e)
                 emptyList()
             }
         }
+
+    /**
+     * The fallback behind [searchPeople]: read a DESCRIPTION as a title, then answer with
+     * that title's cast.
+     *
+     * TMDB's person search matches names, so "the guy from terminator" returns nothing at all
+     * — there is no name to retry with, and the device has no model to ask (a per-keystroke
+     * LLM call in the search path would be the wrong trade regardless). What the phrase does
+     * contain is a title, so we go looking for it: drop leading words one at a time and
+     * multi-search each tail —
+     *
+     *     "the guy from terminator" → "guy from terminator" → "from terminator" → "terminator"
+     *
+     * — taking the first tail that resolves to a movie or TV hit, then returning its
+     * top-billed cast. Longest tail first, so the specific reading wins when both match.
+     *
+     * Deliberately conservative: a single word is left alone (that is a name or a title
+     * search already, not a description), and this is only ever reached once the person
+     * search has come back empty, so an ordinary name query pays nothing. Best-effort
+     * throughout — any failure here still renders no People row, exactly as before.
+     */
+    private suspend fun peopleByDescription(
+        query: String,
+        language: String,
+        limit: Int
+    ): List<PersonSearchPreview> {
+        val words = query.split(WHITESPACE).filter { it.isNotBlank() }
+        if (words.size < 2) return emptyList()
+        val maxDrop = minOf(words.size - 1, MAX_BRIDGE_SHRINK_STEPS)
+        for (drop in 0..maxDrop) {
+            val candidate = words.drop(drop).joinToString(" ")
+            if (candidate.length < MIN_BRIDGE_CANDIDATE_CHARS) continue
+            val match = bestTitleMatch(candidate, language) ?: continue
+            val cast = castFor(match, language)
+            if (cast.isNotEmpty()) return cast.take(limit)
+        }
+        return emptyList()
+    }
+
+    /** The most popular movie/TV hit for [query], or null when nothing but people matched. */
+    private suspend fun bestTitleMatch(query: String, language: String): TitleMatch? {
+        val results = tmdbApi.searchMulti(TMDB_API_KEY, query, language).body()?.results.orEmpty()
+        return results
+            .asSequence()
+            .filter { it.mediaType == MEDIA_TYPE_MOVIE || it.mediaType == MEDIA_TYPE_TV }
+            .maxByOrNull { it.popularity ?: 0.0 }
+            ?.let { hit ->
+                val title = (hit.title ?: hit.name).orEmpty()
+                if (title.isBlank()) null
+                else TitleMatch(id = hit.id, isMovie = hit.mediaType == MEDIA_TYPE_MOVIE, title = title)
+            }
+    }
+
+    /** The top-billed cast of [match], in the shape the People strip renders. */
+    private suspend fun castFor(match: TitleMatch, language: String): List<PersonSearchPreview> {
+        val credits = try {
+            if (match.isMovie) {
+                tmdbApi.getMovieCredits(match.id, TMDB_API_KEY, language).body()
+            } else {
+                tmdbApi.getTvCredits(match.id, TMDB_API_KEY, language).body()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "cast lookup failed for \"${match.title}\"", e)
+            return emptyList()
+        } ?: return emptyList()
+        return credits.cast.orEmpty()
+            .asSequence()
+            .filter { it.id != null && !it.name.isNullOrBlank() }
+            .distinctBy { it.id }
+            .mapNotNull { member ->
+                val id = member.id ?: return@mapNotNull null
+                PersonSearchPreview(
+                    tmdbId = id,
+                    name = member.name.orEmpty(),
+                    profilePhotoUrl = buildImageUrl(member.profilePath, "w342"),
+                    // Carry the matched title so the card says WHY this person is here.
+                    knownForLabel = "Actor · ${match.title}"
+                )
+            }
+            .toList()
+    }
+
+    /** A movie/TV hit the descriptive-query bridge resolved a phrase down to. */
+    private data class TitleMatch(val id: Int, val isMovie: Boolean, val title: String)
 
     private fun buildPersonKnownForLabel(
         department: String?,

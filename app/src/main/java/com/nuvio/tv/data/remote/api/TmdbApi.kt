@@ -266,6 +266,20 @@ interface TmdbApi {
         @Query("include_adult") includeAdult: Boolean = false
     ): Response<TmdbPersonSearchResponse>
 
+    /**
+     * Movie+TV title search. Used only by [TmdbMetadataService.searchPeople]'s descriptive-query
+     * fallback, which needs to find the TITLE hiding in a phrase like "the guy from terminator"
+     * before it can ask for that title's cast.
+     */
+    @GET("search/multi")
+    suspend fun searchMulti(
+        @Query("api_key") apiKey: String,
+        @Query("query") query: String,
+        @Query("language") language: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("include_adult") includeAdult: Boolean = false
+    ): Response<TmdbMultiSearchResponse>
+
     @GET("movie/{movie_id}/alternative_titles")
     suspend fun getMovieAlternativeTitles(
         @Path("movie_id") movieId: Int,
@@ -680,6 +694,25 @@ data class TmdbPersonSearchKnownFor(
     @Json(name = "media_type") val mediaType: String? = null,
     @Json(name = "title") val title: String? = null,
     @Json(name = "name") val name: String? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TmdbMultiSearchResponse(
+    @Json(name = "page") val page: Int? = null,
+    @Json(name = "results") val results: List<TmdbMultiSearchResult>? = null,
+    @Json(name = "total_pages") val totalPages: Int? = null
+)
+
+/** One `/search/multi` hit. Movies carry [title], TV carries [name]; [mediaType] says which. */
+@JsonClass(generateAdapter = true)
+data class TmdbMultiSearchResult(
+    @Json(name = "id") val id: Int,
+    @Json(name = "media_type") val mediaType: String? = null,
+    @Json(name = "title") val title: String? = null,
+    @Json(name = "name") val name: String? = null,
+    @Json(name = "popularity") val popularity: Double? = null,
+    @Json(name = "release_date") val releaseDate: String? = null,
+    @Json(name = "first_air_date") val firstAirDate: String? = null
 )
 
 @JsonClass(generateAdapter = true)
