@@ -9,6 +9,7 @@ import com.nuvio.app.features.boomio.BoomioConfig
 import com.nuvio.app.features.boomio.BoomioSessionRepository
 import com.nuvio.app.features.boomio.companionRestBaseUrl
 import com.nuvio.app.features.boomio.createBoomioHttpClient
+import com.nuvio.tv.core.device.DeviceCapabilityProbe
 import io.ktor.client.HttpClient
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -104,16 +105,24 @@ internal object MtlsRegistration {
     @Volatile
     private var prefs: SharedPreferences? = null
 
+    /** The application context, kept for the one platform read this file makes — see [deviceFingerprint]. */
+    @Volatile
+    private var appContext: Context? = null
+
     fun initialize(context: Context) {
         if (started) return
         started = true
 
         val store = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs = store
+        // Kept only for [deviceFingerprint]. Everything else this object needs is either in the
+        // keystore or in the prefs above.
+        appContext = context.applicationContext ?: context
 
         registrar = MtlsRegistrar(
             api = ::apiOrNull,
             assignedName = { BoomioConfig.overlayDeviceName },
+            fingerprint = ::deviceFingerprint,
             held = { read(store) },
             mintAndInstall = ::mintAndInstall,
             remember = { write(store, it) },
@@ -253,6 +262,22 @@ internal object MtlsRegistration {
     }
 
     // ── the device ───────────────────────────────────────────────────────────
+
+    /**
+     * This device's hardware fingerprint, for the registration body.
+     *
+     * ⚠️ **Delegated to [DeviceCapabilityProbe], never recomputed here.** The capability report
+     * sends this same value and bsm matches its rows by it, so a second derivation of the salt and
+     * digest would be a second fingerprint — and the symptom would be a re-enrolled box that
+     * quietly grows a second row, which is the fault this field exists to prevent.
+     *
+     * `""` when the platform will not supply ANDROID_ID, and `""` before [initialize] has run.
+     * Both are ordinary: `""` is what [MtlsRegistrar]'s `fingerprint` default sends, the field is
+     * then left out of the body entirely, and bsc falls back to the session's `device_id` — exactly
+     * the behaviour before this field existed. No device is worse off for it.
+     */
+    private fun deviceFingerprint(): String =
+        appContext?.let { DeviceCapabilityProbe.hardwareFingerprint(it) }.orEmpty()
 
     /**
      * Mint for [name] and bind it to the keystore key.
@@ -407,12 +432,22 @@ internal class BscMtlsRegistrationApi(
     private val http: HttpClient,
 ) : MtlsRegistrationApi {
 
-    override suspend fun register(pem: String): CertRegistrationAck {
+    override suspend fun register(pem: String, hwFingerprint: String): CertRegistrationAck {
         val response = runCatching {
             http.post("$baseUrl/api/overlay/cert") {
                 header(HttpHeaders.Authorization, "Bearer $token")
                 contentType(ContentType.Application.Json)
-                setBody(mtlsRegistrationJson.encodeToString(CertRegistrationRequestDto(pem)))
+                setBody(
+                    mtlsRegistrationJson.encodeToString(
+                        CertRegistrationRequestDto(
+                            cert = pem,
+                            // Absent, not empty, when there is none: the route reads both the same
+                            // way, and a field that is only sometimes present is the one a reader
+                            // can trust to mean something.
+                            hwFingerprint = hwFingerprint.takeIf { it.isNotBlank() },
+                        ),
+                    ),
+                )
             }
         }.getOrElse {
             // A connect timeout while the tunnel comes up is the expected first failure, so this is
