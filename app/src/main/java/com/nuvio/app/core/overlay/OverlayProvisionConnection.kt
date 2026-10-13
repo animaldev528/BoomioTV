@@ -89,14 +89,34 @@ internal class OverlayProvisionConnection private constructor(
         }
     }
 
-    /** `pair.request` — asks for a user code for the owner to approve at [ProvisionMessage.PairCode]. */
-    suspend fun pairRequest(deviceId: String, platform: String?, name: String?): ProvisionMessage =
+    /**
+     * `pair.request` — asks for a user code for the owner to approve at [ProvisionMessage.PairCode].
+     *
+     * ⚠️ **`hw_fingerprint` is here for the same reason it is on [certRegister], and it is the one
+     * that actually stops a second row being minted.** The host records it against the pending pair,
+     * and the enrollment that follows an approval is what *creates* the bsm device row — so a wiped
+     * box that sends nothing here is already a new row by the time any certificate is filed, and the
+     * cert registration that could have canonicalised it arrives one step too late.
+     *
+     * Names the *box*, not the session: unverified, never the CN, and omitted rather than sent empty
+     * when there is none — so the field's presence means "this client had one", exactly as on
+     * [certRegister]. A client that predates the field sends nothing and is unaffected.
+     */
+    suspend fun pairRequest(
+        deviceId: String,
+        platform: String?,
+        name: String?,
+        hwFingerprint: String = "",
+    ): ProvisionMessage =
         request(
             buildJsonObject {
                 put("t", JsonPrimitive("pair.request"))
                 put("device_id", JsonPrimitive(deviceId))
                 if (platform != null) put("platform", JsonPrimitive(platform))
                 if (name != null) put("name", JsonPrimitive(name))
+                if (hwFingerprint.isNotBlank()) {
+                    put("hw_fingerprint", JsonPrimitive(hwFingerprint))
+                }
             }
         )
 

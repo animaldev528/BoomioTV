@@ -18,6 +18,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import com.nuvio.app.features.boomio.BoomioPairingResult
+import com.nuvio.app.features.boomio.BoomioPairingTransport
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import org.junit.runner.RunWith
@@ -102,7 +103,7 @@ class OverlayProvisioningTest {
     // ── pairing over the channel ────────────────────────────────────────────────────────────
 
     @Test
-    fun `pair publishes the code, polls, and links on approval`() = runBlocking {
+    fun `pair publishes the code, threads the fingerprint, polls, and links on approval`() = runBlocking {
         val server = startServer { request ->
             when (request.string("t")) {
                 "pair.request" -> pairCodeReply()
@@ -113,7 +114,12 @@ class OverlayProvisioningTest {
         }
 
         val codes = mutableListOf<Pair<String, String?>>()
-        val result = transport(server).pair("device-1", "android", "Kyle's phone") { user, uri ->
+        val result = transport(server).pair(
+            deviceId = "device-1",
+            platform = "android",
+            name = "Kyle's phone",
+            hwFingerprint = TEST_FINGERPRINT,
+        ) { user, uri ->
             codes += user to uri
         }
 
@@ -137,6 +143,10 @@ class OverlayProvisioningTest {
         val requests = server.requests
         assertEquals("pair.request", requests[0].string("t"))
         assertEquals("device-1", requests[0].string("device_id"))
+        // ⚠️ **The whole point of the parameter: it has to survive the trip to the wire.** A value
+        // accepted by `pair` and dropped by `begin` would look identical from the caller's side and
+        // would still mint a second bsm row, so this is asserted on the frame and not on a return.
+        assertEquals(TEST_FINGERPRINT, requests[0].string("hw_fingerprint"))
         assertEquals("pair.poll", requests[1].string("t"))
         assertEquals("dc-1", requests[1].string("device_code"))
     }
@@ -147,7 +157,7 @@ class OverlayProvisioningTest {
             target = { null },
             keypair = { deviceKeypair() },
             crypto = FakeProvisionCrypto(EXPECTED_CRYPTO_TAG),
-        ).pair("device-1", null, null) { _, _ -> error("a code must not be published") }
+        ).pair("device-1", null, null, "") { _, _ -> error("a code must not be published") }
 
         assertIs<BoomioPairingResult.Unavailable>(result)
     }
@@ -165,7 +175,7 @@ class OverlayProvisioningTest {
             target = { targetFor(server) },
             keypair = { null },
             crypto = FakeProvisionCrypto(EXPECTED_CRYPTO_TAG),
-        ).pair("device-1", null, null) { _, _ -> error("a code must not be published") }
+        ).pair("device-1", null, null, "") { _, _ -> error("a code must not be published") }
 
         assertIs<BoomioPairingResult.Unavailable>(result)
         assertEquals(0, server.connectionsServed, "no keypair means nothing was dialled")
@@ -341,7 +351,14 @@ class OverlayProvisioningTest {
 
     // ── helpers ─────────────────────────────────────────────────────────────────────────────
 
-    private fun transport(server: ScriptedProvisionServer) = ChannelPairingTransport(
+    /**
+     * ⚠️ **Typed as the interface on purpose.** `pair` gained a `hwFingerprint` parameter whose
+     * default lives on [BoomioPairingTransport] — Kotlin forbids a default on the override, so a
+     * call through the concrete class must spell out every argument and the tests that do not care
+     * about the fingerprint would carry a meaningless `""`. Production reaches the transport
+     * through the interface too, so this is the contract the app actually calls.
+     */
+    private fun transport(server: ScriptedProvisionServer): BoomioPairingTransport = ChannelPairingTransport(
         target = { targetFor(server) },
         keypair = { deviceKeypair() },
         crypto = FakeProvisionCrypto(EXPECTED_CRYPTO_TAG),
@@ -447,6 +464,16 @@ class OverlayProvisioningTest {
         val TEST_TUNNEL_KEY: String = "A".repeat(43) + "="
 
         const val EXPECTED_CRYPTO_TAG = "right"
+
+        /**
+         * A hardware fingerprint in the shape the real derivation produces: 32 lowercase hex.
+         *
+         * ⚠️ The shield's own live value, reused so that this fixture is recognisably *not* a device
+         * id — a fingerprint that looked like one is exactly the confusion that put an install id in
+         * that column on the server, and a fixture where the two were interchangeable would not
+         * notice its return.
+         */
+        const val TEST_FINGERPRINT = "760af2fbd65a19d9d3513102d2b4e9d5"
     }
 }
 

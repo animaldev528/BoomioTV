@@ -310,13 +310,14 @@ internal class ChannelPairingTransport(
         deviceId: String,
         platform: String?,
         name: String?,
+        hwFingerprint: String,
         onCode: (userCode: String, verificationUri: String?) -> Unit,
     ): BoomioPairingResult {
         val target = target() ?: return BoomioPairingResult.Unavailable
         val keypair = keypair() ?: return BoomioPairingResult.Unavailable
 
         val started = try {
-            begin(target, keypair, deviceId, platform, name)
+            begin(target, keypair, deviceId, platform, name, hwFingerprint)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
@@ -354,6 +355,7 @@ internal class ChannelPairingTransport(
         deviceId: String,
         platform: String?,
         name: String?,
+        hwFingerprint: String,
     ): Pair<OverlayProvisionConnection, ProvisionMessage.PairCode>? {
         var opened: OverlayProvisionConnection? = null
         return try {
@@ -367,7 +369,7 @@ internal class ChannelPairingTransport(
                 connectTimeoutMs = OverlayProvisioning.PAIR_CONNECT_BUDGET_MS,
             )
             opened = connection
-            val reply = connection.pairRequest(deviceId, platform, name)
+            val reply = connection.pairRequest(deviceId, platform, name, hwFingerprint)
             val code = reply as? ProvisionMessage.PairCode
                 ?: throw OverlayProvisionException.ProtocolFault(
                     "pair.request answered '${reply::class.simpleName}'",
