@@ -60,6 +60,7 @@ class StartupSyncService @Inject constructor(
     private val profileSettingsSyncService: ProfileSettingsSyncService,
     private val providerCredentialSyncService: ProviderCredentialSyncService,
     private val profileSyncService: ProfileSyncService,
+    private val tasteHistoryImportService: TasteHistoryImportService,
     private val pluginManager: PluginManager,
     private val addonRepository: AddonRepositoryImpl,
     private val watchProgressRepository: WatchProgressRepositoryImpl,
@@ -667,11 +668,32 @@ class StartupSyncService @Inject constructor(
                 }
             }
 
+            // Hands this profile's OWN Trakt history up to the core, so the taste pool can be
+            // seeded without an operator walking the dashboard. It runs here rather than in the
+            // warm path because this function is what BOTH paths run: the cold path (first launch
+            // after sign-in — the launch that has to do the importing) calls it directly.
+            //
+            // In parallel with the pulls above, not after them: it shares nothing with any of
+            // them, and the flags its gate reads were refreshed by the profile pull at the top of
+            // this function. Self-gating (taste-enabled, non-kids, not yet completed, Trakt
+            // connected) and never throwing — the route allows only 6 imports per 15 minutes per
+            // account, so every skip has to happen on the device rather than as a refused request.
+            val tasteHistoryJob = async {
+                try {
+                    val imported = tasteHistoryImportService.importIfNeeded(profileId)
+                        .getOrDefault(false)
+                    if (imported) Log.d(TAG, "Imported Trakt history for profile $profileId")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Trakt history import failed, continuing", e)
+                }
+            }
+
             pluginJob.await()
             addonJob.await()
             collectionJob.await()
             homeCatalogJob.await()
             libraryJob.await()
+            tasteHistoryJob.await()
         }
     }
 
