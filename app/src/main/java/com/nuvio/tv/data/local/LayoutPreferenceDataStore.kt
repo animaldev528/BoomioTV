@@ -242,10 +242,13 @@ class LayoutPreferenceDataStore @Inject constructor(
         prefs[heroSectionEnabledKey] ?: true
     }
 
+    // Discover sits in the side panel by default on this fleet: it is the profile's
+    // personalized browsing surface, and leaving it inside Search hid it behind a
+    // second step. The layout setting still overrides this per profile.
     val discoverLocation: Flow<DiscoverLocation> = profileFlow { prefs ->
-        val stored = prefs[discoverLocationKey] ?: DiscoverLocation.IN_SEARCH.name
+        val stored = prefs[discoverLocationKey] ?: DiscoverLocation.IN_SIDEBAR.name
         runCatching { DiscoverLocation.valueOf(stored) }
-            .getOrDefault(DiscoverLocation.IN_SEARCH)
+            .getOrDefault(DiscoverLocation.IN_SIDEBAR)
     }
 
     val lastNonOffDiscoverLocation: Flow<DiscoverLocation> = profileFlow { prefs ->
@@ -253,9 +256,9 @@ class LayoutPreferenceDataStore @Inject constructor(
             ?.takeIf { it != DiscoverLocation.OFF.name }
         val fallback = prefs[discoverLocationKey]
             ?.takeIf { it != DiscoverLocation.OFF.name }
-        val source = stored ?: fallback ?: DiscoverLocation.IN_SEARCH.name
+        val source = stored ?: fallback ?: DiscoverLocation.IN_SIDEBAR.name
         runCatching { DiscoverLocation.valueOf(source) }
-            .getOrDefault(DiscoverLocation.IN_SEARCH)
+            .getOrDefault(DiscoverLocation.IN_SIDEBAR)
     }
 
     val posterLabelsEnabled: Flow<Boolean> = profileFlow { prefs ->
