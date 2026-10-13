@@ -131,12 +131,23 @@ private val HOST_CHARS = Regex("^[A-Za-z0-9._:-]+$")
  * this check any co-resident app on the device has a free, general-purpose proxy. A
  * co-resident app is the normal case on a phone, not a hypothetical.
  *
- * Two forms are accepted, and both exist for a reason:
- *  * `Basic <base64(user:secret)>` — what FFmpeg produces from a
- *    `http://user:secret@127.0.0.1:port` proxy URL, which is the *only* way libmpv can be
- *    told about a proxy. The user part is ignored; the password must match.
+ * Two forms are accepted:
  *  * `Bearer <secret>` — what the app's own Kotlin clients send, via an OkHttp
- *    `proxyAuthenticator`.
+ *    `proxyAuthenticator`. This is the only form anything in this app actually produces.
+ *  * `Basic <base64(user:secret)>` — kept for a libcurl-shaped client, which sends it
+ *    preemptively from a proxy URL's userinfo. **Nothing in this app is that client today**,
+ *    so this branch is currently unreachable; it is kept because it costs nothing, and
+ *    deleting it would silently break the first libcurl-shaped engine that is added.
+ *
+ * ⚠️ **FFmpeg — and therefore libmpv — produces neither, which is why this check cannot be
+ * the only way in.** Measured on the wire 2026-10-13: handed
+ * `-http_proxy http://boomio:secret@127.0.0.1:port`, FFmpeg sends a bare `CONNECT host:443`
+ * carrying no `Proxy-Authorization`, no userinfo and no path; the shipped `libavformat.so`
+ * contains no `Proxy-Authorization` string and exposes no proxy-credential option; and
+ * caller-supplied headers (`-headers`, i.e. mpv's `http-header-fields`) ride the *origin*
+ * request but never the CONNECT. **No configuration of FFmpeg authenticates a CONNECT.**
+ * libmpv is served instead by [unauthenticatedRouteFor], which is gated on the allow-set
+ * precisely because there is no credential to gate on. See that function for the trade.
  */
 internal fun isProxyAuthorized(headerValue: String?, secret: String): Boolean {
     if (headerValue.isNullOrEmpty() || secret.isEmpty()) return false
@@ -155,9 +166,7 @@ internal fun isProxyAuthorized(headerValue: String?, secret: String): Boolean {
             // ⚠️ A credential with **no colon at all is refused**, not compared whole.
             // Accepting `base64(secret)` as a second spelling of `base64(user:secret)`
             // would widen the set of strings that authenticate for no benefit — the caller
-            // still has to know the secret either way — and the documented form is the one
-            // libmpv actually produces from the proxy URL, so the lenient branch would
-            // never fire in practice and would never be exercised.
+            // still has to know the secret either way.
             if (colon < 0) false
             else constantTimeEquals(decoded.substring(colon + 1), secret)
         }
@@ -260,6 +269,41 @@ internal fun relayRouteFor(host: String, allowSet: Set<String>): RelayRoute {
     val normalized = normalizeHost(host)
     if (isLoopbackHost(normalized)) return RelayRoute.DIRECT
     return if (normalized in allowSet) RelayRoute.CARRIED else RelayRoute.DIRECT
+}
+
+/**
+ * The route for a CONNECT that arrived with **no credential at all**, or null to refuse it.
+ *
+ * ⚠️ **This function exists because one engine cannot authenticate and has to be served
+ * anyway.** libmpv's HTTP is FFmpeg's, and FFmpeg cannot put a `Proxy-Authorization` on a
+ * CONNECT — it drops the proxy URL's userinfo, has no proxy-credential option, and never
+ * emits caller-supplied headers on the tunnel request (all three measured 2026-10-13; see
+ * [isProxyAuthorized]). So [isProxyAuthorized] can never be satisfied by the one engine this
+ * relay was built for, and every mpv load died at the relay in ~7 ms with a 407 without
+ * touching the network.
+ *
+ * ⚠️ **Where [relayRouteFor] may answer [RelayRoute.DIRECT] freely, this one may not.**
+ * With no credential there is no caller to trust, so the allow-set stops being a routing
+ * *preference* and becomes **the gate**: a host outside it is refused, never dialled.
+ * Reusing [relayRouteFor] here would be a silent, severe regression — DIRECT is the branch
+ * it takes for everything it does not recognise, so the relay would become an open proxy to
+ * the whole internet for any co-resident app that guessed the loopback port, which is the
+ * exact hole the secret exists to close.
+ *
+ * The residual capability is deliberate and bounded: a co-resident app can still reach the
+ * user's **own** hosts through the tunnel. That is the price of an engine that cannot
+ * authenticate, and it is what buys playback at all — refusing mpv outright is not a
+ * security posture, it is the absence of an engine.
+ *
+ * Loopback is answered [RelayRoute.DIRECT] for the same reason [relayRouteFor] does it:
+ * libmpv's `http-proxy` is a blanket property, so the P2P engine's in-process loopback
+ * stream arrives here too. Allowing it grants nothing — any app on the device can already
+ * connect to a loopback port directly, so a proxy that forwards to one adds no reach.
+ */
+internal fun unauthenticatedRouteFor(host: String, allowSet: Set<String>): RelayRoute? {
+    val normalized = normalizeHost(host)
+    if (isLoopbackHost(normalized)) return RelayRoute.DIRECT
+    return if (normalized in allowSet) RelayRoute.CARRIED else null
 }
 
 /**

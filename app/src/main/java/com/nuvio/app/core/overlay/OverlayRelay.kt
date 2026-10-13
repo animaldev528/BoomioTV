@@ -83,10 +83,12 @@ internal class OverlayDialers(
  * that FFmpeg's own HTTP stack honours `http-proxy`, and that is the only proxy protocol
  * it speaks.
  *
- * **The relay is a routing decision, not a gate.** A host outside the allow-set is still
- * dialled, just directly (decided 2026-10-05). Making the allow-set a gate would break
- * every third-party addon, and the app's own catalogue plane is assembled from addons the
- * user installed.
+ * **On the authenticated path the relay is a routing decision, not a gate.** A host outside
+ * the allow-set is still dialled, just directly (decided 2026-10-05). Making the allow-set a
+ * gate there would break every third-party addon, and the app's own catalogue plane is
+ * assembled from addons the user installed. ⚠️ **That is not true of the credential-less
+ * path**, where the allow-set *is* the gate — see [unauthenticatedRouteFor] for why the two
+ * cannot share a rule.
  *
  * **Fail-open.** [start] binds and publishes [RelayState.Up] *before* the accept loop
  * begins, so a caller can read the port and point a client at it with no window in which
@@ -324,11 +326,21 @@ internal object OverlayRelay {
     /**
      * Serves one CONNECT.
      *
-     * ⚠️ **The order of the checks is the security property.** Authentication is verified
-     * *before* anything is resolved or dialled, so an unauthenticated peer cannot use the
-     * relay as a scanner, cannot make it open sockets, and cannot learn from response
-     * timing whether a host exists. Everything after the auth check is only reachable by a
-     * caller that already holds the secret.
+     * ⚠️ **There are two ways in, and they are deliberately not equally powerful.** A caller
+     * that presents the secret gets [relayRouteFor]: any host, carried or direct. A caller
+     * that presents *nothing* gets [unauthenticatedRouteFor], which carries the allow-set
+     * hosts and loopback and answers everything else with the ordinary `407` challenge —
+     * because libmpv, the engine this relay exists for, cannot present a credential at all.
+     * See that function for why the allow-set has to be the gate on that path.
+     *
+     * ⚠️ **The order of the checks is still the security property.** A *presented* credential
+     * is verified before anything is resolved or dialled, and a wrong one is refused outright
+     * — it must not fall through to the credential-less path, or guessing would become a way
+     * to reach it. On the credential-less path the allow-set check runs before the dial for
+     * the same reason: an unauthenticated peer must not be able to make the relay open a
+     * socket to a host the user never named. It can still tell whether a host is in the
+     * allow-set — `407` versus the dial it then gets — but the allow-set is the user's own
+     * domains, and that is the accepted cost of admitting an engine that cannot authenticate.
      */
     private suspend fun handleConnection(
         client: Socket,
@@ -351,8 +363,12 @@ internal object OverlayRelay {
             val request = parseHttpHead(head)
                 ?: return refuse(clientOut, "400 Bad Request")
 
-            // ⚠️ AUTH FIRST. See the method doc: this is the relay's only defence.
-            if (!isProxyAuthorized(request.headers[PROXY_AUTH_HEADER], secret)) {
+            // ⚠️ AUTH FIRST, and a *wrong* credential is still a refusal — it must never
+            // fall through to the credential-less path below, or a co-resident app could
+            // reach that path by guessing rather than by omission and the two would blur.
+            val credential = request.headers[PROXY_AUTH_HEADER]
+            val authenticated = isProxyAuthorized(credential, secret)
+            if (!credential.isNullOrEmpty() && !authenticated) {
                 return refuse(clientOut, "407 Proxy Authentication Required")
             }
 
@@ -368,7 +384,19 @@ internal object OverlayRelay {
                 return refuse(clientOut, "421 Misdirected Request")
             }
 
-            val route = relayRouteFor(target.host, allowSet())
+            // ⚠️ The credential-less path widens by exactly one case, and no further: an
+            // allow-set host is carried. Everything else gets the same `407` it always got
+            // — deliberately *not* a `403` — because the app's own OkHttp clients do not
+            // authenticate preemptively. They learn the secret from this challenge and retry
+            // (see `OverlayProxy.authenticator`), so a flat refusal would break every
+            // third-party host that legitimately routes DIRECT, fixing mpv by breaking the
+            // catalogue plane.
+            val route = if (authenticated) {
+                relayRouteFor(target.host, allowSet())
+            } else {
+                unauthenticatedRouteFor(target.host, allowSet())
+                    ?: return refuse(clientOut, "407 Proxy Authentication Required")
+            }
             val dialer = when (route) {
                 RelayRoute.CARRIED -> dialers.carried
                 RelayRoute.DIRECT -> dialers.direct

@@ -391,6 +391,73 @@ class OverlayRelayProtocolTest {
         assertFalse(constantTimeEquals(half.take(47), half))
         assertTrue(constantTimeEquals(half, half))
     }
+
+    // ------------------------------------------- the credential-less path (libmpv)
+
+    @Test
+    fun `without a credential the allow set is the gate`() {
+        val allowed = setOf("boomio.duckdns.org")
+        // In the set: carried. This is the whole point of the path — libmpv cannot present
+        // a credential, so if this were not CARRIED, mpv could never reach the tunnel and
+        // every load it makes would die at the relay.
+        assertEquals(RelayRoute.CARRIED, unauthenticatedRouteFor("boomio.duckdns.org", allowed))
+        // Out of it: **refused**, never merely routed direct. These three assertions are
+        // what stand between the relay and being an open proxy to the internet for any
+        // co-resident app that guesses the loopback port.
+        assertNull(unauthenticatedRouteFor("example.com", allowed))
+        assertNull(unauthenticatedRouteFor("catalog.nuvio.tv", allowed))
+        assertNull(unauthenticatedRouteFor("10.77.0.1", allowed))
+    }
+
+    @Test
+    fun `a credential-less route is carried or refused, never direct`() {
+        // ⚠️ The property, not a case list, and the reason this test exists separately from
+        // the one above. `relayRouteFor` is *free* to answer DIRECT for anything it does not
+        // recognise — correct for an authenticated caller, whose traffic is authorised by
+        // virtue of holding the secret, and a hole here, where there is no caller to
+        // authorise. A refactor that routed this path through `relayRouteFor` would keep
+        // every named case passing while opening the hole for every unnamed one; this
+        // assertion is the one that fails.
+        val allowed = setOf("boomio.duckdns.org")
+        val hosts = listOf(
+            "example.com",
+            "catalog.nuvio.tv",
+            "boomio.duckdns.org",
+            "10.77.0.1",
+            "192.168.68.65",
+            "2001:db8::1",
+        )
+        for (host in hosts) {
+            val route = unauthenticatedRouteFor(host, allowed)
+            assertTrue(route == null || route == RelayRoute.CARRIED, "$host routed $route")
+        }
+    }
+
+    @Test
+    fun `the service host is carried however it is spelled`() {
+        val allowed = setOf("boomio.duckdns.org")
+        assertEquals(RelayRoute.CARRIED, unauthenticatedRouteFor("boomio.duckdns.org", allowed))
+        assertEquals(RelayRoute.CARRIED, unauthenticatedRouteFor("BOOMIO.DUCKDNS.ORG", allowed))
+        // The fully-qualified form. An authority may legally carry the root label, and a
+        // miss here fails *silently*: the load simply is not carried, and the only symptom
+        // is that playback takes the A-record path again.
+        assertEquals(RelayRoute.CARRIED, unauthenticatedRouteFor("boomio.duckdns.org.", allowed))
+    }
+
+    @Test
+    fun `loopback is direct even without a credential`() {
+        // ⚠️ DIRECT, not null — and the difference is load-bearing. libmpv's `http-proxy` is
+        // a blanket property rather than a per-URL one, so the P2P engine's in-process
+        // loopback stream arrives on this same path. Refusing it would break P2P playback
+        // the moment the proxy is set; allowing it grants nothing, because any app on the
+        // device can already connect to a loopback port without a proxy in between.
+        assertEquals(RelayRoute.DIRECT, unauthenticatedRouteFor("127.0.0.1", emptySet()))
+        assertEquals(RelayRoute.DIRECT, unauthenticatedRouteFor("localhost", emptySet()))
+        assertEquals(
+            RelayRoute.DIRECT,
+            unauthenticatedRouteFor("127.9.9.9", setOf("boomio.duckdns.org")),
+        )
+    }
 }
 
 private fun ByteArray.asText(): String = toString(Charsets.ISO_8859_1)
