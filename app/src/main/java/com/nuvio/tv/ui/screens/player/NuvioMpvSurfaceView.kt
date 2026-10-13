@@ -676,6 +676,17 @@ class NuvioMpvSurfaceView @JvmOverloads constructor(
         mpv.setOptionString("keep-open", "yes")
         mpv.setOptionString("softvol", "yes")
         mpv.setOptionString("volume-max", MPV_MAX_VOLUME_PERCENT.toInt().toString())
+        // ⚠️ mpv's yt-dlp hook is ON by default and is dead weight on Android. It spawns a
+        // subprocess, no `yt-dlp` binary ships in the APK, and the failure is not benign:
+        // `[ytdl_hook:error] Subprocess failed: init` is followed by a SIGSEGV inside
+        // libmpv.so, which replaces whatever the real load error was with an unexplained
+        // crash. Measured on the demo Pi 2026-10-13 — it is the step that turns a refused
+        // load into "the player died".
+        //
+        // Nothing in this app depends on it. Trailers never reach mpv: they are resolved by
+        // `InAppYouTubeExtractor`/`TrailerService` and played by ExoPlayer (see
+        // `TrailerPlayer`), and no `youtube.com` URL is ever handed to a `loadfile`.
+        mpv.setOptionString("ytdl", "no")
     }
 
     override fun postInitOptions() {
