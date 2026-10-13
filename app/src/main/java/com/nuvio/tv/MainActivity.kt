@@ -52,7 +52,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tv
@@ -1178,7 +1177,6 @@ open class MainActivity : ComponentActivity() {
                     val strNavMovies = stringResource(R.string.nav_movies)
                     val strNavTv = stringResource(R.string.nav_tv)
                     val strNavAnime = stringResource(R.string.nav_anime)
-                    val strNavIptv = stringResource(R.string.nav_iptv)
                     val strNavLibrary = stringResource(R.string.nav_library)
                     val strNavSettings = stringResource(R.string.nav_settings)
                     val drawerItems = remember(
@@ -1189,7 +1187,6 @@ open class MainActivity : ComponentActivity() {
                         strNavMovies,
                         strNavTv,
                         strNavAnime,
-                        strNavIptv,
                         strNavLibrary,
                         strNavSettings,
                         discoverLocation
@@ -1273,15 +1270,10 @@ open class MainActivity : ComponentActivity() {
                                         icon = Icons.Default.AutoAwesome
                                     )
                                 )
-                                // Not in the kids drawer: live TV has no per-channel
-                                // rating gate, so it is not offered to kids profiles.
-                                add(
-                                    DrawerItem(
-                                        route = Screen.Iptv.route,
-                                        label = strNavIptv,
-                                        icon = Icons.Default.LiveTv
-                                    )
-                                )
+                                // Live TV is not offered here: the IPTV plane is not part of
+                                // this fleet's surface. The route stays registered in
+                                // rootRoutes so a restored back stack cannot hit an
+                                // unregistered destination, but nothing navigates to it.
                                 if (discoverLocation == DiscoverLocation.IN_SIDEBAR) {
                                     add(
                                         DrawerItem(
