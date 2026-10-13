@@ -266,6 +266,20 @@ class AuthManager @Inject constructor(
         }
 
     /**
+     * The live Supabase access token, or null when there is no session.
+     *
+     * Exposed for the one caller that has to present a bearer to a bsm route
+     * (`/bsm/tvpair/history-import`, verified by the server against GoTrue): bsm's Retrofit
+     * client carries no auth interceptor of its own, and the injected Postgrest client cannot be
+     * borrowed for a non-Supabase origin. [supabaseHeaders] stays private — this hands out the
+     * token alone, not a header map that would invite building requests with a stale `apikey`.
+     *
+     * Non-refreshing: it reads the session already in memory. A caller that is refused with 401
+     * should let the session observer refresh and try again on a later sync.
+     */
+    suspend fun currentAccessToken(): String? = auth.currentAccessTokenOrNull()
+
+    /**
      * Returns the effective user ID for data operations.
      * For sync-linked devices, this returns the sync owner's user ID.
      * For direct users, returns their own user ID.
