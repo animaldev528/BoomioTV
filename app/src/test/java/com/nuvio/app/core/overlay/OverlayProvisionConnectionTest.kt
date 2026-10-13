@@ -124,6 +124,10 @@ class OverlayProvisionConnectionTest {
         val server = startServer { request ->
             assertEquals("pair.request", request.string("t"))
             assertEquals("device-123", request.string("device_id"))
+            // ⚠️ **Omitted, not sent empty.** A caller with no fingerprint — one that predates the
+            // field, or a box ANDROID_ID is unavailable on — must put exactly today's bytes on the
+            // wire, so an older server sees a request it already knows how to read.
+            assertNull(request.string("hw_fingerprint"))
             """{"t":"pair.code","device_code":"dc-1","user_code":"ABC123",
                 "verification_uri":"https://bsm.example/tv?code=ABC123",
                 "expires_in":300,"interval":5}"""
@@ -138,6 +142,35 @@ class OverlayProvisionConnectionTest {
             assertEquals("https://bsm.example/tv?code=ABC123", reply.verificationUri)
             assertEquals(300L, reply.expiresInSeconds)
             assertEquals(5L, reply.intervalSeconds)
+        }
+        server.await()
+    }
+
+    /**
+     * ⚠️ **The field that stops a wiped TV being enrolled as a second device.**
+     *
+     * bsm creates the device row when the owner *approves* the pair, so the fingerprint has to ride
+     * on the first frame: a registration arriving later has already minted a row, and the owner's
+     * resolution and bandwidth policy is on the old one. Absent from the first frame is the whole
+     * bug, so this asserts the wire, not the return value.
+     */
+    @Test
+    fun `a pair request carries the hardware fingerprint when the caller has one`() = runBlocking {
+        val server = startServer { request ->
+            assertEquals(PAIR_FINGERPRINT, request.string("hw_fingerprint"))
+            """{"t":"pair.code","device_code":"dc-1","user_code":"ABC123",
+                "verification_uri":"https://bsm.example/tv","expires_in":300,"interval":5}"""
+        }
+
+        newConnection(server).use { connection ->
+            assertIs<ProvisionMessage.PairCode>(
+                connection.pairRequest(
+                    deviceId = "device-123",
+                    platform = "android",
+                    name = "Kyle's TV",
+                    hwFingerprint = PAIR_FINGERPRINT,
+                )
+            )
         }
         server.await()
     }
@@ -395,6 +428,14 @@ class OverlayProvisionConnectionTest {
          * an impostor, and the test that exists to catch exactly that would pass.
          */
         const val EXPECTED_CRYPTO_TAG = "right"
+
+        /**
+         * The shape the real derivation produces: 32 lowercase hex. Deliberately *not* a device id —
+         * a fingerprint that looked like one is the exact confusion that put an install id in this
+         * column on the server side, and a fixture that made the two interchangeable would not
+         * catch its return.
+         */
+        const val PAIR_FINGERPRINT = "760af2fbd65a19d9d3513102d2b4e9d5"
     }
 }
 

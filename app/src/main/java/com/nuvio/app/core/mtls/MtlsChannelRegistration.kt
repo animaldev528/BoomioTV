@@ -84,7 +84,7 @@ internal class ChannelMtlsRegistrationApi(
     @Volatile
     private var resolved: ProvisionTarget? = null
 
-    override suspend fun register(pem: String): CertRegistrationAck {
+    override suspend fun register(pem: String, hwFingerprint: String): CertRegistrationAck {
         val target = resolved ?: target()?.also { resolved = it }
             ?: return CertRegistrationAck.Deferred(NO_TARGET)
         val keypair = keypair() ?: return CertRegistrationAck.Deferred(NO_KEYPAIR)
@@ -100,7 +100,7 @@ internal class ChannelMtlsRegistrationApi(
                 crypto = crypto,
             )
             opened = connection
-            classify(connection.certRegister(token, pem))
+            classify(connection.certRegister(token, pem, hwFingerprint))
         } catch (error: CancellationException) {
             throw error
         } catch (error: OverlayProvisionException.HandshakeFailed) {

@@ -2,6 +2,7 @@ package com.nuvio.app.features.boomio
 
 import android.content.Context
 import com.nuvio.tv.core.auth.currentDeviceClientMetadata
+import com.nuvio.tv.core.device.DeviceCapabilityProbe
 import com.nuvio.tv.core.sync.SyncClientIdentity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -67,6 +68,14 @@ internal interface BoomioPairingTransport {
     /**
      * Runs the exchange and returns once a session token exists.
      *
+     * [hwFingerprint] identifies the **box**, where [deviceId] identifies this *install* of the app.
+     * ⚠️ **Passing it is what stops a wiped TV from being enrolled as a second device.** The row the
+     * server creates for an approved pair is keyed on this value, so an exchange that omits it mints
+     * a fresh row and silently drops whatever policy the previous one carried — the settings on the
+     * old row simply stop applying. Defaults to empty for the same reason it does on the wire: a
+     * caller with no fingerprint to give sends nothing, and a deployment without the field behaves
+     * exactly as it did before.
+     *
      * [onCode] is called as soon as a user code exists and a human has to approve it, so the
      * screen can render the code *while* the transport keeps polling. A transport that links
      * without ever needing a human simply never calls it.
@@ -75,6 +84,7 @@ internal interface BoomioPairingTransport {
         deviceId: String,
         platform: String?,
         name: String?,
+        hwFingerprint: String = "",
         onCode: (userCode: String, verificationUri: String?) -> Unit,
     ): BoomioPairingResult
 }
@@ -274,6 +284,11 @@ internal object BoomioSessionRepository {
                 deviceId = SyncClientIdentity(context).currentClientId(),
                 platform = metadata.platform,
                 name = metadata.deviceName,
+                // ⚠️ Read here, not inside the transport: this is the one point in the link flow
+                // that already holds a `Context`, and the fingerprint is the only identifier that
+                // outlives the install id the line above produces. Empty is a normal answer — see
+                // the interface's note.
+                hwFingerprint = DeviceCapabilityProbe.hardwareFingerprint(context),
             ) { userCode, verificationUri ->
                 // The code is live and a human has to approve it. Published while the exchange is
                 // still running, so the screen shows the code instead of a spinner.

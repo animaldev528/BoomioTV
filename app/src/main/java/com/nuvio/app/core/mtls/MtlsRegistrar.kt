@@ -103,7 +103,14 @@ internal fun planCertificate(
  * [com.nuvio.app.core.overlay.OverlayEnroller] uses for its two.
  */
 internal interface MtlsRegistrationApi {
-    suspend fun register(pem: String): CertRegistrationAck
+    /**
+     * @param hwFingerprint this device's hardware fingerprint, or `""` when there is none to send.
+     *   It rides in the body and never on the certificate — see
+     *   [CertRegistrationRequestDto.hwFingerprint] for what the server does with it and why it is
+     *   not an identity. Defaulted so the transports and the fakes need no ceremony for a field
+     *   that is a hint about which row to file under.
+     */
+    suspend fun register(pem: String, hwFingerprint: String = ""): CertRegistrationAck
 }
 
 /** The registrar's outcome. [Skipped] and [AlreadyRegistered] are ordinary; the rest are terminal. */
@@ -146,6 +153,20 @@ internal sealed interface MtlsRegistrationState {
 internal class MtlsRegistrar(
     private val api: () -> MtlsRegistrationApi?,
     private val assignedName: () -> String?,
+    /**
+     * This device's hardware fingerprint, sent with every registration — `""` when there is none.
+     *
+     * ⚠️ **A lambda rather than a value, and read once per [register] call rather than at
+     * construction.** It is not an input to the plan (nothing in [planCertificate] consults it), it
+     * is not stored anywhere, and a device whose ANDROID_ID the platform refuses must still
+     * register exactly as it did before this existed — so `""` is the default, and it is a hole
+     * rather than a failure.
+     *
+     * ⚠️ **Deliberately not `held`-shaped and not remembered.** The fingerprint is a fact about the
+     * *box* that this app only relays; caching it would make a transient platform refusal permanent
+     * for the life of the process, which is precisely the case the empty-string fallback covers.
+     */
+    private val fingerprint: () -> String = { "" },
     private val held: () -> HeldCertificate?,
     private val mintAndInstall: (String) -> ClientCertificate,
     private val remember: (HeldCertificate) -> Unit,
@@ -213,14 +234,22 @@ internal class MtlsRegistrar(
                 certificate.pem
             }
         }
-        return send(client, pem)
+        // ⚠️ Read once for the whole retry loop, not once per attempt: it describes the box, and a
+        // registration that is retried five times must be five sends of the same request. It is
+        // also read *after* `remember`, so a mint's own registration carries the real fingerprint
+        // rather than whatever was held before.
+        return send(client, pem, fingerprint())
     }
 
-    private suspend fun send(client: MtlsRegistrationApi, pem: String): MtlsRegistrationState {
+    private suspend fun send(
+        client: MtlsRegistrationApi,
+        pem: String,
+        hwFingerprint: String,
+    ): MtlsRegistrationState {
         var lastReason = "the server did not answer"
         repeat(maxAttempts) { attempt ->
             if (attempt > 0) sleep(RETRY_INTERVAL_MS)
-            when (val ack = client.register(pem)) {
+            when (val ack = client.register(pem, hwFingerprint)) {
                 is CertRegistrationAck.Registered -> {
                     // Only now is the server known to hold these bytes, so only now may the next
                     // launch skip the POST.

@@ -89,14 +89,34 @@ internal class OverlayProvisionConnection private constructor(
         }
     }
 
-    /** `pair.request` — asks for a user code for the owner to approve at [ProvisionMessage.PairCode]. */
-    suspend fun pairRequest(deviceId: String, platform: String?, name: String?): ProvisionMessage =
+    /**
+     * `pair.request` — asks for a user code for the owner to approve at [ProvisionMessage.PairCode].
+     *
+     * ⚠️ **`hw_fingerprint` is here for the same reason it is on [certRegister], and it is the one
+     * that actually stops a second row being minted.** The host records it against the pending pair,
+     * and the enrollment that follows an approval is what *creates* the bsm device row — so a wiped
+     * box that sends nothing here is already a new row by the time any certificate is filed, and the
+     * cert registration that could have canonicalised it arrives one step too late.
+     *
+     * Names the *box*, not the session: unverified, never the CN, and omitted rather than sent empty
+     * when there is none — so the field's presence means "this client had one", exactly as on
+     * [certRegister]. A client that predates the field sends nothing and is unaffected.
+     */
+    suspend fun pairRequest(
+        deviceId: String,
+        platform: String?,
+        name: String?,
+        hwFingerprint: String = "",
+    ): ProvisionMessage =
         request(
             buildJsonObject {
                 put("t", JsonPrimitive("pair.request"))
                 put("device_id", JsonPrimitive(deviceId))
                 if (platform != null) put("platform", JsonPrimitive(platform))
                 if (name != null) put("name", JsonPrimitive(name))
+                if (hwFingerprint.isNotBlank()) {
+                    put("hw_fingerprint", JsonPrimitive(hwFingerprint))
+                }
             }
         )
 
@@ -139,13 +159,27 @@ internal class OverlayProvisionConnection private constructor(
      * `enroll.ready` is that name: a certificate minted for any other CN is refused with
      * `cn_mismatch` rather than quietly accepted, which is what binds a self-signed certificate to
      * an identity the server computed rather than one the device asserted.
+     *
+     * ⚠️ **`hw_fingerprint` is the same exception to "no device id" that the CN is not**, and it is
+     * a narrow one: it names the *box*, not the session, which is the only way the server can file
+     * this certificate against the row a wiped-and-re-enrolled device already has instead of making
+     * a second one. It is unverified, it is never the CN, and the server treats a wrong one as at
+     * worst a mis-filed certificate. Omitted rather than sent empty when there is none, so the
+     * field's presence means "this client had one" — the same shape the HTTPS route reads.
      */
-    suspend fun certRegister(sessionToken: String, certPem: String): ProvisionMessage =
+    suspend fun certRegister(
+        sessionToken: String,
+        certPem: String,
+        hwFingerprint: String = "",
+    ): ProvisionMessage =
         request(
             buildJsonObject {
                 put("t", JsonPrimitive("cert.register"))
                 put("session_token", JsonPrimitive(sessionToken))
                 put("cert", JsonPrimitive(certPem))
+                if (hwFingerprint.isNotBlank()) {
+                    put("hw_fingerprint", JsonPrimitive(hwFingerprint))
+                }
             }
         )
 

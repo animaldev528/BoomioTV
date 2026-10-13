@@ -99,9 +99,21 @@ object DeviceCapabilityProbe {
      * the raw hardware-linked id never reaches the fleet view. Returns "" when the
      * platform will not supply one, and bsm then falls back to the install id —
      * so such a box behaves exactly as it does today.
+     *
+     * ⚠️ **This is the only derivation of it, and it has three readers that must
+     * agree**: the capability report below; the certificate registration body
+     * ([com.nuvio.app.core.mtls.CertRegistrationRequestDto.hwFingerprint]), where
+     * bsc uses it to find the box's canonical row; and the **pairing request**
+     * (`BoomioPairingTransport.pair` → `pair.request`), which is the one that runs
+     * *first* — the row is created when the owner approves the pair, so a pairing
+     * exchange without it has already minted a second row by the time the
+     * certificate is registered. A second copy of the salt-and-digest anywhere
+     * would be a fingerprint that silently disagrees with itself, and the symptom
+     * would be a re-enrolled box quietly getting a second row — the exact fault
+     * this exists to prevent.
      */
     @Suppress("HardwareIds")
-    private fun hardwareFingerprint(context: Context): String = try {
+    internal fun hardwareFingerprint(context: Context): String = try {
         val raw = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
         if (raw.isNullOrBlank() || raw == LEGACY_ANDROID_ID_COLLISION) {
             ""

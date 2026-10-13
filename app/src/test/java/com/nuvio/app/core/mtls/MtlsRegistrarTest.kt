@@ -169,8 +169,13 @@ class MtlsRegistrarTest {
         private val replies: List<CertRegistrationAck>,
     ) : MtlsRegistrationApi {
         val sent = mutableListOf<String>()
-        override suspend fun register(pem: String): CertRegistrationAck {
+
+        /** The `hw_fingerprint` of each send, index-parallel to [sent]. */
+        val fingerprints = mutableListOf<String>()
+
+        override suspend fun register(pem: String, hwFingerprint: String): CertRegistrationAck {
             sent += pem
+            fingerprints += hwFingerprint
             return replies.getOrElse(sent.size - 1) { replies.last() }
         }
     }
@@ -186,6 +191,7 @@ class MtlsRegistrarTest {
     private fun registrar(
         api: MtlsRegistrationApi?,
         name: String? = "device-kyle-s24-3f9a1b2c",
+        hardwareFingerprint: String = "",
         held: HeldCertificate? = null,
         recorder: Recorder = Recorder(),
         sleeps: MutableList<Long> = mutableListOf(),
@@ -195,6 +201,7 @@ class MtlsRegistrarTest {
         val runner = MtlsRegistrar(
             api = { api },
             assignedName = { name },
+            fingerprint = { hardwareFingerprint },
             held = { current },
             mintAndInstall = { n ->
                 recorder.minted += n
@@ -278,6 +285,39 @@ class MtlsRegistrarTest {
         assertTrue(!recorder.remembered.first().registered)
         assertTrue(recorder.remembered.last().registered)
         assertEquals("aabbcc", recorder.remembered.last().registeredFingerprintSha256)
+    }
+
+    @Test
+    fun `the hardware fingerprint rides every attempt, unchanged`() = runTest {
+        // bsc files this certificate against the row the fingerprint names, so it has to survive the
+        // retry loop intact: five attempts carrying five different values would be five different
+        // answers to "which box is this", and the last one to land would win.
+        val fp = "760af2fbd65a19d9d3513102d2b4e9d5"
+        val api = FakeApi(
+            listOf(
+                CertRegistrationAck.Deferred("no route"),
+                CertRegistrationAck.Registered("device-kyle-s24-3f9a1b2c", "aabbcc"),
+            ),
+        )
+        val (runner, _) = registrar(api = api, hardwareFingerprint = fp)
+
+        runner.register()
+
+        assertEquals(listOf(fp, fp), api.fingerprints)
+    }
+
+    @Test
+    fun `a device with no fingerprint sends an empty one, not a guess`() = runTest {
+        // The platform refuses ANDROID_ID on some boxes and the probe answers "" — an ordinary
+        // state, not a failure. Anything else sent here would be an invented identity; the empty
+        // string is what makes bsc fall back to the session's device_id, which is exactly how
+        // registration behaved before this field existed.
+        val api = FakeApi(listOf(CertRegistrationAck.Registered("device-kyle-s24-3f9a1b2c", "aabbcc")))
+        val (runner, _) = registrar(api = api)
+
+        runner.register()
+
+        assertEquals(listOf(""), api.fingerprints)
     }
 
     @Test
