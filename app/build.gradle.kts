@@ -48,6 +48,33 @@ val devProperties = Properties().apply {
     }
 }
 
+/**
+ * ONE bootstrap for every boomio-owned URL.
+ *
+ * Set `BOOMIO_SERVICE_HOST` once (e.g. `boomio.duckdns.org`) and every service URL below
+ * derives from it, so moving the deployment is a one-line edit and the URLs cannot drift
+ * apart. An explicit key still WINS when present, so a local.properties written before this
+ * change keeps working byte-for-byte - the derived value is only ever the fallback.
+ *
+ * The path scheme is the collapsed edge's, which serves every service by PATH from the one
+ * live name (`/bsm`, `/bsc`, `/bss-iptv`). That is the same reason the phone tree leaves its
+ * two BOOMIO_ keys commented out: a build value there only re-breaks an already-correct floor.
+ *
+ * It is deliberately NOT derived. It is the retired bsf seam (blank in most
+ * trees since 2026-09-01), and both `isBoomioEndpoint` and the device-wide maxResolution cap
+ * branch on it - handing it a value silently narrows that cap to boomio-only requests. Blank
+ * is the intended state; set it explicitly if the seam ever comes back.
+ */
+val boomioServiceHost = resolveProperty(devProperties, localProperties, "BOOMIO_SERVICE_HOST")
+
+/** Empty when no host is configured, so callers can fall back to their own stock default. */
+fun boomioServiceUrl(path: String = "", scheme: String = "https"): String =
+    if (boomioServiceHost.isBlank()) "" else "$scheme://$boomioServiceHost$path"
+
+/** The derived URL when BOOMIO_SERVICE_HOST is set, otherwise the given stock default. */
+fun boomioServiceUrlOr(stockDefault: String, path: String = "", scheme: String = "https"): String =
+    boomioServiceUrl(path, scheme).ifBlank { stockDefault }
+
 val enableDoviNative = parseBooleanProperty(
     resolveProperty(devProperties, localProperties, "DOVI_NATIVE_ENABLED")
 )
@@ -123,8 +150,8 @@ android {
         buildConfigField("String", "SIMKL_CLIENT_ID", buildConfigString(resolveProperty(devProperties, localProperties, "SIMKL_CLIENT_ID")))
         buildConfigField("String", "SIMKL_APP_NAME", buildConfigString(resolveProperty(devProperties, localProperties, "SIMKL_APP_NAME", "nuvio")))
         buildConfigField("String", "TMDB_API_KEY", "\"${localProperties.getProperty("TMDB_API_KEY", "")}\"")
-        buildConfigField("String", "TV_LOGIN_WEB_BASE_URL", "\"${localProperties.getProperty("TV_LOGIN_WEB_BASE_URL", "https://nuvio.tv/tv-login")}\"")
-        buildConfigField("String", "DEVICE_LOGIN_WEB_BASE_URL", "\"${localProperties.getProperty("DEVICE_LOGIN_WEB_BASE_URL", "https://nuvio.tv/link")}\"")
+        buildConfigField("String", "TV_LOGIN_WEB_BASE_URL", buildConfigString(localProperties.getProperty("TV_LOGIN_WEB_BASE_URL", boomioServiceUrlOr("https://nuvio.tv/tv-login", "/tv-login"))))
+        buildConfigField("String", "DEVICE_LOGIN_WEB_BASE_URL", buildConfigString(localProperties.getProperty("DEVICE_LOGIN_WEB_BASE_URL", boomioServiceUrlOr("https://nuvio.tv/link", "/link"))))
         buildConfigField("boolean", "DOVI_NATIVE_ENABLED", enableDoviNative.toString())
         buildConfigField("boolean", "DOVI_EXTRACTOR_HOOK_READY", doviExtractorHookReady.toString())
         if (enableDoviNative) {
@@ -141,17 +168,17 @@ android {
         }
         buildConfigField("String", "SUPPORTERS_API_BASE_URL", buildConfigString(localProperties.getProperty("SUPPORTERS_API_BASE_URL", "https://nuvio.tv/")))
         buildConfigField("String", "SUPPORT_URL", buildConfigString(localProperties.getProperty("SUPPORT_URL", "https://nuvio.tv/support")))
-        buildConfigField("String", "AVATAR_PUBLIC_BASE_URL", "\"${localProperties.getProperty("AVATAR_PUBLIC_BASE_URL", "")}\"")
+        buildConfigField("String", "AVATAR_PUBLIC_BASE_URL", buildConfigString(localProperties.getProperty("AVATAR_PUBLIC_BASE_URL", boomioServiceUrlOr("", "/storage/v1/object/public/avatars"))))
         buildConfigField("String", "UNIQUE_CONTRIBUTIONS_BASE_URL", "\"${localProperties.getProperty("UNIQUE_CONTRIBUTIONS_BASE_URL", "")}\"")
         buildConfigField("String", "PLAYBACK_REPORTS_BASE_URL", buildConfigString(localProperties.getProperty("PLAYBACK_REPORTS_BASE_URL", "")))
-        buildConfigField("String", "BSM_BASE_URL", buildConfigString(localProperties.getProperty("BSM_BASE_URL", "")))
+        buildConfigField("String", "BSM_BASE_URL", buildConfigString(localProperties.getProperty("BSM_BASE_URL", boomioServiceUrl("/bsm"))))
         buildConfigField("String", "PREMIUMIZE_CLIENT_ID", "\"${localProperties.getProperty("PREMIUMIZE_CLIENT_ID", "")}\"")
         buildConfigField("String", "BOOMIO_BASE_URL", buildConfigString(resolveProperty(devProperties, localProperties, "BOOMIO_BASE_URL")))
-        buildConfigField("String", "BOOMIO_COMPANION_URL", buildConfigString(resolveProperty(devProperties, localProperties, "BOOMIO_COMPANION_URL")))
+        buildConfigField("String", "BOOMIO_COMPANION_URL", buildConfigString(resolveProperty(devProperties, localProperties, "BOOMIO_COMPANION_URL", boomioServiceUrl("/bsc", "wss"))))
         // Live-IPTV edge (bss-iptv). Blank in a build with no IPTV service behind
         // it, which is what makes the IPTV section show its "not set up" state
         // rather than probing a host that does not exist.
-        buildConfigField("String", "BOOMIO_IPTV_URL", buildConfigString(resolveProperty(devProperties, localProperties, "BOOMIO_IPTV_URL")))
+        buildConfigField("String", "BOOMIO_IPTV_URL", buildConfigString(resolveProperty(devProperties, localProperties, "BOOMIO_IPTV_URL", boomioServiceUrl("/bss-iptv"))))
         // Install-level stream capability hint (e.g. "1080p"). When set, the
         // companion resolver asks bsf to cap streams so higher resolutions
         // (4K) never reach this device's picker.
@@ -256,11 +283,11 @@ android {
             buildConfigField("String", "SENTRY_ENVIRONMENT", buildConfigString("debug"))
 
             // Dev environment (from local.dev.properties)
-            buildConfigField("String", "SUPABASE_URL", buildConfigString(resolveProperty(devProperties, localProperties, "NUVIO_SUPABASE_URL")))
+            buildConfigField("String", "SUPABASE_URL", buildConfigString(resolveProperty(devProperties, localProperties, "NUVIO_SUPABASE_URL", boomioServiceUrl())))
             buildConfigField("String", "SUPABASE_ANON_KEY", buildConfigString(resolveProperty(devProperties, localProperties, "NUVIO_SUPABASE_ANON_KEY")))
             buildConfigField("String", "SUPABASE_FALLBACK_URL", buildConfigString(resolveProperty(devProperties, localProperties, "NUVIO_SUPABASE_FALLBACK_URL")))
-            buildConfigField("String", "TV_LOGIN_WEB_BASE_URL", "\"${devProperties.getProperty("TV_LOGIN_WEB_BASE_URL", localProperties.getProperty("TV_LOGIN_WEB_BASE_URL", "https://nuvio.tv/tv-login"))}\"")
-            buildConfigField("String", "DEVICE_LOGIN_WEB_BASE_URL", "\"${devProperties.getProperty("DEVICE_LOGIN_WEB_BASE_URL", localProperties.getProperty("DEVICE_LOGIN_WEB_BASE_URL", "https://nuvio.tv/link"))}\"")
+            buildConfigField("String", "TV_LOGIN_WEB_BASE_URL", buildConfigString(devProperties.getProperty("TV_LOGIN_WEB_BASE_URL", localProperties.getProperty("TV_LOGIN_WEB_BASE_URL", boomioServiceUrlOr("https://nuvio.tv/tv-login", "/tv-login")))))
+            buildConfigField("String", "DEVICE_LOGIN_WEB_BASE_URL", buildConfigString(devProperties.getProperty("DEVICE_LOGIN_WEB_BASE_URL", localProperties.getProperty("DEVICE_LOGIN_WEB_BASE_URL", boomioServiceUrlOr("https://nuvio.tv/link", "/link")))))
             buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${devProperties.getProperty("PARENTAL_GUIDE_API_URL", localProperties.getProperty("PARENTAL_GUIDE_API_URL", ""))}\"")
             buildConfigField("String", "INTRODB_API_URL", "\"${devProperties.getProperty("INTRODB_API_URL", localProperties.getProperty("INTRODB_API_URL", ""))}\"")
             buildConfigField("String", "TRAILER_API_URL", "\"${devProperties.getProperty("TRAILER_API_URL", localProperties.getProperty("TRAILER_API_URL", ""))}\"")
@@ -268,10 +295,10 @@ android {
             buildConfigField("String", "IMDB_TAPFRAME_API_BASE_URL", "\"${devProperties.getProperty("IMDB_TAPFRAME_API_BASE_URL", localProperties.getProperty("IMDB_TAPFRAME_API_BASE_URL", ""))}\"")
             buildConfigField("String", "SUPPORTERS_API_BASE_URL", buildConfigString(resolveProperty(devProperties, localProperties, "SUPPORTERS_API_BASE_URL", "https://nuvio.tv/")))
             buildConfigField("String", "SUPPORT_URL", buildConfigString(resolveProperty(devProperties, localProperties, "SUPPORT_URL", "https://nuvio.tv/support")))
-            buildConfigField("String", "AVATAR_PUBLIC_BASE_URL", "\"${devProperties.getProperty("AVATAR_PUBLIC_BASE_URL", localProperties.getProperty("AVATAR_PUBLIC_BASE_URL", ""))}\"")
+            buildConfigField("String", "AVATAR_PUBLIC_BASE_URL", buildConfigString(devProperties.getProperty("AVATAR_PUBLIC_BASE_URL", localProperties.getProperty("AVATAR_PUBLIC_BASE_URL", boomioServiceUrlOr("", "/storage/v1/object/public/avatars")))))
             buildConfigField("String", "UNIQUE_CONTRIBUTIONS_BASE_URL", "\"${devProperties.getProperty("UNIQUE_CONTRIBUTIONS_BASE_URL", localProperties.getProperty("UNIQUE_CONTRIBUTIONS_BASE_URL", ""))}\"")
             buildConfigField("String", "PLAYBACK_REPORTS_BASE_URL", buildConfigString(resolveProperty(devProperties, localProperties, "PLAYBACK_REPORTS_BASE_URL")))
-            buildConfigField("String", "BSM_BASE_URL", buildConfigString(resolveProperty(devProperties, localProperties, "BSM_BASE_URL")))
+            buildConfigField("String", "BSM_BASE_URL", buildConfigString(resolveProperty(devProperties, localProperties, "BSM_BASE_URL", boomioServiceUrl("/bsm"))))
             buildConfigField("String", "PREMIUMIZE_CLIENT_ID", "\"${devProperties.getProperty("PREMIUMIZE_CLIENT_ID", localProperties.getProperty("PREMIUMIZE_CLIENT_ID", ""))}\"")
             buildConfigField("String", "SPONSOR_NAMES", buildConfigString(sponsorNames))
         }
@@ -292,11 +319,11 @@ android {
             buildConfigField("String", "SENTRY_ENVIRONMENT", buildConfigString("production"))
 
             // Production environment (from local.properties)
-            buildConfigField("String", "SUPABASE_URL", buildConfigString(localProperties.getProperty("NUVIO_SUPABASE_URL", "")))
+            buildConfigField("String", "SUPABASE_URL", buildConfigString(localProperties.getProperty("NUVIO_SUPABASE_URL", boomioServiceUrl())))
             buildConfigField("String", "SUPABASE_ANON_KEY", buildConfigString(localProperties.getProperty("NUVIO_SUPABASE_ANON_KEY", "")))
             buildConfigField("String", "SUPABASE_FALLBACK_URL", buildConfigString(localProperties.getProperty("NUVIO_SUPABASE_FALLBACK_URL", "")))
-            buildConfigField("String", "TV_LOGIN_WEB_BASE_URL", "\"${localProperties.getProperty("TV_LOGIN_WEB_BASE_URL", "https://nuvio.tv/tv-login")}\"")
-            buildConfigField("String", "DEVICE_LOGIN_WEB_BASE_URL", "\"${localProperties.getProperty("DEVICE_LOGIN_WEB_BASE_URL", "https://nuvio.tv/link")}\"")
+            buildConfigField("String", "TV_LOGIN_WEB_BASE_URL", buildConfigString(localProperties.getProperty("TV_LOGIN_WEB_BASE_URL", boomioServiceUrlOr("https://nuvio.tv/tv-login", "/tv-login"))))
+            buildConfigField("String", "DEVICE_LOGIN_WEB_BASE_URL", buildConfigString(localProperties.getProperty("DEVICE_LOGIN_WEB_BASE_URL", boomioServiceUrlOr("https://nuvio.tv/link", "/link"))))
             buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${localProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
             buildConfigField("String", "INTRODB_API_URL", "\"${localProperties.getProperty("INTRODB_API_URL", "")}\"")
             buildConfigField("String", "TRAILER_API_URL", "\"${localProperties.getProperty("TRAILER_API_URL", "")}\"")
@@ -304,10 +331,10 @@ android {
             buildConfigField("String", "IMDB_TAPFRAME_API_BASE_URL", "\"${localProperties.getProperty("IMDB_TAPFRAME_API_BASE_URL", "")}\"")
             buildConfigField("String", "SUPPORTERS_API_BASE_URL", buildConfigString(localProperties.getProperty("SUPPORTERS_API_BASE_URL", "https://nuvio.tv/")))
             buildConfigField("String", "SUPPORT_URL", buildConfigString(localProperties.getProperty("SUPPORT_URL", "https://nuvio.tv/support")))
-            buildConfigField("String", "AVATAR_PUBLIC_BASE_URL", "\"${localProperties.getProperty("AVATAR_PUBLIC_BASE_URL", "")}\"")
+            buildConfigField("String", "AVATAR_PUBLIC_BASE_URL", buildConfigString(localProperties.getProperty("AVATAR_PUBLIC_BASE_URL", boomioServiceUrlOr("", "/storage/v1/object/public/avatars"))))
             buildConfigField("String", "UNIQUE_CONTRIBUTIONS_BASE_URL", "\"${localProperties.getProperty("UNIQUE_CONTRIBUTIONS_BASE_URL", "")}\"")
             buildConfigField("String", "PLAYBACK_REPORTS_BASE_URL", buildConfigString(localProperties.getProperty("PLAYBACK_REPORTS_BASE_URL", "")))
-            buildConfigField("String", "BSM_BASE_URL", buildConfigString(localProperties.getProperty("BSM_BASE_URL", "")))
+            buildConfigField("String", "BSM_BASE_URL", buildConfigString(localProperties.getProperty("BSM_BASE_URL", boomioServiceUrl("/bsm"))))
             buildConfigField("String", "PREMIUMIZE_CLIENT_ID", "\"${localProperties.getProperty("PREMIUMIZE_CLIENT_ID", "")}\"")
             buildConfigField("String", "SPONSOR_NAMES", buildConfigString(sponsorNames))
         }
