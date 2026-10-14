@@ -41,8 +41,17 @@ enum class HubKind { MOVIES, TV, ANIME }
  *
  * A hub catalog's real sub-rows are discovered through its drill catalog
  * `rec-<rowId>-drilldown` (tiles, id `rec-<subRowId>`); each tile's own catalog
- * provides the posters shown in the row. Non-hub catalogs of the kind become
- * single-row fallback sections so nothing previously reachable disappears.
+ * provides the posters shown in the row.
+ *
+ * A catalog that is not a `hub-` one carries no sub-rows, so it can only ever
+ * render as a SINGLE row — as a ribbon tab that is a one-row item sitting next
+ * to hubs that already cover the same ground. Those tabs are dropped; they
+ * survive only on a profile with no hubs at all (a fresh profile before its
+ * board is built), so the screen is never empty.
+ *
+ * Rows publish as they arrive and sections load in ribbon order a few at a
+ * time, so the tab the user is looking at fills first instead of waiting behind
+ * every other tab's fetch.
  *
  * Anime is a separate destination: ja-language animation leaves regular
  * rotation entirely, so its `hub-anim*` catalogs are excluded from the MOVIES
@@ -58,6 +67,13 @@ class HubBrowseViewModel @Inject constructor(
 
     companion object {
         private const val MAX_CATALOG_CONCURRENCY = 4
+        /**
+         * Sections in flight. Sections are started in ribbon order, so capping
+         * them keeps the semaphore for the tab on screen instead of sharing it
+         * with every other tab — the first section finishes in a few requests
+         * rather than behind the whole ribbon's worth.
+         */
+        private const val MAX_SECTION_CONCURRENCY = 3
         /** Page size for sub-row content fetches — drill tiles sit on page 0. */
         private const val FETCH_SKIP_STEP = 100
     }
@@ -120,13 +136,24 @@ class HubBrowseViewModel @Inject constructor(
 
             val done = BooleanArray(sources.size)
             val sections = arrayOfNulls<HubBrowseSection>(sources.size)
+            val sectionsInFlight = Semaphore(MAX_SECTION_CONCURRENCY)
             sources.forEachIndexed { index, source ->
                 launch {
-                    val section = loadSection(source)
-                    publishMutex.withLock {
-                        done[index] = true
-                        sections[index] = section
-                        publishInOrder(kind, done, sections)
+                    // Permits are handed out in ribbon order, so the tab on
+                    // screen gets the network first and the tabs behind it
+                    // stream in afterwards.
+                    sectionsInFlight.withPermit {
+                        fun publish(section: HubBrowseSection?) {
+                            sections[index] = section
+                            publishInOrder(kind, done, sections)
+                        }
+                        val section = loadSection(source) { partial ->
+                            publishMutex.withLock { publish(partial) }
+                        }
+                        publishMutex.withLock {
+                            done[index] = true
+                            publish(section)
+                        }
                     }
                 }
             }
@@ -184,9 +211,13 @@ class HubBrowseViewModel @Inject constructor(
         }
         // Hub- catalogs become the grouped sections. Genre first (the browse is
         // "genre on top, action, comedy…" then finer rows); Studios/Extras sink to
-        // the bottom. Non-hub catalogs of the kind append as single-row fallback
-        // sections so nothing previously reachable disappears.
-        return all.filter { it.isHub }.sortedBy { hubSectionRank(it.catalogId) } + all.filterNot { it.isHub }
+        // the bottom. A non-hub catalog of the kind carries no sub-rows, so it can
+        // only ever render one row — as a ribbon tab that is a one-row item beside
+        // hubs that already cover the same ground. It survives only when there is
+        // no hub at all (a fresh profile whose board has not been built yet), so
+        // the screen is never empty.
+        val hubs = all.filter { it.isHub }.sortedBy { hubSectionRank(it.catalogId) }
+        return hubs.ifEmpty { all }
     }
 
     /** Display order for hub- sections, independent of manifest/rows order.
@@ -206,9 +237,14 @@ class HubBrowseViewModel @Inject constructor(
         }
     }
 
-    private suspend fun loadSection(source: SourceSpec): HubBrowseSection? {
+    private suspend fun loadSection(
+        source: SourceSpec,
+        onPartial: suspend (HubBrowseSection) -> Unit
+    ): HubBrowseSection? {
         val rows = if (source.isHub) {
-            loadHubSectionRows(source)
+            loadHubSectionRows(source) { partial ->
+                onPartial(HubBrowseSection(source.catalogId, source.catalogName, partial))
+            }
         } else {
             val ex = fetchRow(source.addonId, source.addonName, source.addonBaseUrl, source.catalogId, source.catalogName, source.type)
             if (ex == null || ex.row.items.isEmpty()) emptyList() else listOf(HubBrowseRow(ex.row, ex.target))
@@ -217,8 +253,15 @@ class HubBrowseViewModel @Inject constructor(
         return HubBrowseSection(id = source.catalogId, groupName = source.catalogName, rows = rows)
     }
 
-    /** Coarse rows for a hub category, via its drill catalog's sub-row tiles. */
-    private suspend fun loadHubSectionRows(source: SourceSpec): List<HubBrowseRow> {
+    /**
+     * Coarse rows for a hub category, via its drill catalog's sub-row tiles.
+     * [onPartial] gets the rows accumulated so far after each one lands, so the
+     * section fills on screen instead of appearing all at once at the end.
+     */
+    private suspend fun loadHubSectionRows(
+        source: SourceSpec,
+        onPartial: suspend (List<HubBrowseRow>) -> Unit
+    ): List<HubBrowseRow> {
         val rowId = source.catalogId.removePrefix("hub-")
         val drillCatalogId = "rec-$rowId$REC_DRILL_SUFFIX"
         val drill = fetchRow(
@@ -233,11 +276,10 @@ class HubBrowseViewModel @Inject constructor(
                 source.addonId, source.addonName, source.addonBaseUrl,
                 source.catalogId, source.catalogName, source.type
             ) ?: return emptyList()
-            return if (hub.row.items.isEmpty()) {
-                emptyList()
-            } else {
-                listOf(HubBrowseRow(hub.row, hub.target))
-            }
+            if (hub.row.items.isEmpty()) return emptyList()
+            val single = listOf(HubBrowseRow(hub.row, hub.target))
+            onPartial(single)
+            return single
         }
         val rows = mutableListOf<HubBrowseRow>()
         for (tile in tiles) {
@@ -247,6 +289,7 @@ class HubBrowseViewModel @Inject constructor(
             ) ?: continue
             if (sub.row.items.isEmpty()) continue
             rows += HubBrowseRow(sub.row, sub.target)
+            onPartial(rows.toList())
         }
         return rows
     }
@@ -276,13 +319,23 @@ class HubBrowseViewModel @Inject constructor(
         return data.extractDrill()
     }
 
-    /** Emit the contiguous done-prefix so sections stream in manifest order. */
+    /**
+     * Emit the contiguous done-prefix so sections stream in manifest order, plus
+     * the one section still being filled at the frontier — that is the tab on
+     * screen, so its rows paint as they land instead of at the end.
+     */
     private fun publishInOrder(kind: HubKind, done: BooleanArray, sections: Array<HubBrowseSection?>) {
         val out = mutableListOf<HubBrowseSection>()
         var i = 0
-        while (i < done.size && done[i]) {
-            sections[i]?.let { out += it }
-            i++
+        while (i < done.size) {
+            val section = sections[i]
+            if (done[i]) {
+                section?.let { out += it }
+                i++
+            } else {
+                section?.let { out += it }
+                break
+            }
         }
         val allDone = done.all { it }
         _state.value = HubBrowseUiState(
