@@ -64,6 +64,15 @@ class PublicListsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(PublicListsUiState(pressedTitle = title))
     val uiState: StateFlow<PublicListsUiState> = _uiState.asStateFlow()
 
+    /**
+     * The source behind each rendered row, by row key, so the row can be paged further
+     * without the screen having to hold on to Trakt ids.
+     */
+    private val rowSources = mutableMapOf<String, TraktCollectionSource>()
+
+    /** Rows with a page in flight, so scrolling at the end cannot stack requests. */
+    private val pagingRows = mutableSetOf<String>()
+
     init {
         posterOptions.bind(viewModelScope)
         load()
@@ -74,6 +83,10 @@ class PublicListsViewModel @Inject constructor(
     private fun load() {
         viewModelScope.launch {
             _uiState.value = PublicListsUiState(pressedTitle = title, isLoading = true)
+            // The rows are rebuilt from scratch, so what the old ones knew about paging goes
+            // with them.
+            rowSources.clear()
+            pagingRows.clear()
 
             val found = runCatching {
                 traktLibraryService.getPublicListsContaining(
@@ -132,9 +145,56 @@ class PublicListsViewModel @Inject constructor(
         )
         // The flow emits Loading first, then one terminal Success or Error. Take the
         // terminal one; a null here is a list we cannot render, counted as unavailable.
-        return traktPublicListSourceResolver.resolve(source)
+        val row = traktPublicListSourceResolver.resolve(source)
             .firstOrNull { it !is NetworkResult.Loading }
             ?.let { (it as? NetworkResult.Success<CatalogRow>)?.data }
+        if (row != null) rowSources[row.catalogId] = source
+        return row
+    }
+
+    /**
+     * Put the next page of [rowKey] on the end of that row, for the screen to call as the row's
+     * last cards come into view.
+     *
+     * One page here is [TraktPublicListSourceResolver.PAGE_LIMIT] titles, so without this a
+     * list is exactly one screen-and-a-bit wide no matter how many titles it holds. The merge
+     * is the collection folder's: ids already in the row are dropped, and a page that adds
+     * nothing ends the row so the scroll cannot keep asking for it.
+     */
+    fun loadMore(rowKey: String) {
+        val source = rowSources[rowKey] ?: return
+        val row = _uiState.value.rows.firstOrNull { it.catalogId == rowKey } ?: return
+        if (!row.hasMore || row.isLoading || !pagingRows.add(rowKey)) return
+
+        _uiState.update { state ->
+            state.copy(rows = state.rows.map { existing ->
+                if (existing.catalogId == rowKey) existing.copy(isLoading = true) else existing
+            })
+        }
+
+        viewModelScope.launch {
+            val page = runCatching {
+                traktPublicListSourceResolver.resolve(source, row.currentPage + 1)
+                    .firstOrNull { it !is NetworkResult.Loading }
+            }.getOrNull()?.let { (it as? NetworkResult.Success<CatalogRow>)?.data }
+
+            val existingKeys = row.items.mapTo(mutableSetOf()) { "${it.apiType}:${it.id}" }
+            val added = page?.items.orEmpty().filter { "${it.apiType}:${it.id}" !in existingKeys }
+
+            _uiState.update { state ->
+                state.copy(rows = state.rows.map { existing ->
+                    if (existing.catalogId != rowKey) existing
+                    else if (page == null) existing.copy(isLoading = false)
+                    else existing.copy(
+                        items = existing.items + added,
+                        hasMore = page.hasMore && added.isNotEmpty(),
+                        currentPage = page.currentPage,
+                        isLoading = false
+                    )
+                })
+            }
+            pagingRows.remove(rowKey)
+        }
     }
 
     /**

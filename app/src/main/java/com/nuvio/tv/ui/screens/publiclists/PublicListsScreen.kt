@@ -162,8 +162,10 @@ fun PublicListsScreen(
                             },
                             // A list can hold more titles than the page we fetched, but this
                             // screen has no "see all" destination of its own, and a dead See
-                            // all card is worse than an honest horizontal row.
+                            // all card is worse than an honest horizontal row. The row pages
+                            // itself instead, as its last cards come into view.
                             showSeeAll = false,
+                            onEndReached = { viewModel.loadMore(row.catalogId) },
                             posterCardStyle = posterCardStyle,
                             // The type is implied by the title that was pressed; spelling it
                             // out on every row header would be eight repetitions of "Movies".
