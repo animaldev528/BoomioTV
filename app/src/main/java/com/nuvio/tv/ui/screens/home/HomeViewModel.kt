@@ -220,6 +220,12 @@ class HomeViewModel @Inject constructor(
     internal val catalogItemKeyIndex = mutableMapOf<String, MutableSet<String>>()
     internal val catalogOrder = mutableListOf<String>()
     internal var addonsCache: List<Addon> = emptyList()
+    /**
+     * The rows each `rec-_home` parent stands for, keyed by [homeHubTileKey]. Populated at the
+     * start of a load ([loadHomeHubTiles]); an addon with no entry here has no parent, or a
+     * parent whose tiles could not be read, and is treated as one ordinary row.
+     */
+    internal var homeHubTiles: Map<String, List<HomeHubTile>> = emptyMap()
     internal var collectionsCache: List<Collection> = emptyList()
     internal var homeCatalogOrderKeys: List<String> = emptyList()
     internal var disabledHomeCatalogKeys: Set<String> = emptySet()

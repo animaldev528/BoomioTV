@@ -202,6 +202,10 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
             return
         }
 
+        // A parent catalog (rec-_home) stands for the whole ribbon, so read its tiles before
+        // the order and the load below: both must see the rows the parent names, not the
+        // parent itself. Cheap and off-path when the addon publishes no parent.
+        loadHomeHubTiles(addons)
         rebuildCatalogOrder(addons)
 
         // Hero has its own catalog sources (heroCatalogKeys) configured
@@ -230,7 +234,9 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
                         catalogName = it.name
                     )
                 }
-                .map { catalog -> addon to catalog }
+                // One entry per row of the ribbon: a parent catalog expands into the rows it
+                // names (its tiles), everything else stays itself.
+                .flatMap { catalog -> homeHubRows(addon, catalog) ?: listOf(addon to catalog) }
         }
 
         // Load hero-selected catalogs even if disabled from home rows —
@@ -1170,6 +1176,30 @@ internal fun HomeViewModel.mergeRefreshedCatalogRow(
 
 
 internal fun HomeViewModel.refreshVisibleCatalogsPipeline(requestedByUser: Boolean = false) {
+    val hasParent = addonsCache.any { addon ->
+        addon.catalogs.any { it.id == REC_HOME_HUB_CATALOG_ID }
+    }
+    if (!hasParent) {
+        refreshLoadedCatalogRowsPipeline(requestedByUser)
+        return
+    }
+    // The board itself may have changed since this session's load, and a changed row list is
+    // the one thing a cold launch used to be needed for. Re-read the parent first: when it
+    // moved, rebuild the ribbon rather than patching rows that no longer describe the board.
+    viewModelScope.launch {
+        val previousTiles = homeHubTiles
+        loadHomeHubTiles(addonsCache)
+        if (homeHubTiles != previousTiles) {
+            Log.d(HomeViewModel.TAG, "Home ribbon changed upstream — rebuilding the row list")
+            loadAllCatalogsPipeline(addonsCache)
+            return@launch
+        }
+        refreshLoadedCatalogRowsPipeline(requestedByUser)
+    }
+}
+
+/** Re-request page 1 of each catalog the ribbon is already showing, and swap it in place. */
+private fun HomeViewModel.refreshLoadedCatalogRowsPipeline(requestedByUser: Boolean) {
     val loadedKeys = synchronized(catalogStateLock) { catalogsMap.keys.toSet() }
     if (loadedKeys.isEmpty()) return
 

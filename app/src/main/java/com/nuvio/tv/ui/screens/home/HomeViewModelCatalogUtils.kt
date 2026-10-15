@@ -302,13 +302,19 @@ private fun HomeViewModel.buildDefaultCatalogOrder(addons: List<Addon>): List<St
                 )
             }
             .forEach { catalog ->
-                val key = catalogKey(
-                    addonId = addon.id,
-                    type = catalog.apiType,
-                    catalogId = catalog.id
-                )
-                if (key !in orderedKeys) {
-                    orderedKeys.add(key)
+                // A parent catalog (rec-_home) is not a row: it is the whole ribbon, and the
+                // keys are those of the rows it names, in tile order. An unknown or unreadable
+                // parent falls back to one key, so it stays one (tile) row.
+                val rows = homeHubRows(addon, catalog) ?: listOf(addon to catalog)
+                rows.forEach { (rowAddon, rowCatalog) ->
+                    val key = catalogKey(
+                        addonId = rowAddon.id,
+                        type = rowCatalog.apiType,
+                        catalogId = rowCatalog.id
+                    )
+                    if (key !in orderedKeys) {
+                        orderedKeys.add(key)
+                    }
                 }
             }
     }
