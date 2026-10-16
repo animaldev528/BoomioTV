@@ -82,6 +82,12 @@ fun CatalogRowSection(
     onSeeAll: () -> Unit = {},
     showSeeAll: Boolean = catalogRow.hasMore || catalogRow.items.size >= 15,
     seeAllLabel: String? = null,
+    /**
+     * Called when the row's last cards come into view while [CatalogRow.hasMore] is set, so a
+     * caller can page the row in place instead of asking the user to press a card. Null (the
+     * default) leaves the row exactly as it was: nothing here fires on its own.
+     */
+    onEndReached: (() -> Unit)? = null,
     posterCardStyle: PosterCardStyle = PosterCardDefaults.Style,
     showPosterLabels: Boolean = true,
     showImdbRatings: Boolean = true,
@@ -213,6 +219,28 @@ fun CatalogRowSection(
 
     val latestOnItemClick by rememberUpdatedState(onItemClick)
     val latestOnSeeAll by rememberUpdatedState(onSeeAll)
+    val latestOnEndReached by rememberUpdatedState(onEndReached)
+
+    if (onEndReached != null) {
+        // Within a few cards of the end counts as reached, so the next page is in flight
+        // before the user actually lands on the last card.
+        val endReachedLookahead = 3
+        val endOfRowInView by remember(listState) {
+            derivedStateOf {
+                val info = listState.layoutInfo
+                val lastVisible = info.visibleItemsInfo.lastOrNull()?.index
+                    ?: return@derivedStateOf false
+                lastVisible >= info.totalItemsCount - endReachedLookahead
+            }
+        }
+        // Keyed on the item count as well as on the flag: a page that lands while the
+        // viewport is still at the end (the append did not push the end out of sight) asks
+        // for the one after it rather than going quiet. A page that fails leaves the count
+        // where it was, so this does not become a retry loop.
+        LaunchedEffect(endOfRowInView, catalogRow.hasMore, catalogRow.items.size) {
+            if (endOfRowInView && catalogRow.hasMore) latestOnEndReached?.invoke()
+        }
+    }
     val latestOnItemFocus by rememberUpdatedState(onItemFocus)
     val latestIsItemWatched by rememberUpdatedState(isItemWatched)
     val latestOnItemLongPress by rememberUpdatedState(onItemLongPress)
