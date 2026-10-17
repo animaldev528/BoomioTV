@@ -47,6 +47,19 @@ internal fun derivePinnableHosts(urls: Iterable<String>): Set<String> = urls.asS
  */
 internal fun localServerHostCandidates(): List<String> = listOf(
     ServerConfigurationRepository.active.value.backendUrl,
+    // ⚠️ **[BoomioConfig.serviceOrigin] belongs here, and leaving it out was a real gap.**
+    // Every media URL is built on this origin — `https://boomio.duckdns.org/bss-dav/proxy/…`
+    // — so the host the media plane dials is the *service* host, which is none of the four
+    // planes below. Without it the media plane matched no candidate: never carried by the
+    // relay, never pinned to a discovered literal, so it fell through to ordinary DNS `A`.
+    // Measured 2026-10-13: that record is pointed at the server's *private* address
+    // (`boomio.duckdns.org A 192.168.68.65` — see the ⚠️ on [BoomioConfig.overlayEndpoint]),
+    // so it works only while the client is on the LAN, which is the precise trap the
+    // discovery record's `lan`/`wan` literals exist to avoid.
+    //
+    // Read live, like every other candidate: [BoomioConfig.serviceOrigin] is rewritten when
+    // the record's `svc=` is applied, and the allow-set has to move with it.
+    BoomioConfig.serviceOrigin,
     BoomioConfig.companionBaseUrl,
     BoomioConfig.iptvBaseUrl,
     BoomioConfig.boomioBaseUrl,

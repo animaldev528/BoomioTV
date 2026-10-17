@@ -306,11 +306,15 @@ class OverlayRelayTest {
 
     @Test
     fun `a connect without credentials is refused with 407 and dials nothing`() {
-        // ⚠️ **The load-bearing test of the whole file.** The allow-set is a routing rule,
-        // not a gate, so an unauthenticated relay is a free general-purpose proxy for
-        // every other app on the phone. The second assertion is the other half: a refusal
-        // must happen *before* the dial, or an unauthenticated caller can still use the
-        // relay to probe the network.
+        // ⚠️ **The load-bearing test of the whole file.** With no credential the allow-set
+        // stops being a routing rule and becomes *the gate*, so an unauthenticated relay
+        // must never dial a host the user did not name — otherwise it is a free
+        // general-purpose proxy for every other app on the phone. The second assertion is
+        // the other half: the refusal must happen *before* the dial, or an unauthenticated
+        // caller could still use the relay to probe the network.
+        //
+        // The allow-set here is empty. That is the case the *real* app never runs in, and it
+        // is exactly what the test below (carried) exists to complement.
         val spy = SpyDialer()
         val handle = assertNotNull(startRelay(carried = spy, direct = spy))
 
@@ -321,6 +325,42 @@ class OverlayRelayTest {
 
         assertTrue(response.startsWith("HTTP/1.1 407"), "expected 407, got: $response")
         assertEquals(emptyList(), spy.dialled)
+    }
+
+    @Test
+    fun `a connect without credentials is carried when the host is in the allow set`() {
+        // ⚠️ **The other half of the pair, and the reason the relay can serve libmpv at all.**
+        // FFmpeg — libmpv's HTTP — cannot put a `Proxy-Authorization` on a CONNECT under any
+        // configuration: it drops the proxy URL's userinfo, has no proxy-credential option,
+        // and does not emit caller-supplied headers on the tunnel request (all three measured
+        // 2026-10-13; see `isProxyAuthorized`). Before this widening every mpv load died here
+        // with a 407 in ~7 ms, without a packet leaving the device — which is precisely the
+        // "building player… then it quits" the demo unit reported.
+        //
+        // The admission is deliberately narrow: no credential **and** a host the user already
+        // named. What is asserted is *which* dialler ran — carried, never direct. DIRECT is
+        // reachable by any co-resident app that guesses the loopback port, so answering it
+        // here would turn this into the open proxy the test above exists to prevent.
+        //
+        // The 502 is the spy dialler having no target to dial, not a refusal.
+        val carried = SpyDialer()
+        val direct = SpyDialer()
+        val handle = assertNotNull(
+            startRelay(
+                carried = carried,
+                direct = direct,
+                allow = { setOf("bss-tor.tracemonkey.org") },
+            ),
+        )
+
+        val response = request(
+            handle,
+            "CONNECT bss-tor.tracemonkey.org:443 HTTP/1.1\r\nHost: bss-tor.tracemonkey.org:443\r\n",
+        )
+
+        assertTrue(response.startsWith("HTTP/1.1 502"), "expected a dial attempt, got: $response")
+        assertEquals(listOf("bss-tor.tracemonkey.org:443"), carried.dialled)
+        assertEquals(emptyList(), direct.dialled)
     }
 
     @Test
