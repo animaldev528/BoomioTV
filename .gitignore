@@ -69,3 +69,6 @@ status-page/
 SIGNING.txt
 build.log
 .nuvio-fork/
+
+# Fetched from the mpv-openssl-0.1.12 release asset (116 MB, over GitHub's file limit)
+app/libs/mpv-android-lib-0.1.12-openssl.aar

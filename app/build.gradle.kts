@@ -122,6 +122,31 @@ val releaseKeyPasswordValue = env("NUVIO_RELEASE_KEY_PASSWORD")
 val releaseStorePasswordValue = env("NUVIO_RELEASE_STORE_PASSWORD")
     ?: localProperties.getProperty("NUVIO_RELEASE_STORE_PASSWORD", "815787")
 
+// ── Bundled mpv (OpenSSL build) ─────────────────────────────────────────────
+// The artifact is 116 MB, over GitHub's 100 MB per-file limit, so it lives as a release
+// asset rather than in the tree. This fetches it into app/libs/ when missing; a checkout
+// that already has the file builds offline.
+val mpvOpensslAarUrl =
+    "https://github.com/animaldev528/BoomioTV/releases/download/mpv-openssl-0.1.12/mpv-android-lib-0.1.12-openssl.aar"
+
+val fetchMpvOpensslAar = tasks.register("fetchMpvOpensslAar") {
+    val dest = layout.projectDirectory.file("libs/mpv-android-lib-0.1.12-openssl.aar").asFile
+    outputs.file(dest)
+    doLast {
+        if (dest.exists()) {
+            logger.lifecycle("mpv OpenSSL AAR already present: ${dest.path}")
+            return@doLast
+        }
+        logger.lifecycle("fetching $mpvOpensslAarUrl")
+        dest.parentFile.mkdirs()
+        java.net.URI.create(mpvOpensslAarUrl).toURL().openStream().use { input ->
+            dest.outputStream().use { input.copyTo(it) }
+        }
+    }
+}
+
+tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(fetchMpvOpensslAar) }
+
 android {
     namespace = "com.nuvio.tv"
     compileSdk = 36
@@ -131,7 +156,7 @@ android {
         applicationId = "com.nuvio.tv"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1063
+        versionCode = 1068
         versionName = "1.0.0"
 
         // Brand scheme this distribution answers to in `AndroidManifest.xml`.
@@ -601,7 +626,12 @@ dependencies {
     // In-app VPN overlay: wireguard-go + gVisor netstack, built with gomobile.
     // Carries jni/arm64-v8a and jni/armeabi-v7a libgojni.so.
     implementation(files("libs/lib-overlaywg-release.aar"))
-    implementation("io.github.abdallahmehiz:mpv-android-lib:0.1.12")
+    // Bundled mpv, rebuilt with --enable-openssl instead of --enable-mbedtls. The stock
+    // JitPack artifact's FFmpeg speaks mbedTLS, and the deployment's Go/Caddy TLS 1.3
+    // listener rejects its client flight, so mpv could not play through the overlay relay.
+    // The build carries the pinned FFmpeg commit (a7522f3fef) libmpv itself was built
+    // against; see fetchMpvOpensslAar above for how the artifact arrives.
+    implementation(files("libs/mpv-android-lib-0.1.12-openssl.aar"))
     implementation("dev.chrisbanes.haze:haze-android:1.7.2") {
         exclude(group = "org.jetbrains.compose.ui")
         exclude(group = "org.jetbrains.compose.foundation")
