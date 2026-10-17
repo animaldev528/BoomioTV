@@ -10,6 +10,8 @@ plugins {
 }
 
 import java.io.File
+import java.io.InputStream
+import java.net.URI
 import java.util.Properties
 
 fun parseBooleanProperty(value: String?): Boolean {
@@ -139,7 +141,7 @@ val fetchMpvOpensslAar = tasks.register("fetchMpvOpensslAar") {
         }
         logger.lifecycle("fetching $mpvOpensslAarUrl")
         dest.parentFile.mkdirs()
-        java.net.URI.create(mpvOpensslAarUrl).toURL().openStream().use { input ->
+        URI.create(mpvOpensslAarUrl).toURL().openStream().use { input: InputStream ->
             dest.outputStream().use { input.copyTo(it) }
         }
     }
