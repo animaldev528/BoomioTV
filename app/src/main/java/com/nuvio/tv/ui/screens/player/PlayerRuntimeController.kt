@@ -680,6 +680,9 @@ class PlayerRuntimeController(
     // attempt is forced to libdovi mode 1 before falling back to HDR10 base layer.
     internal val dv7Mode1ForcedStreamUrls: MutableSet<String> = mutableSetOf()
     internal val vc1TrackSelectionBypassStreamUrls: MutableSet<String> = mutableSetOf()
+    // Streams where the platform MediaCodec audio decoder rejected a codec that the
+    // bundled FFmpeg renderer handles (FLAC-in-Matroska): force EXTENSION_RENDERER_MODE_PREFER.
+    internal val flacSoftwarePreferredStreamUrls: MutableSet<String> = mutableSetOf()
     // Offers already reported and failed over because this device's own decode ceiling says it
     // cannot play them. The tracks callback fires repeatedly for one stream, so without this the
     // report and the engine switch would both repeat with it. Keyed on the stream URL, so a
@@ -691,6 +694,7 @@ class PlayerRuntimeController(
     internal var isManualDv81Mode2ActiveForCurrentPlayback: Boolean = false
     internal var isExperimentalDv7ToDv81ActiveForCurrentPlayback: Boolean = false
     internal var isVc1TrackSelectionBypassActiveForCurrentPlayback: Boolean = false
+    internal var isFlacSoftwareFallbackActiveForCurrentPlayback: Boolean = false
     internal var isSafeAudioModeActiveForCurrentPlayback: Boolean = false
     internal var isAudioDisabledForCurrentPlayback: Boolean = false
     internal var hasAttemptedDv7ToDv81ForCurrentPlayback: Boolean = false
