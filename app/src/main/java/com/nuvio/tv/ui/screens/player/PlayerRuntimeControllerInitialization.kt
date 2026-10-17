@@ -862,6 +862,10 @@ internal fun PlayerRuntimeController.initializePlayer(
             val codecSelector = createDolbyVisionFallbackCodecSelector(
                 convertToDv81Active = convertToDv81Active
             )
+            // FLAC-in-Matroska: MediaCodec advertises audio/flac and then rejects the MKV
+            // framing at runtime, so a retry for this stream prefers the FFmpeg decoder.
+            val flacSoftwareFallbackActive = flacSoftwarePreferredStreamUrls.contains(url)
+            isFlacSoftwareFallbackActiveForCurrentPlayback = flacSoftwareFallbackActive
             // Bluetooth media sink (A2DP / LE Audio): Media3 only advertises PCM. Do not attempt
             // optical/HDMI passthrough — decode to PCM and let the BT stack encode SBC/AAC/aptX/LDAC.
             val isBluetoothAudioOutput = currentAudioOutputRoute?.isBluetooth == true ||
@@ -873,6 +877,7 @@ internal fun PlayerRuntimeController.initializePlayer(
             // Prefer FFmpeg/extension audio decoder on BT so multi-channel TrueHD/DTS always
             // decode to stereo PCM even when the platform MediaCodec path is flaky.
             val effectiveDecoderPriority = if (
+                flacSoftwareFallbackActive ||
                 hasTriedAudioPcmFallback ||
                 isForcePassthroughActive ||
                 isBluetoothAudioOutput
@@ -1529,6 +1534,25 @@ internal fun PlayerRuntimeController.initializePlayer(
                             val audioRendererFailed = failingMime == null ||
                                 MimeTypes.isAudio(failingMime)
                             if (audioRendererFailed) {
+                                // FLAC-in-Matroska: the platform MediaCodec decoder advertises
+                                // audio/flac but rejects the MKV framing at runtime (index=N
+                                // MediaCodecAudioRenderer "format not supported"). The bundled
+                                // FFmpeg renderer handles MKV FLAC, so force
+                                // EXTENSION_RENDERER_MODE_PREFER on the FIRST failure instead
+                                // of burning the safe-audio / PCM retry budget on a codec that
+                                // MediaCodec will never accept.
+                                val flacFailing = failingMime != null &&
+                                    (failingMime == MimeTypes.AUDIO_FLAC || failingMime == "audio/x-flac")
+                                if (flacFailing && !flacSoftwarePreferredStreamUrls.contains(currentStreamUrl)) {
+                                    flacSoftwarePreferredStreamUrls.add(currentStreamUrl)
+                                    Log.i(
+                                        PlayerRuntimeController.TAG,
+                                        "FLAC_SOFTWARE_FALLBACK: MediaCodec rejected $failingMime; " +
+                                            "forcing FFmpeg audio decoder"
+                                    )
+                                    retryCurrentStreamWithFlacSoftwareFallback(currentPosition)
+                                    return
+                                }
                                 if (!isSafeAudioModeActiveForCurrentPlayback) {
                                     safeAudioForcedStreamUrls.add(currentStreamUrl)
                                     retryCurrentStreamWithSafeAudioFallback(currentPosition)
@@ -2140,6 +2164,7 @@ internal fun PlayerRuntimeController.resetLoadingOverlayForNewStream() {
     hasAttemptedDv7ToDv81ForCurrentPlayback = false
     isExperimentalDv7ToDv81ActiveForCurrentPlayback = false
     isVc1TrackSelectionBypassActiveForCurrentPlayback = false
+    isFlacSoftwareFallbackActiveForCurrentPlayback = false
     isSafeAudioModeActiveForCurrentPlayback = false
     isAudioDisabledForCurrentPlayback = false
     dv7ToDv81BridgeVersionForCurrentPlayback = null

@@ -765,6 +765,10 @@ internal fun PlayerRuntimeController.retryCurrentStreamWithVc1TrackSelectionBypa
     scheduleDeferredPlayerReinitialize(fromPositionMs = fromPositionMs)
 }
 
+internal fun PlayerRuntimeController.retryCurrentStreamWithFlacSoftwareFallback(fromPositionMs: Long) {
+    scheduleDeferredPlayerReinitialize(fromPositionMs = fromPositionMs)
+}
+
 internal fun PlayerRuntimeController.cancelFirstFrameWatchdog() {
     firstFrameWatchdogJob?.cancel()
     firstFrameWatchdogJob = null
