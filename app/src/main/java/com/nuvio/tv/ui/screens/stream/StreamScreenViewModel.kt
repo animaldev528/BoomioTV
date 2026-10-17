@@ -510,7 +510,7 @@ class StreamScreenViewModel @Inject constructor(
                 val mergedGroups = if (mergedAddonStreams.none { it.addonName == BoomioStreamResolver.ADDON_NAME }) {
                     _uiState.value.addonStreams
                         .firstOrNull { it.addonName == BoomioStreamResolver.ADDON_NAME }
-                        ?.let { mergedAddonStreams + it }
+                        ?.let { boomio -> listOf(boomio) + mergedAddonStreams }
                         ?: mergedAddonStreams
                 } else {
                     mergedAddonStreams
@@ -932,7 +932,7 @@ class StreamScreenViewModel @Inject constructor(
                         addonLogo = null,
                         streams = streams
                     )
-                    val updatedGroups = state.addonStreams + boomioGroup
+                    val updatedGroups = listOf(boomioGroup) + state.addonStreams
                     val updatedAllStreams = updatedGroups.flatMap { it.streams }
                     val currentFilter = state.selectedAddonFilter
                     val filteredStreams = if (currentFilter == null) {
