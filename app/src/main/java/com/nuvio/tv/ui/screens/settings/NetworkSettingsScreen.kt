@@ -74,7 +74,9 @@ import com.nuvio.app.core.overlay.OverlayEndpointDiscovery
 import com.nuvio.app.core.overlay.OverlayEndpointState
 import com.nuvio.app.core.overlay.OverlayEndpointStatus
 import com.nuvio.app.core.overlay.OverlayLocalDiscovery
+import com.nuvio.app.core.overlay.OverlaySession
 import com.nuvio.app.core.overlay.OverlayTunnel
+import com.nuvio.app.core.overlay.OverlayTunnelUiState
 import com.nuvio.app.features.boomio.BoomioLinkFailure
 import com.nuvio.app.features.boomio.BoomioLinkState
 import com.nuvio.app.features.boomio.BoomioSessionRepository
@@ -210,6 +212,7 @@ fun AdvancedSettingsContent(
     // gated on the PAIR rather than on either one -- see the comment at the item.
     val localServerStatus by LocalServerState.status.collectAsStateWithLifecycle()
     val overlayEndpointStatus by OverlayEndpointState.status.collectAsStateWithLifecycle()
+    val tunnelState by OverlaySession.connectionState.collectAsStateWithLifecycle()
     // The link gate's own state, read here rather than inside the item so that the section's
     // visibility can depend on it -- see the third disjunct.
     val boomioSession by BoomioSessionRepository.session.collectAsStateWithLifecycle()
@@ -593,6 +596,33 @@ fun AdvancedSettingsContent(
                             OverlayEndpointDiscovery.refreshAsync()
                             OverlayTunnel.refreshAsync()
                         }
+                    )
+                    SettingsActionRow(
+                        title = stringResource(R.string.overlay_connection_title),
+                        subtitle = overlayConnectionText(tunnelState),
+                        // ⚠️ The label is the action, not the state. A row that reads
+                        // "Connected" is one the user presses to find out what happens; a row
+                        // that reads "Disconnect" is one they press on purpose.
+                        value = if (tunnelState is OverlayTunnelUiState.Connected) {
+                            stringResource(R.string.overlay_connection_disconnect)
+                        } else {
+                            stringResource(R.string.overlay_connection_reconnect)
+                        },
+                        onClick = {
+                            // Real teardown, remembered across restarts -- see OverlaySession.
+                            // The projection above is what comes back, so the row can never
+                            // disagree with the device for longer than one frame.
+                            if (tunnelState is OverlayTunnelUiState.Connected) {
+                                OverlaySession.disconnect()
+                            } else {
+                                OverlaySession.reconnect()
+                            }
+                        },
+                        // Nothing to reconnect to before the ladder has any answer at all. Once
+                        // the user has disconnected by hand it stays live even from `Idle`:
+                        // Reconnect re-walks the ladders, so it is their retry button too.
+                        enabled = tunnelState !is OverlayTunnelUiState.Down ||
+                            overlayEndpointStatus !is OverlayEndpointStatus.Idle
                     )
                 }
             }
@@ -1006,6 +1036,27 @@ private fun NetworkMetricCard(
  * by `OverlayEndpointDiscovery`, which does not own a status slot, so this arm exists to keep the
  * `when` exhaustive rather than because it draws.
  */
+/**
+ * What the Private tunnel row says under its title.
+ *
+ * ⚠️ **`Disconnected` and `Down` are different sentences on purpose.** `Down` is the app's
+ * answer before anything has happened -- on a cold start, or while enrollment has not supplied
+ * an address -- and telling someone "you disconnected" when they did not would send them
+ * looking for a switch they never touched. Only [OverlayTunnelUiState.Disconnected] means a
+ * person asked for this, and only that one promises the state will hold.
+ *
+ * ⚠️ **The failure reason is shown verbatim.** It is the AAR's own words about why `up()`
+ * refused, and paraphrasing it here would make it unsearchable in a log or an issue.
+ */
+@Composable
+internal fun overlayConnectionText(state: OverlayTunnelUiState): String = when (state) {
+    OverlayTunnelUiState.Connected -> stringResource(R.string.overlay_connection_connected)
+    OverlayTunnelUiState.Disconnected -> stringResource(R.string.overlay_connection_disconnected)
+    OverlayTunnelUiState.Down -> stringResource(R.string.overlay_connection_down)
+    is OverlayTunnelUiState.Failed ->
+        stringResource(R.string.overlay_connection_failed, state.reason)
+}
+
 @Composable
 internal fun overlayStatusText(
     local: LocalServerStatus,

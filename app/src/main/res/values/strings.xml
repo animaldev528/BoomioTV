@@ -506,6 +506,13 @@
     <!-- Server connection (the VPN overlay). Shown in Advanced; the section is gated on both
          discovery statuses at once, so a device with no server on its network sees nothing. -->
     <string name="overlay_section_title">Server connection</string>
+    <string name="overlay_connection_title">Private tunnel</string>
+    <string name="overlay_connection_disconnect">Disconnect</string>
+    <string name="overlay_connection_reconnect">Reconnect</string>
+    <string name="overlay_connection_connected">Connected \u2014 traffic is taking the WireGuard overlay</string>
+    <string name="overlay_connection_disconnected">Disconnected \u2014 the tunnel stays down until you reconnect</string>
+    <string name="overlay_connection_down">Not connected yet</string>
+    <string name="overlay_connection_failed">Could not connect: %1$s</string>
     <string name="overlay_status_title">Boomio server</string>
     <string name="overlay_status_recheck">Check again</string>
     <string name="overlay_status_searching">Looking for the server\u2026</string>
