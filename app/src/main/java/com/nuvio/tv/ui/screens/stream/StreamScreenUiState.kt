@@ -36,6 +36,11 @@ data class StreamScreenUiState(
     val autoPlayStream: Stream? = null,
     val autoPlayPlaybackInfo: StreamPlaybackInfo? = null,
     val error: String? = null,
+    // Why boomio returned nothing, when boomio itself is the reason — a
+    // household bandwidth budget that is fully in use, or one where no source
+    // fits. Shown only if no other source produced a stream, so the addons keep
+    // priority over an explanation from a fallback resolver.
+    val boomioMessage: String? = null,
     val playbackErrorMessage: String? = null
 ) {
     val isEpisode: Boolean get() = season != null && episode != null

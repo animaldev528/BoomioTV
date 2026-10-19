@@ -441,6 +441,10 @@ fun StreamScreen(
                 RightStreamSection(
                     isLoading = uiState.isLoading,
                     error = uiState.error,
+                    // Only when nothing at all came back: boomio is a fallback
+                    // source, and its explanation must not replace a picker the
+                    // addons filled.
+                    emptyMessage = uiState.boomioMessage.takeIf { uiState.allStreams.isEmpty() },
                     streams = uiState.filteredStreams,
                     availableAddons = uiState.availableAddons,
                     sourceChips = uiState.sourceChips,
@@ -723,6 +727,7 @@ private fun LeftContentSection(
 private fun RightStreamSection(
     isLoading: Boolean,
     error: String?,
+    emptyMessage: String? = null,
     streams: List<Stream>,
     availableAddons: List<String>,
     sourceChips: List<SourceChipItem>,
@@ -903,7 +908,7 @@ private fun RightStreamSection(
                         )
                     }
                     streams.isEmpty() -> {
-                        EmptyState()
+                        EmptyState(message = emptyMessage)
                     }
                     else -> {
                         StreamsList(
@@ -998,27 +1003,33 @@ private fun ErrorState(
 }
 
 @Composable
-private fun EmptyState() {
+private fun EmptyState(message: String? = null) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
         modifier = Modifier.padding(NuvioTheme.spacing.xxl)
     ) {
         Text(
-            text = stringResource(R.string.stream_no_streams),
+            // boomio's own explanation when it has one — the household
+            // bandwidth budget being in use is not "no streams exist", and
+            // saying so is the difference between the user retrying and the
+            // user checking their addons for nothing.
+            text = message ?: stringResource(R.string.stream_no_streams),
             style = MaterialTheme.typography.bodyLarge,
             color = NuvioTheme.extendedColors.textSecondary,
             textAlign = TextAlign.Center
         )
 
-        Spacer(modifier = Modifier.height(NuvioTheme.spacing.md))
+        if (message == null) {
+            Spacer(modifier = Modifier.height(NuvioTheme.spacing.md))
 
-        Text(
-            text = stringResource(R.string.stream_no_streams_hint),
-            style = MaterialTheme.typography.bodyMedium,
-            color = NuvioTheme.extendedColors.textSecondary,
-            textAlign = TextAlign.Center
-        )
+            Text(
+                text = stringResource(R.string.stream_no_streams_hint),
+                style = MaterialTheme.typography.bodyMedium,
+                color = NuvioTheme.extendedColors.textSecondary,
+                textAlign = TextAlign.Center
+            )
+        }
     }
 }
 

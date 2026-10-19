@@ -115,6 +115,26 @@ internal fun hostScopedCallFactory(
 internal fun boomioOwnHosts(): Set<String> = localServerHosts()
 
 /**
+ * What one `/find` produced: the streams, and — when there are none — why.
+ *
+ * `message` is set only when boomio is the reason for the emptiness (the
+ * household bandwidth budget is in use, or nothing fits inside it), never for a
+ * network or HTTP failure: an unreachable server must stay silent so the addon
+ * sources are the only thing the user sees.
+ */
+data class BoomioResolveResult(
+    val streams: List<Stream>,
+    val failureReason: String? = null,
+    val message: String? = null
+) {
+    val isEmpty: Boolean get() = streams.isEmpty()
+
+    companion object {
+        val EMPTY = BoomioResolveResult(emptyList())
+    }
+}
+
+/**
  * Resolves playback streams through the boomio media plane (`bsf`).
  *
  * boomio exposes:
@@ -169,18 +189,21 @@ class BoomioStreamResolver @Inject constructor(
      * for a movie) with optional [season]/[episode], and returns the resolved
      * streams in boomio's ranked order.
      *
-     * Returns an empty list when the seam is disabled, the id is blank, the
-     * request fails, or boomio returns no streams.
+     * Returns an empty result when the seam is disabled, the id is blank, or the
+     * request fails. A successful request with no streams carries boomio's own
+     * explanation in [BoomioResolveResult.message] when there is one — an empty
+     * list on its own cannot tell "this title has no sources" apart from "the
+     * household's bandwidth budget is in use", and the picker should say which.
      */
-    suspend fun resolve(videoId: String?, season: Int?, episode: Int?): List<Stream> {
-        if (!isEnabled()) return emptyList()
-        val id = videoId?.trim()?.takeIf { it.isNotBlank() } ?: return emptyList()
+    suspend fun resolve(videoId: String?, season: Int?, episode: Int?): BoomioResolveResult {
+        if (!isEnabled()) return BoomioResolveResult.EMPTY
+        val id = videoId?.trim()?.takeIf { it.isNotBlank() } ?: return BoomioResolveResult.EMPTY
         return runCatching {
             resolveUnsafe(id, season, episode)
         }.getOrElse { error ->
             if (error is CancellationException) throw error
             Log.w(TAG, "boomio /find failed for $id: ${error.message}")
-            emptyList()
+            BoomioResolveResult.EMPTY
         }
     }
 
@@ -188,8 +211,8 @@ class BoomioStreamResolver @Inject constructor(
         videoId: String,
         season: Int?,
         episode: Int?
-    ): List<Stream> = withContext(Dispatchers.IO) {
-        val url = buildFindUrl(videoId, season, episode) ?: return@withContext emptyList()
+    ): BoomioResolveResult = withContext(Dispatchers.IO) {
+        val url = buildFindUrl(videoId, season, episode) ?: return@withContext BoomioResolveResult.EMPTY
         val request = Request.Builder().url(url).get().build()
         // The host is read off the built URL rather than off BuildConfig, so a redirect-free route
         // is scoped by what is actually dialled. See [resolveHttpClientFor] for why the choice is
@@ -198,13 +221,25 @@ class BoomioStreamResolver @Inject constructor(
             .newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
                     Log.w(TAG, "boomio /find HTTP ${response.code} for $videoId")
-                    return@withContext emptyList()
+                    return@withContext BoomioResolveResult.EMPTY
                 }
                 val body = response.body?.string().orEmpty()
-                if (body.isBlank()) return@withContext emptyList()
+                if (body.isBlank()) return@withContext BoomioResolveResult.EMPTY
                 val dto = responseAdapter.fromJson(body)
-                dto?.streams.orEmpty().mapNotNull { streamDto ->
+                val streams = dto?.streams.orEmpty().mapNotNull { streamDto ->
                     streamDto.toDomain(addonName = ADDON_NAME, addonLogo = null)
+                }
+                // Only an empty result can be explained: a message beside real
+                // streams would be a gate note about candidates that were
+                // dropped, not something to show over a working picker.
+                if (streams.isNotEmpty()) {
+                    BoomioResolveResult(streams)
+                } else {
+                    BoomioResolveResult(
+                        streams = emptyList(),
+                        failureReason = dto?.failureReason,
+                        message = dto?.message
+                    )
                 }
             }
     }

@@ -5,7 +5,13 @@ import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
 data class StreamResponseDto(
-    @Json(name = "streams") val streams: List<StreamDto>? = null
+    @Json(name = "streams") val streams: List<StreamDto>? = null,
+    // Why `streams` is empty, when boomio itself is the reason rather than a
+    // failure: a household bandwidth budget that is fully in use, or one where
+    // no candidate fits. Stremio's schema has no field for this, so bsf sends
+    // them beside `streams`; unknown adapters ignore them.
+    @Json(name = "failure_reason") val failureReason: String? = null,
+    @Json(name = "message") val message: String? = null
 )
 
 @JsonClass(generateAdapter = true)
