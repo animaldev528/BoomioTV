@@ -1543,6 +1543,9 @@
     <string name="profile_edit_label">Edit</string>
     <string name="profile_edit_header">Edit Profile</string>
     <string name="profile_add">Add Profile</string>
+    <string name="profile_kids_on">Kids Menu: On</string>
+    <string name="profile_kids_off">Kids Menu: Off</string>
+    <string name="profile_kids_hint">Kid-safe walls and PG-13 search.</string>
     <string name="profile_create_title">Create Profile</string>
     <string name="profile_edit_title">Edit Profile %1$s</string>
     <string name="profile_name_placeholder">Profile name</string>

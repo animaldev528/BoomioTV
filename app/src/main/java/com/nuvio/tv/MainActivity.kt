@@ -491,8 +491,9 @@ open class MainActivity : ComponentActivity() {
             val activeProfile = remember(activeProfileId, profiles) {
                 profiles.firstOrNull { it.id == activeProfileId }
             }
-            // Kids wall presentation (walls instead of rows) for the Leo profile.
-            val kidsMode = activeProfileId in KIDS_PROFILE_IDS
+            // Kids wall presentation (walls instead of rows). The flag is authoritative;
+            // the id set keeps the pre-flag Leo profile in kids mode until it is saved once.
+            val kidsMode = activeProfile?.isKids == true || activeProfileId in KIDS_PROFILE_IDS
             var profilePinStates by remember { mutableStateOf<Map<Int, Boolean>>(emptyMap()) }
 
             LaunchedEffect(authState, profiles) {

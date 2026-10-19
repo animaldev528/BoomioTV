@@ -23,7 +23,13 @@ data class UserProfile(
     val curatedEnabled: Boolean = false,
     val tasteCompleted: Boolean = false,
     val tasteEnabled: Boolean = false,
-    val isKids: Boolean = false
+    val isKids: Boolean = false,
+    // Kids rating ceilings, chosen by the parent in BSM's Kids Content Manager
+    // and pulled with the profile (null = not chosen; the kids filter then
+    // keeps its previous PG-13 default). Movies and TV are separate axes: a
+    // five-year-old is usually fine with TV-PG and not with a PG-13 film.
+    val kidsRatingMovie: String? = null,
+    val kidsRatingTv: String? = null
 ) {
     val isPrimary: Boolean get() = id == 1
 

@@ -3,6 +3,7 @@ package com.nuvio.tv.ui.screens.kids
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.network.NetworkResult
+import com.nuvio.tv.core.profile.KidsContentFilter
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.CatalogRow
@@ -28,10 +29,15 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** How many times a wall's first page may retry before surfacing the unavailable state. */
-private const val FIRST_PAGE_MAX_ATTEMPTS = 3
+private const val FIRST_PAGE_MAX_ATTEMPTS = 4
 
-/** Backoff base between first-page retries (multiplied by the attempt number). */
-private const val FIRST_PAGE_RETRY_BASE_MS = 1_500L
+/**
+ * Delay before each first-page retry. The shared kids board resolves its whole row on
+ * the first cold request, which can outlast the edge timeout (a 504) before the result
+ * lands in the addon's cache; retrying over ~50 s lets that resolve finish instead of
+ * stranding the wall on "still updating".
+ */
+private val FIRST_PAGE_RETRY_DELAYS_MS = longArrayOf(5_000L, 15_000L, 30_000L)
 
 /**
  * Full approved-content poster wall for the kids presentation (Leo's profile).
@@ -50,6 +56,7 @@ private const val FIRST_PAGE_RETRY_BASE_MS = 1_500L
 class KidWallViewModel @Inject constructor(
     private val addonRepository: AddonRepository,
     private val catalogRepository: CatalogRepository,
+    private val kidsContentFilter: KidsContentFilter,
     val posterOptions: PosterOptionsController
 ) : ViewModel() {
 
@@ -58,6 +65,8 @@ class KidWallViewModel @Inject constructor(
 
     private var discoveryJob: Job? = null
     private var retryJob: Job? = null
+    /** True when this wall is paging a general catalog because no hub board exists. */
+    private var usingFallbackCatalog = false
     private var loadedForCatalogId: String? = null
 
     init {
@@ -78,17 +87,35 @@ class KidWallViewModel @Inject constructor(
 
                 val addon = enabled.firstOrNull { a -> a.catalogs.any { it.id == catalogId } }
                 if (addon == null) {
-                    // Enabled set is loaded but none serves this wall catalog yet (e.g. the
-                    // profile's row addons haven't synced since they were published). Surface a
-                    // soft error and re-evaluate on the next emission.
-                    _uiState.update {
-                        it.copy(isInitialLoading = false, missingCatalog = true, loadError = null)
+                    // No curated board for this profile yet (a freshly created kids profile,
+                    // or its row addons haven't synced). Rather than showing "still updating"
+                    // forever, page the first enabled catalog of the same kind and keep only
+                    // titles with a known certificate at or below the kids ceiling.
+                    if (loadedForCatalogId == catalogId && usingFallbackCatalog) return@collect
+                    val apiType = if (catalogId.endsWith("movies")) "movie" else "series"
+                    val fallback = enabled.firstNotNullOfOrNull { candidate ->
+                        candidate.catalogs
+                            .firstOrNull { it.apiType == apiType }
+                            ?.let { catalog -> candidate to catalog }
                     }
+                    if (fallback == null) {
+                        _uiState.update {
+                            it.copy(isInitialLoading = false, missingCatalog = true, loadError = null)
+                        }
+                        return@collect
+                    }
+                    loadedForCatalogId = catalogId
+                    usingFallbackCatalog = true
+                    loadFirstPage(fallback.first, fallback.second)
                     return@collect
                 }
-                if (loadedForCatalogId == catalogId) return@collect // pages already loading
+                // Pages already loading from the curated board. While showing the certified
+                // fallback, take the board as soon as its addon shows up (addon sync can land
+                // after this screen opened) instead of paging a general catalog all session.
+                if (loadedForCatalogId == catalogId && !usingFallbackCatalog) return@collect
 
                 val catalog = addon.catalogs.first { it.id == catalogId }
+                usingFallbackCatalog = false
                 loadedForCatalogId = catalogId
                 loadFirstPage(addon, catalog)
             }
@@ -115,7 +142,8 @@ class KidWallViewModel @Inject constructor(
                 ).first { it !is NetworkResult.Loading }
                 when (result) {
                     is NetworkResult.Success -> {
-                        _uiState.update { it.copy(row = result.data, isInitialLoading = false) }
+                        val page = if (usingFallbackCatalog) kidsFiltered(result.data) else result.data
+                        _uiState.update { it.copy(row = page, isInitialLoading = false) }
                         return@launch
                     }
                     is NetworkResult.Error -> {
@@ -128,7 +156,7 @@ class KidWallViewModel @Inject constructor(
                         // the row-addon server is cold; it keeps resolving in the background
                         // and writes a warm cache, so a short retry usually lands instantly.
                         // Only the first page retries — later pages never gate the wall.
-                        delay(FIRST_PAGE_RETRY_BASE_MS * attempt)
+                        delay(FIRST_PAGE_RETRY_DELAYS_MS[(attempt - 1).coerceAtMost(FIRST_PAGE_RETRY_DELAYS_MS.lastIndex)])
                     }
                     NetworkResult.Loading -> Unit
                 }
@@ -157,17 +185,27 @@ class KidWallViewModel @Inject constructor(
                 supportsSkip = row.supportsSkip
             ).first { it !is NetworkResult.Loading }
             when (result) {
-                is NetworkResult.Success ->
+                is NetworkResult.Success -> {
+                    val page = if (usingFallbackCatalog) kidsFiltered(result.data) else result.data
                     _uiState.update { s ->
                         val current = s.row ?: return@update s
-                        s.copy(row = current.mergeCatalogPage(result.data))
+                        s.copy(row = current.mergeCatalogPage(page))
                     }
+                }
                 is NetworkResult.Error ->
                     _uiState.update { s -> s.copy(row = s.row?.copy(isLoading = false)) }
                 NetworkResult.Loading -> Unit
             }
         }
     }
+
+    /**
+     * Keep only titles TMDB certifies at or below the kids ceiling.
+     * Unknown certificates are dropped: the fallback catalog is a general one, so
+     * "we could not rate it" is not safe enough for a kids wall.
+     */
+    private suspend fun kidsFiltered(row: CatalogRow): CatalogRow =
+        row.copy(items = kidsContentFilter.filter(row.items))
 }
 
 data class KidWallUiState(

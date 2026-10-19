@@ -169,6 +169,10 @@ data class SupabaseProfile(
     @SerialName("taste_completed") val tasteCompleted: Boolean = false,
     @SerialName("taste_enabled") val tasteEnabled: Boolean = false,
     @SerialName("is_kids") val isKids: Boolean = false,
+    // Per-kind kids ceilings chosen in BSM (migration 00000000000021). Absent on
+    // older servers -> null, and the kids filter keeps its PG-13 default.
+    @SerialName("kids_rating_movie") val kidsRatingMovie: String? = null,
+    @SerialName("kids_rating_tv") val kidsRatingTv: String? = null,
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("updated_at") val updatedAt: String? = null
 )

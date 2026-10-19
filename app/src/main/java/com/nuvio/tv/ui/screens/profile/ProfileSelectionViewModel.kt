@@ -186,6 +186,7 @@ class ProfileSelectionViewModel @Inject constructor(
         avatarId: String? = null,
         copyFromProfileId: Int? = null,
         copyProviderCredentials: Boolean = false,
+        isKids: Boolean = false,
         onComplete: (CreateProfileResult) -> Unit = {}
     ) {
         if (_isCreating.value) return
@@ -195,7 +196,8 @@ class ProfileSelectionViewModel @Inject constructor(
                 val profile = profileManager.createProfile(
                     name = name,
                     avatarColorHex = avatarColorHex,
-                    avatarId = avatarId
+                    avatarId = avatarId,
+                    isKids = isKids
                 )
                 if (profile != null) {
                     profileSyncService.pushToRemote()

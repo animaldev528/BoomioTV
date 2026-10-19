@@ -28,11 +28,22 @@ class BsmRatingGate @Inject constructor(
 
     private val _ceilings = MutableStateFlow<Map<Int, String>>(emptyMap())
 
-    /** Content-rating ceiling for the currently active profile (null = no ceiling). */
+    /**
+     * Content-rating ceiling for the currently active profile (null = no ceiling).
+     *
+     * A kids profile's own flag is authoritative and does not depend on BSM being
+     * reachable: the edge does not currently route the ratings endpoint at all, and
+     * a LAN-only fetch would otherwise fail open. PG-13 is the ceiling that keeps
+     * family films like Junior while dropping R titles like Predator.
+     */
     val activeCeiling: StateFlow<String?> = combine(
         profileManager.activeProfileId,
+        profileManager.profiles,
         _ceilings
-    ) { profileId, ceilings -> ceilings[profileId] }
+    ) { profileId, profiles, ceilings ->
+        if (profiles.firstOrNull { it.id == profileId }?.isKids == true) KIDS_CEILING
+        else ceilings[profileId]
+    }
         .stateIn(scope, SharingStarted.Eagerly, null)
 
     init {
@@ -59,4 +70,8 @@ class BsmRatingGate @Inject constructor(
 
     fun isAllowed(ageRating: String?): Boolean =
         RatingOrdinal.isAllowed(ageRating, activeCeiling.value)
+
+    companion object {
+        const val KIDS_CEILING = "PG-13"
+    }
 }

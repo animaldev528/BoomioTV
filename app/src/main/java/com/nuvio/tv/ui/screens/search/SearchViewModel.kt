@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.R
 import com.nuvio.tv.core.network.NetworkResult
+import com.nuvio.tv.core.profile.KidsContentFilter
 import com.nuvio.tv.core.tmdb.TmdbMetadataService
 import com.nuvio.tv.data.local.DiscoverSelectionDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
@@ -62,6 +63,7 @@ class SearchViewModel @Inject constructor(
     private val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
     val posterOptions: com.nuvio.tv.ui.components.posteroptions.PosterOptionsController,
     private val tmdbMetadataService: TmdbMetadataService,
+    private val kidsContentFilter: KidsContentFilter,
     private val tmdbSettingsDataStore: TmdbSettingsDataStore,
     private val activityEventReporter: ActivityEventReporter,
     val companionPlaybackBridge: CompanionPlaybackBridge,
@@ -741,6 +743,16 @@ class SearchViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Kids profiles only see titles whose certificate TMDB gives us and that fit the
+     * PG-13 ceiling. The People strip itself stays: a person card opens a filmography
+     * filtered by the same gate ([com.nuvio.tv.ui.screens.cast.CastDetailViewModel]).
+     */
+    private suspend fun kidsFiltered(row: CatalogRow): CatalogRow {
+        if (!kidsContentFilter.isKidsActive()) return row
+        return row.copy(items = kidsContentFilter.filter(row.items))
+    }
+
     private suspend fun loadCatalog(
         addon: Addon,
         catalog: CatalogDescriptor,
@@ -770,7 +782,7 @@ class SearchViewModel @Inject constructor(
                         type = catalog.apiType,
                         catalogId = catalog.id
                     )
-                    catalogsMap[key] = result.data
+                    catalogsMap[key] = kidsFiltered(result.data)
                     pendingCatalogResponses = (pendingCatalogResponses - 1).coerceAtLeast(0)
                     scheduleCatalogRowsUpdate()
                 }
@@ -841,7 +853,7 @@ class SearchViewModel @Inject constructor(
                     is NetworkResult.Success -> {
                         if (!isCurrentSearch(generation, query)) return@collect
                         val latestRow = catalogsMap[key] ?: return@collect
-                        catalogsMap[key] = latestRow.mergeCatalogPage(result.data)
+                        catalogsMap[key] = latestRow.mergeCatalogPage(kidsFiltered(result.data))
                         scheduleCatalogRowsUpdate()
                     }
                     is NetworkResult.Error -> {
