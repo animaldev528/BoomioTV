@@ -921,8 +921,16 @@ class StreamScreenViewModel @Inject constructor(
     private fun launchBoomioResolve() {
         if (!boomioStreamResolver.isEnabled()) return
         viewModelScope.launch {
-            val streams = boomioStreamResolver.resolve(videoId, season, episode)
-            if (streams.isEmpty()) return@launch
+            val result = boomioStreamResolver.resolve(videoId, season, episode)
+            if (result.isEmpty) {
+                // Keep boomio's own explanation, if it gave one: a budget that
+                // is fully in use looks exactly like "no sources" otherwise.
+                // Cleared on every resolve so a stale message cannot outlive
+                // the condition it described.
+                updateUiStateIfChanged { it.copy(boomioMessage = result.message) }
+                return@launch
+            }
+            val streams = result.streams
             updateUiStateIfChanged { state ->
                 if (state.addonStreams.any { it.addonName == BoomioStreamResolver.ADDON_NAME }) {
                     state
@@ -945,6 +953,7 @@ class StreamScreenViewModel @Inject constructor(
                         allStreams = updatedAllStreams,
                         filteredStreams = filteredStreams,
                         availableAddons = state.availableAddons + BoomioStreamResolver.ADDON_NAME,
+                        boomioMessage = null,
                         sourceChips = mergeSourceChipStatuses(
                             existing = state.sourceChips,
                             succeededNames = listOf(BoomioStreamResolver.ADDON_NAME)
