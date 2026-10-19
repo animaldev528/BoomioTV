@@ -540,13 +540,14 @@ fun ProfileSelectionScreen(
                 avatarCatalog = avatarCatalog,
                 isCreating = isCreating,
                 onDismiss = { if (!isCreating) showCreateProfile = false },
-                onCreateProfile = { name, colorHex, avatarId, copyFromProfileId, copyProviderCredentials ->
+                onCreateProfile = { name, colorHex, avatarId, copyFromProfileId, copyProviderCredentials, isKids ->
                     viewModel.createProfile(
                         name = name,
                         avatarColorHex = colorHex,
                         avatarId = avatarId,
                         copyFromProfileId = copyFromProfileId,
-                        copyProviderCredentials = copyProviderCredentials
+                        copyProviderCredentials = copyProviderCredentials,
+                        isKids = isKids
                     ) { result ->
                         when (result) {
                             is CreateProfileResult.Created -> {
@@ -1393,7 +1394,8 @@ private fun CreateProfileOverlay(
         colorHex: String,
         avatarId: String?,
         copyFromProfileId: Int?,
-        copyProviderCredentials: Boolean
+        copyProviderCredentials: Boolean,
+        isKids: Boolean
     ) -> Unit
 ) {
     BackHandler(onBack = onDismiss)
@@ -1404,6 +1406,7 @@ private fun CreateProfileOverlay(
     var focusedAvatarName by remember { mutableStateOf<String?>(null) }
     var selectedCopySourceId by remember { mutableStateOf<Int?>(null) }
     var copyProviderCredentials by remember { mutableStateOf(false) }
+    var isKidsProfile by remember { mutableStateOf(false) }
     var showSettingsSourceDialog by remember { mutableStateOf(false) }
     val selectedAvatar = remember(avatarCatalog, selectedAvatarId) {
         avatarCatalog.find { it.id == selectedAvatarId }
@@ -1484,7 +1487,8 @@ private fun CreateProfileOverlay(
                                 selectedColorHex,
                                 selectedAvatarId,
                                 selectedCopySourceId,
-                                copyProviderCredentials
+                                copyProviderCredentials,
+                                isKidsProfile
                             )
                         }
                     )
@@ -1550,6 +1554,26 @@ private fun CreateProfileOverlay(
                         onClick = { showSettingsSourceDialog = true }
                     )
 
+                    // No spacer above the kids toggle: the column already spaces its
+                    // children, and every extra row here pushes the panel past the
+                    // screen bottom (the hint below is its last line).
+                    OverlayButton(
+                        text = stringResource(
+                            if (isKidsProfile) R.string.profile_kids_on else R.string.profile_kids_off
+                        ),
+                        isPrimary = false,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isCreating,
+                        onClick = { isKidsProfile = !isKidsProfile }
+                    )
+                    Text(
+                        text = stringResource(R.string.profile_kids_hint),
+                        modifier = Modifier.fillMaxWidth(),
+                        color = NuvioTheme.colors.TextTertiary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        textAlign = TextAlign.Center
+                    )
                 }
 
                 Spacer(modifier = Modifier.width(ProfileSelectionSpacing.EditorDividerSpacing))

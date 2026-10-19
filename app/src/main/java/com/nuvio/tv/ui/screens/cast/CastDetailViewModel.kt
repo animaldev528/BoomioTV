@@ -5,8 +5,10 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.R
+import com.nuvio.tv.core.profile.KidsContentFilter
 import com.nuvio.tv.core.tmdb.TmdbMetadataService
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
+import com.nuvio.tv.domain.model.PersonDetail
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,6 +22,7 @@ import javax.inject.Inject
 class CastDetailViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val tmdbMetadataService: TmdbMetadataService,
+    private val kidsContentFilter: KidsContentFilter,
     private val tmdbSettingsDataStore: TmdbSettingsDataStore,
     private val watchProgressRepository: com.nuvio.tv.domain.repository.WatchProgressRepository,
     private val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
@@ -61,6 +64,19 @@ class CastDetailViewModel @Inject constructor(
         }
     }
 
+    /**
+     * A kids profile still gets the person card, but the filmography it opens holds
+     * only titles that pass the kids gate: DeVito lists Matilda, not
+     * It's Always Sunny. Unknown certificates are dropped (see [KidsContentFilter]).
+     */
+    private suspend fun kidsFiltered(detail: PersonDetail): PersonDetail {
+        if (!kidsContentFilter.isKidsActive()) return detail
+        return detail.copy(
+            movieCredits = kidsContentFilter.filter(detail.movieCredits),
+            tvCredits = kidsContentFilter.filter(detail.tvCredits)
+        )
+    }
+
     fun retry() {
         _uiState.value = CastDetailUiState.Loading
         loadPersonDetail()
@@ -75,7 +91,7 @@ class CastDetailViewModel @Inject constructor(
                     language = tmdbSettingsDataStore.settings.first().language
                 )
                 if (detail != null) {
-                    _uiState.value = CastDetailUiState.Success(detail)
+                    _uiState.value = CastDetailUiState.Success(kidsFiltered(detail))
                 } else {
                     _uiState.value = CastDetailUiState.Error(
                         context.getString(R.string.cast_error_load_details_for, personName)

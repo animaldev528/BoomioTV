@@ -86,6 +86,7 @@ class ProfileSyncService @Inject constructor(
                             put("avatar_color_hex", profile.avatarColorHex)
                             put("uses_primary_addons", profile.usesPrimaryAddons)
                             put("uses_primary_plugins", profile.usesPrimaryPlugins)
+                            put("is_kids", profile.isKids)
                             put("avatar_id", if (profile.avatarUrl.isNullOrBlank()) profile.avatarId else null)
                             put("avatar_url", profile.avatarUrl?.takeIf { it.isNotBlank() })
                             put("profile_background_id", profile.profileBackgroundId)
@@ -136,7 +137,10 @@ class ProfileSyncService @Inject constructor(
                         curatedEnabled = entry.curatedEnabled,
                         tasteCompleted = entry.tasteCompleted,
                         tasteEnabled = entry.tasteEnabled,
-                        isKids = entry.isKids
+                        isKids = entry.isKids,
+                        // Parent-set (BSM) ceilings; null means "not chosen".
+                        kidsRatingMovie = entry.kidsRatingMovie,
+                        kidsRatingTv = entry.kidsRatingTv
                     )
                 }
 

@@ -183,7 +183,9 @@ internal data class ProfileJson(
     val curatedEnabled: Boolean = false,
     val tasteCompleted: Boolean = false,
     val tasteEnabled: Boolean = false,
-    val isKids: Boolean = false
+    val isKids: Boolean = false,
+    val kidsRatingMovie: String? = null,
+    val kidsRatingTv: String? = null
 ) {
     fun toDomain() = UserProfile(
         id = id,
@@ -198,7 +200,9 @@ internal data class ProfileJson(
         curatedEnabled = curatedEnabled,
         tasteCompleted = tasteCompleted,
         tasteEnabled = tasteEnabled,
-        isKids = isKids
+        isKids = isKids,
+        kidsRatingMovie = kidsRatingMovie,
+        kidsRatingTv = kidsRatingTv
     )
 
     companion object {
@@ -215,7 +219,9 @@ internal data class ProfileJson(
             curatedEnabled = profile.curatedEnabled,
             tasteCompleted = profile.tasteCompleted,
             tasteEnabled = profile.tasteEnabled,
-            isKids = profile.isKids
+            isKids = profile.isKids,
+            kidsRatingMovie = profile.kidsRatingMovie,
+            kidsRatingTv = profile.kidsRatingTv
         )
     }
 }

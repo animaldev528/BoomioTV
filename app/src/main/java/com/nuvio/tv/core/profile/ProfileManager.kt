@@ -89,7 +89,8 @@ class ProfileManager @Inject constructor(
         avatarColorHex: String,
         usesPrimaryAddons: Boolean = false,
         usesPrimaryPlugins: Boolean = false,
-        avatarId: String? = null
+        avatarId: String? = null,
+        isKids: Boolean = false
     ): UserProfile? {
         val current = profiles.value
         if (current.size >= MAX_PROFILES) return null
@@ -103,7 +104,8 @@ class ProfileManager @Inject constructor(
             avatarColorHex = avatarColorHex,
             usesPrimaryAddons = usesPrimaryAddons,
             usesPrimaryPlugins = usesPrimaryPlugins,
-            avatarId = avatarId
+            avatarId = avatarId,
+            isKids = isKids
         )
         factory.markProfileCreated(nextId)
         profileDataStore.upsertProfile(profile)

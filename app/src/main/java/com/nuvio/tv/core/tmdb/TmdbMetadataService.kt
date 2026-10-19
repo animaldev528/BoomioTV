@@ -65,6 +65,85 @@ class TmdbMetadataService(
     private val entityHeaderCache = ConcurrentHashMap<String, TmdbEntityHeader>()
     private val entityRailCache = ConcurrentHashMap<String, List<MetaPreview>>()
     private val entityBrowseCache = ConcurrentHashMap<String, TmdbEntityBrowseData>()
+    // ConcurrentHashMap rejects null values at runtime, so "looked up, no certificate"
+    // is stored as "" — a null rating here would crash the kids search filter.
+    private val certificationCache = ConcurrentHashMap<String, String>()
+    private val certificationInFlight = ConcurrentHashMap<String, CompletableDeferred<String?>>()
+    private val certificationSemaphore = Semaphore(8)
+
+    /**
+     * Resolve one title's age certification from its Stremio or TMDB id.
+     *
+     * Search results come from Stremio addons that do not carry a certificate, and a
+     * person filmography carries `tmdb:<id>` ids, so a kids view needs one lookup per
+     * title: two TMDB calls for an IMDb id (find, then release dates / content
+     * ratings), one for a `tmdb:<id>`. Results are cached for the process lifetime; a
+     * null result is cached too, so an uncertified title is not looked up again.
+     *
+     * Returns null when TMDB has no rating for the title — callers on a kids profile
+     * must treat that as "not allowed".
+     */
+    suspend fun fetchCertification(
+        imdbId: String,
+        contentType: ContentType,
+        language: String = "en-US"
+    ): String? = withContext(ioDispatcher) {
+        val cleanId = imdbId.trim()
+        // Only the explicit "tmdb:<id>" form is trusted as an index; another addon's
+        // bare numeric id must still go through the IMDb find lookup below.
+        val indexedTmdbId = cleanId.removePrefix("tmdb:")
+            .toIntOrNull()
+            ?.takeIf { cleanId.startsWith("tmdb:") }
+        if (indexedTmdbId == null && !cleanId.startsWith("tt")) return@withContext null
+        val key = "$cleanId:${contentType.name}"
+        certificationCache[key]?.let { cached ->
+            return@withContext cached.takeIf { it.isNotEmpty() }
+        }
+        certificationInFlight[key]?.let { return@withContext it.await() }
+
+        val deferred = CompletableDeferred<String?>()
+        val existing = certificationInFlight.putIfAbsent(key, deferred)
+        if (existing != null) return@withContext existing.await()
+
+        try {
+            val rating = certificationSemaphore.withPermit {
+                val tmdbType = when (contentType) {
+                    ContentType.SERIES, ContentType.TV -> "tv"
+                    else -> "movie"
+                }
+                try {
+                    // A credit already carries the TMDB id ("tmdb:123"), so the find
+                    // call is only needed for Stremio results, which carry IMDb ids.
+                    val tmdbId = indexedTmdbId ?: run {
+                        val find = tmdbApi.findByExternalId(cleanId, TMDB_API_KEY).body()
+                        if (tmdbType == "tv") find?.tvResults?.firstOrNull()?.id
+                        else find?.movieResults?.firstOrNull()?.id
+                    } ?: return@withPermit null
+                    if (tmdbType == "tv") {
+                        val ratings = tmdbApi.getTvContentRatings(tmdbId, TMDB_API_KEY)
+                            .body()?.results.orEmpty()
+                        selectTvAgeRating(ratings, language)
+                    } else {
+                        val releases = tmdbApi.getMovieReleaseDates(tmdbId, TMDB_API_KEY)
+                            .body()?.results.orEmpty()
+                        selectMovieAgeRating(releases, language)
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            certificationCache[key] = rating ?: ""
+            deferred.complete(rating)
+            rating
+        } finally {
+            // A cancelled lookup must release anyone awaiting the same id rather than
+            // leaving their search row suspended forever.
+            if (!deferred.isCompleted) deferred.complete(null)
+            certificationInFlight.remove(key)
+        }
+    }
 
     suspend fun fetchEnrichment(
         tmdbId: String,
