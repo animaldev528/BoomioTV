@@ -194,7 +194,8 @@ class PosterOptionsController @Inject constructor(
                     likeVisible = profileManager.activeProfile?.likeBootstrapEnabled == true,
                     likeTarget = likeTarget,
                     isLiked = initialLiked,
-                    isLikePending = false
+                    isLikePending = false,
+                    isNotInterestedPending = false
                 )
             }
             targetFlow.value = canonical
@@ -227,7 +228,13 @@ class PosterOptionsController @Inject constructor(
         showJob = null
         targetFlow.value = null
         _state.update {
-            it.copy(target = null, likeTarget = null, isLiked = false, isLikePending = false)
+            it.copy(
+                target = null,
+                likeTarget = null,
+                isLiked = false,
+                isLikePending = false,
+                isNotInterestedPending = false
+            )
         }
     }
 
@@ -267,6 +274,49 @@ class PosterOptionsController @Inject constructor(
                 _state.update { it.copy(isLiked = !desired) }
             }
             _state.update { it.copy(isLikePending = false) }
+        }
+    }
+
+    /**
+     * "Not interested": blocks the current target so the taste engine stops
+     * proposing it. A block supersedes a like (the server deletes a matching
+     * like), so a liked title is dropped locally first and restored if the
+     * mirror fails — same optimistic-then-revert posture as [toggleLike].
+     */
+    fun markNotInterested() {
+        val state = _state.value
+        val target = state.likeTarget ?: return
+        if (!state.likeVisible || state.isNotInterestedPending) return
+        val scope = this.scope ?: return
+
+        val profileId = profileManager.activeProfileId.value
+        val wasLiked = state.isLiked
+        _state.update { it.copy(isNotInterestedPending = true, isLiked = false) }
+        scope.launch {
+            if (wasLiked) {
+                likePreferences.setLiked(
+                    typeWire = target.pickType.wire,
+                    tmdbId = target.tmdbId,
+                    name = target.name,
+                    liked = false,
+                    profileId = profileId
+                )
+            }
+            likeSyncService.setBlocked(profileId, target, blocked = true).onFailure { error ->
+                Log.w(TAG, "Failed to sync block for ${target.pickType.wire}:${target.tmdbId}: ${error.message}")
+                // Revert: the title is still part of this profile's taste pool.
+                if (wasLiked) {
+                    likePreferences.setLiked(
+                        typeWire = target.pickType.wire,
+                        tmdbId = target.tmdbId,
+                        name = target.name,
+                        liked = true,
+                        profileId = profileId
+                    )
+                    _state.update { it.copy(isLiked = true) }
+                }
+            }
+            _state.update { it.copy(isNotInterestedPending = false) }
         }
     }
 

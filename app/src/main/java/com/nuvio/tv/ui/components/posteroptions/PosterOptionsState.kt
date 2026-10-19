@@ -24,6 +24,8 @@ data class PosterOptionsState(
     val likeTarget: TastePick? = null,
     val isLiked: Boolean = false,
     val isLikePending: Boolean = false,
+    /** "Not interested" is in flight for this target. */
+    val isNotInterestedPending: Boolean = false,
     val librarySourceMode: LibrarySourceMode = LibrarySourceMode.LOCAL,
     val libraryListTabs: List<LibraryListTab> = emptyList(),
     val listPickerActive: Boolean = false,
