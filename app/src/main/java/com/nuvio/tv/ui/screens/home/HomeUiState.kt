@@ -60,6 +60,8 @@ data class HomeUiState(
     val posterLikeTargets: Map<String, TastePick> = emptyMap(),
     val posterLikeMembership: Map<String, Boolean> = emptyMap(),
     val posterLikePending: Set<String> = emptySet(),
+    // "Not interested" writes in flight, keyed like posterLikePending.
+    val posterNotInterestedPending: Set<String> = emptySet(),
     // First-run hint ("long-press a title you like" + "Done for now"), shown until
     // the profile hits Done (server+local taste_completed).
     val showTasteHint: Boolean = false,

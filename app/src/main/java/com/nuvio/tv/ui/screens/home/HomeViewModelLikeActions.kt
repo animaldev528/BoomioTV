@@ -130,6 +130,58 @@ fun HomeViewModel.togglePosterLike(item: MetaPreview) {
     }
 }
 
+/** "Not interested": blocks the title so the taste engine stops proposing it,
+ *  dropping a matching like (the server treats the two states as mutually
+ *  exclusive). Local-first + optimistic, reverted on a sync failure. On success
+ *  the safe add-only addon re-list is fired so the rebuilt rows land in place. */
+fun HomeViewModel.markPosterNotInterested(item: MetaPreview) {
+    if (!_uiState.value.posterLikeVisible) return
+    val statusKey = homeItemStatusKey(item.id, item.apiType)
+    val pick = _uiState.value.posterLikeTargets[statusKey] ?: return
+    if (statusKey in _uiState.value.posterNotInterestedPending) return
+    val profileId = profileManager.activeProfileId.value
+    val wasLiked = _uiState.value.posterLikeMembership[statusKey] == true
+
+    _uiState.update { state ->
+        state.copy(
+            posterNotInterestedPending = state.posterNotInterestedPending + statusKey,
+            posterLikeMembership = state.posterLikeMembership + (statusKey to false)
+        )
+    }
+    viewModelScope.launch {
+        if (wasLiked) {
+            likePreferences.setLiked(
+                typeWire = pick.pickType.wire,
+                tmdbId = pick.tmdbId,
+                name = pick.name,
+                liked = false,
+                profileId = profileId
+            )
+        }
+        var blocked = true
+        likeSyncService.setBlocked(profileId, pick, blocked = true).onFailure { error ->
+            blocked = false
+            Log.w(HomeViewModel.TAG, "Failed to sync block for ${pick.pickType.wire}:${pick.tmdbId}: ${error.message}")
+            if (wasLiked) {
+                likePreferences.setLiked(
+                    typeWire = pick.pickType.wire,
+                    tmdbId = pick.tmdbId,
+                    name = pick.name,
+                    liked = true,
+                    profileId = profileId
+                )
+                _uiState.update { state ->
+                    state.copy(posterLikeMembership = state.posterLikeMembership + (statusKey to true))
+                }
+            }
+        }
+        _uiState.update { state ->
+            state.copy(posterNotInterestedPending = state.posterNotInterestedPending - statusKey)
+        }
+        if (blocked) refreshTasteRowsUntilPublished()
+    }
+}
+
 /** "Done for now": pushes the profile's full current like set through
  *  [com.nuvio.tv.core.sync.TastePickSyncService.pushTastePicks], which flips
  *  taste_completed server-side and locally. With 0 likes the push is skipped so

@@ -60,4 +60,42 @@ class LikeSyncService @Inject constructor(
                 Result.failure(e)
             }
         }
+
+    /**
+     * Mirrors a "Not interested" to the Nuvio server.
+     *
+     * Writes through the SECURITY DEFINER RPC `sync_toggle_taste_block`
+     * (nuvio-server migration 00000000000022). A block is the negative half of
+     * the like-bootstrap signal: the engine never proposes a blocked title, and
+     * blocking also deletes a matching like server-side (the two states are
+     * mutually exclusive). Passing `blocked=false` is "show it again".
+     */
+    suspend fun setBlocked(
+        profileId: Int,
+        pick: TastePick,
+        blocked: Boolean,
+        reason: String = "not_interested"
+    ): Result<Unit> =
+        withContext(Dispatchers.IO) {
+            try {
+                val params = buildJsonObject {
+                    put("p_profile_index", profileId)
+                    put("p_blocked", blocked)
+                    put("p_reason", reason)
+                    put("p_pick", buildJsonObject {
+                        put("pick_type", pick.pickType.wire)
+                        put("tmdb_id", pick.tmdbId)
+                        put("name", pick.name)
+                    })
+                }
+                withJwtRefreshRetry {
+                    postgrest.rpc("sync_toggle_taste_block", params)
+                }
+                Log.d(TAG, "Blocked ${pick.pickType.wire}:${pick.tmdbId} blocked=$blocked for profile $profileId")
+                Result.success(Unit)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to set block for profile $profileId", e)
+                Result.failure(e)
+            }
+        }
 }

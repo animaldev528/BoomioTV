@@ -59,6 +59,11 @@ fun PosterOptionsDialog(
     isLiked: Boolean = false,
     isLikePending: Boolean = false,
     onToggleLike: (() -> Unit)? = null,
+    // "Not interested": the negative half of the same taste signal, on the same
+    // profile gate as Like. One-way — the engine simply stops proposing the title.
+    showNotInterested: Boolean = false,
+    isNotInterestedPending: Boolean = false,
+    onNotInterested: (() -> Unit)? = null,
     // Public-list lookup: offered for every movie/series tile, signed in or not — the
     // Trakt endpoint behind it is public, so unlike `showManageLists` it is not gated on
     // the library source, and a local-only profile still gets it.
@@ -116,6 +121,20 @@ fun PosterOptionsDialog(
                         if (isLiked) R.string.like_action_unlike else R.string.like_action_like
                     )
                 )
+            }
+        }
+
+        if (showNotInterested && onNotInterested != null) {
+            Button(
+                onClick = onNotInterested,
+                enabled = !isNotInterestedPending,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.colors(
+                    containerColor = NuvioTheme.colors.BackgroundCard,
+                    contentColor = NuvioTheme.colors.TextPrimary
+                )
+            ) {
+                Text(stringResource(R.string.like_action_not_interested))
             }
         }
 
@@ -327,6 +346,16 @@ fun PosterOptionsHost(
             isLikePending = state.isLikePending,
             onToggleLike = if (state.likeVisible && state.likeTarget != null) {
                 { controller.toggleLike() }
+            } else {
+                null
+            },
+            showNotInterested = state.likeVisible && state.likeTarget != null,
+            isNotInterestedPending = state.isNotInterestedPending,
+            onNotInterested = if (state.likeVisible && state.likeTarget != null) {
+                {
+                    controller.markNotInterested()
+                    controller.dismiss()
+                }
             } else {
                 null
             },

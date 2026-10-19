@@ -519,6 +519,16 @@ fun HomeScreen(
             } else {
                 null
             },
+            showNotInterested = uiState.posterLikeVisible && statusKey in uiState.posterLikeTargets,
+            isNotInterestedPending = statusKey in uiState.posterNotInterestedPending,
+            onNotInterested = if (uiState.posterLikeVisible && statusKey in uiState.posterLikeTargets) {
+                {
+                    viewModel.markPosterNotInterested(item)
+                    posterOptionsTarget = null
+                }
+            } else {
+                null
+            },
             onToggleWatched = {
                 if (isMovie) {
                     viewModel.togglePosterMovieWatched(item)
@@ -778,7 +788,12 @@ private fun HomePosterOptionsDialog(
     showLike: Boolean = false,
     isLiked: Boolean = false,
     isLikePending: Boolean = false,
-    onToggleLike: (() -> Unit)? = null
+    onToggleLike: (() -> Unit)? = null,
+    // "Not interested" (mirrors the shared dialog): the negative half of the
+    // taste signal, on the same profile gate as Like.
+    showNotInterested: Boolean = false,
+    isNotInterestedPending: Boolean = false,
+    onNotInterested: (() -> Unit)? = null
 ) {
     val primaryFocusRequester = remember { FocusRequester() }
 
@@ -832,6 +847,20 @@ private fun HomePosterOptionsDialog(
                         if (isLiked) R.string.like_action_unlike else R.string.like_action_like
                     )
                 )
+            }
+        }
+
+        if (showNotInterested && onNotInterested != null) {
+            Button(
+                onClick = onNotInterested,
+                enabled = !isNotInterestedPending,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.colors(
+                    containerColor = NuvioTheme.colors.BackgroundCard,
+                    contentColor = NuvioTheme.colors.TextPrimary
+                )
+            ) {
+                Text(stringResource(R.string.like_action_not_interested))
             }
         }
 
