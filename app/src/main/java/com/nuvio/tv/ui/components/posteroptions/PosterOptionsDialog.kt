@@ -4,10 +4,13 @@ import com.nuvio.tv.ui.theme.NuvioTheme
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Divider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -83,130 +86,143 @@ fun PosterOptionsDialog(
         title = title,
         subtitle = stringResource(R.string.home_poster_dialog_subtitle)
     ) {
-        Button(
-            onClick = onDetails,
+        // On a 540dp-tall TV the action list is taller than NuvioDialog's height cap,
+        // and NuvioDialog does not scroll: the last action was clipped off-screen and
+        // could not be reached at all. Scrolling keeps every action available.
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .focusRequester(primaryFocusRequester),
-            colors = ButtonDefaults.colors(
-                containerColor = NuvioTheme.colors.BackgroundCard,
-                contentColor = NuvioTheme.colors.TextPrimary
-            )
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.lg)
         ) {
-            Text(stringResource(R.string.cw_action_go_to_details))
-        }
-
-        if (onMoreLikeThis != null) {
             Button(
-                onClick = onMoreLikeThis,
-                modifier = Modifier.fillMaxWidth(),
+                onClick = onDetails,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(primaryFocusRequester),
                 colors = ButtonDefaults.colors(
                     containerColor = NuvioTheme.colors.BackgroundCard,
                     contentColor = NuvioTheme.colors.TextPrimary
                 )
             ) {
-                Text(stringResource(R.string.detail_tab_more_like_this))
-            }
-        }
-
-        if (showLike && onToggleLike != null) {
-            Button(
-                onClick = onToggleLike,
-                enabled = !isLikePending,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.colors(
-                    containerColor = if (isLiked) NuvioTheme.colors.FocusBackground else NuvioTheme.colors.BackgroundCard,
-                    contentColor = NuvioTheme.colors.TextPrimary
-                )
-            ) {
-                Text(
-                    stringResource(
-                        if (isLiked) R.string.like_action_unlike else R.string.like_action_like
-                    )
-                )
-            }
-        }
-
-        if (showNotInterested && onNotInterested != null) {
-            Button(
-                onClick = onNotInterested,
-                enabled = !isNotInterestedPending,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.colors(
-                    containerColor = NuvioTheme.colors.BackgroundCard,
-                    contentColor = NuvioTheme.colors.TextPrimary
-                )
-            ) {
-                Text(stringResource(R.string.like_action_not_interested))
-            }
-        }
-
-        Button(
-            onClick = onToggleLibrary,
-            enabled = !isLibraryPending,
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.colors(
-                containerColor = NuvioTheme.colors.BackgroundCard,
-                contentColor = NuvioTheme.colors.TextPrimary
-            )
-        ) {
-            Text(
-                if (showManageLists) {
-                    stringResource(R.string.library_manage_lists)
-                } else {
-                    if (isInLibrary) {
-                        stringResource(R.string.hero_remove_from_library)
-                    } else {
-                        stringResource(R.string.hero_add_to_library)
-                    }
-                }
-            )
-        }
-
-        if (isMovie || isSeries) {
-            Button(
-                onClick = onToggleWatched,
-                enabled = !isWatchedPending,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.colors(
-                    containerColor = NuvioTheme.colors.BackgroundCard,
-                    contentColor = NuvioTheme.colors.TextPrimary
-                )
-            ) {
-                Text(
-                    if (isWatched) {
-                        stringResource(R.string.hero_mark_unwatched)
-                    } else {
-                        stringResource(R.string.hero_mark_watched)
-                    }
-                )
+                Text(stringResource(R.string.cw_action_go_to_details))
             }
 
-            if (onShowPublicLists != null) {
+            // Pinning is per ROW, not per tile: the screen supplies the list or the search term.
+            // Kept high in the list, right under Details: on a 540dp-tall TV the actions below
+            // are the ones that need scrolling, and this one should never be the thing a user
+            // has to go looking for.
+            if (onAddToHome != null) {
                 Button(
-                    onClick = onShowPublicLists,
+                    onClick = onAddToHome,
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.colors(
                         containerColor = NuvioTheme.colors.BackgroundCard,
                         contentColor = NuvioTheme.colors.TextPrimary
                     )
                 ) {
-                    Text(stringResource(R.string.poster_options_public_lists))
+                    Text(stringResource(R.string.poster_options_add_to_home))
                 }
             }
-        }
 
-        // Pinning is per ROW, not per tile: the screen supplies the list or the search term.
-        if (onAddToHome != null) {
+            if (onMoreLikeThis != null) {
+                Button(
+                    onClick = onMoreLikeThis,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.colors(
+                        containerColor = NuvioTheme.colors.BackgroundCard,
+                        contentColor = NuvioTheme.colors.TextPrimary
+                    )
+                ) {
+                    Text(stringResource(R.string.detail_tab_more_like_this))
+                }
+            }
+
+            if (showLike && onToggleLike != null) {
+                Button(
+                    onClick = onToggleLike,
+                    enabled = !isLikePending,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.colors(
+                        containerColor = if (isLiked) NuvioTheme.colors.FocusBackground else NuvioTheme.colors.BackgroundCard,
+                        contentColor = NuvioTheme.colors.TextPrimary
+                    )
+                ) {
+                    Text(
+                        stringResource(
+                            if (isLiked) R.string.like_action_unlike else R.string.like_action_like
+                        )
+                    )
+                }
+            }
+
+            if (showNotInterested && onNotInterested != null) {
+                Button(
+                    onClick = onNotInterested,
+                    enabled = !isNotInterestedPending,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.colors(
+                        containerColor = NuvioTheme.colors.BackgroundCard,
+                        contentColor = NuvioTheme.colors.TextPrimary
+                    )
+                ) {
+                    Text(stringResource(R.string.like_action_not_interested))
+                }
+            }
+
             Button(
-                onClick = onAddToHome,
+                onClick = onToggleLibrary,
+                enabled = !isLibraryPending,
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.colors(
                     containerColor = NuvioTheme.colors.BackgroundCard,
                     contentColor = NuvioTheme.colors.TextPrimary
                 )
             ) {
-                Text(stringResource(R.string.poster_options_add_to_home))
+                Text(
+                    if (showManageLists) {
+                        stringResource(R.string.library_manage_lists)
+                    } else {
+                        if (isInLibrary) {
+                            stringResource(R.string.hero_remove_from_library)
+                        } else {
+                            stringResource(R.string.hero_add_to_library)
+                        }
+                    }
+                )
+            }
+
+            if (isMovie || isSeries) {
+                Button(
+                    onClick = onToggleWatched,
+                    enabled = !isWatchedPending,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.colors(
+                        containerColor = NuvioTheme.colors.BackgroundCard,
+                        contentColor = NuvioTheme.colors.TextPrimary
+                    )
+                ) {
+                    Text(
+                        if (isWatched) {
+                            stringResource(R.string.hero_mark_unwatched)
+                        } else {
+                            stringResource(R.string.hero_mark_watched)
+                        }
+                    )
+                }
+
+                if (onShowPublicLists != null) {
+                    Button(
+                        onClick = onShowPublicLists,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.colors(
+                            containerColor = NuvioTheme.colors.BackgroundCard,
+                            contentColor = NuvioTheme.colors.TextPrimary
+                        )
+                    ) {
+                        Text(stringResource(R.string.poster_options_public_lists))
+                    }
+                }
             }
         }
     }
