@@ -87,6 +87,8 @@ class HomeViewModel @Inject constructor(
     internal val bsmRatingGate: com.nuvio.tv.core.profile.BsmRatingGate,
     internal val tvRecommendationManager: TvRecommendationManager,
     internal val likePreferences: LikePreferences,
+    internal val pinnedHomeRows: com.nuvio.tv.data.local.PinnedHomeRowsPreferences,
+    internal val pinnedHomeRowResolver: com.nuvio.tv.data.repository.PinnedHomeRowResolver,
     internal val likeSyncService: LikeSyncService,
     internal val tastePickSyncService: TastePickSyncService
 ) : ViewModel() {
@@ -227,6 +229,16 @@ class HomeViewModel @Inject constructor(
      */
     internal var homeHubTiles: Map<String, List<HomeHubTile>> = emptyMap()
     internal var collectionsCache: List<Collection> = emptyList()
+
+    /**
+     * The pinned rows resolved to ordinary catalog rows, in stored order. They are appended
+     * after the addon rows by the catalog pipeline; nothing else reads this except to answer
+     * "which pinned row owns this tile?" for removal.
+     */
+    internal var pinnedRowsCache: List<CatalogRow> = emptyList()
+
+    /** pinned row id -> the tile ids it renders, for the Home dialog's "Remove row" action. */
+    internal var pinnedRowIdsByItemId: Map<String, String> = emptyMap()
     internal var homeCatalogOrderKeys: List<String> = emptyList()
     internal var disabledHomeCatalogKeys: Set<String> = emptySet()
     internal var followAddonsOrderEnabled: Boolean = false
@@ -379,6 +391,7 @@ class HomeViewModel @Inject constructor(
             observeBlurUnwatchedEpisodes()
             observeProgressSourceChanges()
             observeCollections()
+            observePinnedHomeRows()
             observeInstalledAddons()
             observeManualAddonRefresh()
 

@@ -3,6 +3,7 @@ package com.nuvio.tv.ui.screens.search
 import com.nuvio.tv.ui.theme.NuvioTheme
 import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.PersonSearchPreview
+import com.nuvio.tv.ui.util.rememberLongPressKeyTracker
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -25,8 +26,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -35,6 +38,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.ColorPainter
+import androidx.compose.ui.input.key.nativeKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -72,7 +77,12 @@ fun PeopleRowSection(
     onPersonClick: (PersonSearchPreview) -> Unit,
     onPersonFocused: (Int) -> Unit = {},
     entryFocusRequester: FocusRequester? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /**
+     * Long-press (hold SELECT) on a tile. Null keeps the strip click-only, which is what every
+     * caller but Search passes.
+     */
+    onPersonLongClick: ((PersonSearchPreview) -> Unit)? = null
 ) {
     // Tracks the last card the user focused so entry focus can re-attach there (e.g. after the
     // caller drops focus and asks again). Reset each composition of the section.
@@ -126,11 +136,15 @@ fun PeopleRowSection(
                         }
                     }
                 }
+                val onLongClick = onPersonLongClick?.let { callback ->
+                    remember(person.tmdbId, callback) { { callback(person) } }
+                }
 
                 PersonTile(
                     person = person,
                     onClick = onClick,
                     onFocusChanged = onFocus,
+                    onLongClick = onLongClick,
                     modifier = Modifier.then(
                         if (isEntryTarget) Modifier.focusRequester(entryFocusRequester!!) else Modifier
                     )
@@ -146,15 +160,41 @@ private fun PersonTile(
     person: PersonSearchPreview,
     onClick: () -> Unit,
     onFocusChanged: (Boolean) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null
 ) {
     val shape = RoundedCornerShape(NuvioTheme.radii.xl)
     val tileBackground = NuvioTheme.colors.BackgroundCard
     val bgPainter = remember(tileBackground) { ColorPainter(tileBackground) }
+    // androidx.tv's Card has no long-click slot, so a held SELECT is tracked on the way down and
+    // the trailing UP is swallowed — otherwise the Card's own click would fire as well.
+    val longPressTracker = rememberLongPressKeyTracker()
+    var longPressTriggered by remember { mutableStateOf(false) }
+    val longPressModifier = if (onLongClick == null) {
+        Modifier
+    } else {
+        Modifier.onPreviewKeyEvent { keyEvent ->
+            val native = keyEvent.nativeKeyEvent
+            if (longPressTracker.handle(native, ::isSelectKey) {
+                    longPressTriggered = true
+                    onLongClick()
+                }
+            ) {
+                if (native.action == android.view.KeyEvent.ACTION_UP) longPressTriggered = false
+                return@onPreviewKeyEvent true
+            }
+            if (native.action == android.view.KeyEvent.ACTION_UP && longPressTriggered) {
+                longPressTriggered = false
+                return@onPreviewKeyEvent true
+            }
+            false
+        }
+    }
     Card(
         onClick = onClick,
         modifier = modifier
             .width(PEOPLE_TILE_WIDTH)
+            .then(longPressModifier)
             .onFocusChanged { state -> onFocusChanged(state.hasFocus) },
         shape = CardDefaults.shape(shape),
         colors = CardDefaults.colors(
@@ -243,3 +283,8 @@ private fun PersonTile(
         }
     }
 }
+
+private fun isSelectKey(keyCode: Int): Boolean =
+    keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER ||
+        keyCode == android.view.KeyEvent.KEYCODE_ENTER ||
+        keyCode == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER

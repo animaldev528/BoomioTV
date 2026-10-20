@@ -67,7 +67,10 @@ fun PosterOptionsDialog(
     // Public-list lookup: offered for every movie/series tile, signed in or not — the
     // Trakt endpoint behind it is public, so unlike `showManageLists` it is not gated on
     // the library source, and a local-only profile still gets it.
-    onShowPublicLists: (() -> Unit)? = null
+    onShowPublicLists: (() -> Unit)? = null,
+    // Pins the ROW this tile came from onto Home. Non-null only when the calling screen
+    // knows its row is pinnable (a Trakt list, an episode search).
+    onAddToHome: (() -> Unit)? = null
 ) {
     val primaryFocusRequester = remember { FocusRequester() }
 
@@ -190,6 +193,20 @@ fun PosterOptionsDialog(
                 ) {
                     Text(stringResource(R.string.poster_options_public_lists))
                 }
+            }
+        }
+
+        // Pinning is per ROW, not per tile: the screen supplies the list or the search term.
+        if (onAddToHome != null) {
+            Button(
+                onClick = onAddToHome,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.colors(
+                    containerColor = NuvioTheme.colors.BackgroundCard,
+                    contentColor = NuvioTheme.colors.TextPrimary
+                )
+            ) {
+                Text(stringResource(R.string.poster_options_add_to_home))
             }
         }
     }
@@ -378,6 +395,12 @@ fun PosterOptionsHost(
                 }
             } else {
                 null
+            },
+            onAddToHome = state.rowContext?.let {
+                {
+                    controller.addCurrentRowToHome()
+                    controller.dismiss()
+                }
             }
         )
     }

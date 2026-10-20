@@ -209,7 +209,10 @@ class HomeEnrichmentRepositoryBoundaryTest {
             // never drives the like-action path, so relaxed mocks suffice.
             likePreferences = mockk(relaxed = true),
             likeSyncService = mockk(relaxed = true),
-            tastePickSyncService = mockk(relaxed = true)
+            tastePickSyncService = mockk(relaxed = true),
+            // Pinned Home rows; these tests never pin anything, so relaxed mocks do.
+            pinnedHomeRows = mockk(relaxed = true),
+            pinnedHomeRowResolver = mockk(relaxed = true)
         )
         viewModel.startupGracePeriodActive = false
         viewModel.externalMetaPrefetchEnabled = true

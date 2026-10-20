@@ -800,6 +800,13 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                 }
             }
         }
+
+        // Pinned rows go last and are ordinary catalog rows: every layout already knows how
+        // to render HomeRow.Catalog, so classic, grid and modern all pick them up unchanged,
+        // and the landscape episode row keeps its landscape shape (bsf carries it per item).
+        pinnedRowsCache.forEach { pinnedRow ->
+            if (pinnedRow.items.isNotEmpty()) add(HomeRow.Catalog(pinnedRow))
+        }
     }
 
     val nextGridItems = if (currentLayout == HomeLayout.GRID) {

@@ -8,6 +8,7 @@ import com.nuvio.tv.core.sync.LikeSyncService
 import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.core.tracking.TrackingMembershipRemovalConfirmation
 import com.nuvio.tv.data.local.LikePreferences
+import com.nuvio.tv.data.local.PinnedHomeRowsPreferences
 import com.nuvio.tv.core.tracking.mergeTrackingMembershipWithTabs
 import com.nuvio.tv.core.tracking.toggleTrackingMembershipSelection
 import com.nuvio.tv.data.local.WatchedSeriesStateHolder
@@ -53,6 +54,7 @@ class PosterOptionsController @Inject constructor(
     private val tmdbService: TmdbService,
     private val likePreferences: LikePreferences,
     private val likeSyncService: LikeSyncService,
+    private val pinnedHomeRows: PinnedHomeRowsPreferences,
     private val profileManager: ProfileManager
 ) {
     private val _state = MutableStateFlow(PosterOptionsState())
@@ -152,7 +154,15 @@ class PosterOptionsController @Inject constructor(
             .launchIn(scope)
     }
 
-    fun show(item: MetaPreview, addonBaseUrl: String?) {
+    /**
+     * Opens the dialog for [item]. [rowContext] is the row the tile came from, when that row
+     * can be pinned to Home — it is what surfaces "Add to Home".
+     */
+    fun show(
+        item: MetaPreview,
+        addonBaseUrl: String?,
+        rowContext: PosterOptionsRowContext? = null
+    ) {
         val launchScope = this.scope ?: return
         showJob?.cancel()
         showJob = launchScope.launch {
@@ -195,7 +205,8 @@ class PosterOptionsController @Inject constructor(
                     likeTarget = likeTarget,
                     isLiked = initialLiked,
                     isLikePending = false,
-                    isNotInterestedPending = false
+                    isNotInterestedPending = false,
+                    rowContext = rowContext
                 )
             }
             targetFlow.value = canonical
@@ -233,8 +244,22 @@ class PosterOptionsController @Inject constructor(
                 likeTarget = null,
                 isLiked = false,
                 isLikePending = false,
-                isNotInterestedPending = false
+                isNotInterestedPending = false,
+                rowContext = null
             )
+        }
+    }
+
+    /**
+     * Pins the row behind the currently open dialog. No-op when the surface did not supply a
+     * row context, which is the common case: most tiles are not pinnable.
+     */
+    fun addCurrentRowToHome() {
+        val context = _state.value.rowContext ?: return
+        val launchScope = this.scope ?: return
+        launchScope.launch {
+            runCatching { pinnedHomeRows.add(context.toPinnedRow()) }
+                .onFailure { Log.w(TAG, "Could not pin row ${context.title}", it) }
         }
     }
 

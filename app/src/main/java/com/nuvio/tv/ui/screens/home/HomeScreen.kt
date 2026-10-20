@@ -52,6 +52,8 @@ import com.nuvio.tv.domain.model.LibraryListTab
 import com.nuvio.tv.domain.model.localizedTitle
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.domain.model.PinnedHomeRow
+import com.nuvio.tv.domain.model.tmdbIdFromPersonPreviewId
 import com.nuvio.tv.ui.components.ErrorState
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.components.LocalStartupLoadingState
@@ -72,7 +74,9 @@ import kotlin.math.roundToInt
 
 private data class HomePosterOptionsTarget(
     val item: MetaPreview,
-    val addonBaseUrl: String
+    val addonBaseUrl: String,
+    /** The pinned Home row this tile belongs to, when it belongs to one. */
+    val pinnedRowId: String? = null
 )
 
 private const val HOME_STABLE_GATE_TIMEOUT_MS = 5_000L
@@ -82,6 +86,10 @@ private const val HOME_STABLE_GATE_TIMEOUT_MS = 5_000L
 fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
     onNavigateToDetail: (String, String, String) -> Unit,
+    // Person tiles on the pinned Actors row open the same CastDetail the Search strip opens;
+    // a person is not a movie, so it cannot go through the detail route.
+    onNavigateToCastDetail: (personId: Int, personName: String, preferCrew: Boolean) -> Unit =
+        { _, _, _ -> },
     onContinueWatchingClick: (ContinueWatchingItem) -> Unit = { item ->
         onNavigateToDetail(
             when (item) {
@@ -160,13 +168,26 @@ fun HomeScreen(
     }
     val onCatalogItemLongPress: (MetaPreview, String) -> Unit = remember {
         { item, addonBaseUrl ->
-            posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl)
+            posterOptionsTarget = HomePosterOptionsTarget(
+                item = item,
+                addonBaseUrl = addonBaseUrl,
+                pinnedRowId = viewModel.pinnedRowIdForItem(item.id)
+            )
             viewModel.refreshPosterLibraryStatus(item)
             viewModel.refreshPosterLikeStatus(item)
         }
     }
 
-    val onNavigateToDetailStable = remember(onNavigateToDetail) { onNavigateToDetail }
+    val onNavigateToDetailStable = remember(onNavigateToDetail, onNavigateToCastDetail) {
+        { id: String, type: String, addonBaseUrl: String ->
+            val personId = tmdbIdFromPersonPreviewId(id)
+            if (personId != null && type.equals(PinnedHomeRow.PEOPLE_RAW_TYPE, ignoreCase = true)) {
+                onNavigateToCastDetail(personId, viewModel.personNameFor(personId), false)
+            } else {
+                onNavigateToDetail(id, type, addonBaseUrl)
+            }
+        }
+    }
     val onContinueWatchingClickStable = remember(onContinueWatchingClick) { onContinueWatchingClick }
     val onContinueWatchingStartFromBeginningStable = remember(onContinueWatchingStartFromBeginning) { onContinueWatchingStartFromBeginning }
     val onContinueWatchingPlayManuallyStable = remember(onContinueWatchingPlayManually) { onContinueWatchingPlayManually }
@@ -536,6 +557,12 @@ fun HomeScreen(
                     viewModel.togglePosterSeriesWatched(item)
                 }
                 posterOptionsTarget = null
+            },
+            onRemovePinnedRow = selectedPoster.pinnedRowId?.let { rowId ->
+                {
+                    viewModel.removePinnedRow(rowId)
+                    posterOptionsTarget = null
+                }
             }
         )
     }
@@ -793,7 +820,11 @@ private fun HomePosterOptionsDialog(
     // taste signal, on the same profile gate as Like.
     showNotInterested: Boolean = false,
     isNotInterestedPending: Boolean = false,
-    onNotInterested: (() -> Unit)? = null
+    onNotInterested: (() -> Unit)? = null,
+    // Only on a tile that belongs to a pinned row: the action removes the whole row, which is
+    // what the user asked for ("long clicking either item would offer the option to remove the
+    // row"), not the single title.
+    onRemovePinnedRow: (() -> Unit)? = null
 ) {
     val primaryFocusRequester = remember { FocusRequester() }
 
@@ -861,6 +892,19 @@ private fun HomePosterOptionsDialog(
                 )
             ) {
                 Text(stringResource(R.string.like_action_not_interested))
+            }
+        }
+
+        if (onRemovePinnedRow != null) {
+            Button(
+                onClick = onRemovePinnedRow,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.colors(
+                    containerColor = NuvioTheme.colors.BackgroundCard,
+                    contentColor = NuvioTheme.colors.TextPrimary
+                )
+            ) {
+                Text(stringResource(R.string.poster_options_remove_from_home))
             }
         }
 

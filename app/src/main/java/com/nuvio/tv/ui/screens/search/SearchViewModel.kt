@@ -64,11 +64,28 @@ class SearchViewModel @Inject constructor(
     val posterOptions: com.nuvio.tv.ui.components.posteroptions.PosterOptionsController,
     private val tmdbMetadataService: TmdbMetadataService,
     private val kidsContentFilter: KidsContentFilter,
+    private val pinnedHomeRows: com.nuvio.tv.data.local.PinnedHomeRowsPreferences,
     private val tmdbSettingsDataStore: TmdbSettingsDataStore,
     private val activityEventReporter: ActivityEventReporter,
     val companionPlaybackBridge: CompanionPlaybackBridge,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
+
+    /**
+     * Pins a person from the People strip onto Home's Actors row. The row is one row, not one
+     * per actor: [com.nuvio.tv.data.local.PinnedHomeRowsPreferences.addPerson] union-merges.
+     */
+    fun addPersonToActors(person: com.nuvio.tv.domain.model.PersonSearchPreview) {
+        viewModelScope.launch {
+            pinnedHomeRows.addPerson(
+                com.nuvio.tv.domain.model.PinnedPerson(
+                    tmdbId = person.tmdbId,
+                    name = person.name,
+                    profilePhotoUrl = person.profilePhotoUrl
+                )
+            )
+        }
+    }
 
     private val _uiState = MutableStateFlow(SearchUiState())
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()

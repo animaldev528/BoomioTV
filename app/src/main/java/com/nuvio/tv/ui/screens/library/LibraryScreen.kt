@@ -456,7 +456,25 @@ fun LibraryScreen(
                     },
                     onLongPress = {
                         lastFocusedPosterKey = focusKey
-                        viewModel.posterOptions.show(previewForLongPress, item.addonBaseUrl)
+                        // A personal tab backed by a Trakt list IS that list: holding any tile in
+                        // it can put the list on Home. Watchlist/status tabs have no list id.
+                        val selectedTab = uiState.listTabs
+                            .firstOrNull { it.key == uiState.selectedListKey }
+                        val rowContext = selectedTab
+                            ?.takeIf { it.type == LibraryListTab.Type.PERSONAL }
+                            ?.let { tab ->
+                                tab.traktListId?.let { listId ->
+                                    com.nuvio.tv.ui.components.posteroptions.PosterOptionsRowContext
+                                        .traktList(
+                                            title = tab.localizedTitle(),
+                                            traktListId = listId,
+                                            traktMediaType = com.nuvio.tv.domain.model.traktMediaTypeOf(
+                                                previewForLongPress.apiType
+                                            )
+                                        )
+                                }
+                            }
+                        viewModel.posterOptions.show(previewForLongPress, item.addonBaseUrl, rowContext)
                     }
                 )
             }
