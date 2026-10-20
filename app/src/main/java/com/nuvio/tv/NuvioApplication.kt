@@ -306,13 +306,15 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
                 val memoryInfo = ActivityManager.MemoryInfo()
                 activityManager.getMemoryInfo(memoryInfo)
                 val totalRamMb = memoryInfo.totalMem / (1024 * 1024)
-                // Low-RAM devices (≤2GB): use 0.15 — larger cache reduces GC pressure
-                // from rapid bitmap eviction during scrolling.
-                // Mid-range devices (≤3GB): use 0.20 for decent image caching.
-                // Normal devices (>3GB): use 0.25 for snappy image loading.
                 // - allowHardware(false) keeps bitmaps on heap instead of GPU memory
+                // A share of the *largeHeap* ceiling, not of RAM: 0.15 of 512 MB is a
+                // 77 MB cache on a 2 GB Shield and 38 MB on a 1 GB stick, at a point
+                // where the player is already the process the lowmemorykiller picks.
+                // Scale by physical RAM instead; the cache is a convenience, the
+                // stream buffer is not.
                 val cachePercent = when {
-                    totalRamMb <= 2048 -> 0.15
+                    totalRamMb <= 1450 -> 0.05
+                    totalRamMb <= 2300 -> 0.08
                     totalRamMb <= 3072 -> 0.20
                     else -> 0.25
                 }

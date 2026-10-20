@@ -545,11 +545,22 @@ internal fun PlayerRuntimeController.initializePlayer(
                     64,
                     playerSettings.nuvioPerformanceModeEnabled
                 )
+                // On the low-RAM tier the configured window is itself a memory decision:
+                // prioritizeTimeOverSizeThresholds lets the time threshold load past the
+                // byte budget, so a 60 s window is 500+ MB at remux bitrates no matter
+                // what budgetMb says. Clamp the window to the tier, keeping Media3's
+                // ordering rule (playback gates <= minBuffer <= maxBuffer).
+                val tierMinBufferMs =
+                    if (MemoryBudget.isLowRamTier) bufferSettings.minBufferMs.coerceAtMost(MemoryBudget.stockMaxBufferMs)
+                    else bufferSettings.minBufferMs
+                val tierMaxBufferMs =
+                    if (MemoryBudget.isLowRamTier) bufferSettings.maxBufferMs.coerceIn(tierMinBufferMs, MemoryBudget.stockMaxBufferMs)
+                    else bufferSettings.maxBufferMs
                 BitrateAwareLoadControl(
-                    minBufferMs = bufferSettings.minBufferMs,
-                    maxBufferMs = bufferSettings.maxBufferMs,
-                    bufferForPlaybackMs = bufferSettings.bufferForPlaybackMs,
-                    bufferForPlaybackAfterRebufferMs = bufferSettings.bufferForPlaybackAfterRebufferMs,
+                    minBufferMs = tierMinBufferMs,
+                    maxBufferMs = tierMaxBufferMs,
+                    bufferForPlaybackMs = bufferSettings.bufferForPlaybackMs.coerceAtMost(tierMinBufferMs),
+                    bufferForPlaybackAfterRebufferMs = bufferSettings.bufferForPlaybackAfterRebufferMs.coerceAtMost(tierMinBufferMs),
                     // Allow buffering past the byte budget until the minimum time threshold is
                     // met. Without this, high-bitrate remux files (e.g. 100+ Mbps UHD MKV with
                     // multiple audio tracks) exhaust the 500MB byte cap in <5s of content before
@@ -567,7 +578,9 @@ internal fun PlayerRuntimeController.initializePlayer(
                 Log.i(
                     PlayerRuntimeController.TAG,
                     "BUFFER_GATE: engine=exo-stock master=off; DefaultLoadControl " +
-                            "(1.5s back buffer, no VOD cache, budgetMb=${MemoryBudget.budgetMb}) host=${url.safeHost()}"
+                            "(1.5s back buffer, no VOD cache, budgetMb=${MemoryBudget.budgetMb}, " +
+                            "window=${MemoryBudget.stockMinBufferMs / 1000}-${MemoryBudget.stockMaxBufferMs / 1000}s) " +
+                            "host=${url.safeHost()}"
                 )
                 // "Stock" still runs on a 1-2 GB box. Media3's default window is 50 s at *any*
                 // bitrate (DEFAULT_MIN/MAX_BUFFER_MS = 50_000): on the 28.5 Mbps remux measured on
@@ -584,6 +597,12 @@ internal fun PlayerRuntimeController.initializePlayer(
                     .coerceAtMost(Int.MAX_VALUE.toLong())
                     .toInt()
                 DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(
+                        MemoryBudget.stockMinBufferMs,
+                        MemoryBudget.stockMaxBufferMs,
+                        MemoryBudget.stockStartGateMs,
+                        MemoryBudget.stockRebufferGateMs
+                    )
                     .setBackBuffer(1_500, /* retainBackBufferFromKeyframe = */ true)
                     .setTargetBufferBytes(stockBudgetBytes)
                     .build()

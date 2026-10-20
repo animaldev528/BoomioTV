@@ -40,6 +40,9 @@ object StreamAutoPlaySelector {
             StreamDebridCacheState.CACHED,
             null -> Unit
         }
+        // A source whose codec this box cannot decode is never a valid auto-play target:
+        // it used to be handed to ExoPlayer, which answered DECODER_INIT_FAILED.
+        if (!SourcePlayability.isCompatible(stream)) return false
         return stream.getStreamUrl() != null || stream.isTorrent() || stream.isDirectDebrid()
     }
 
@@ -80,6 +83,10 @@ object StreamAutoPlaySelector {
         }
         if (candidateStreams.isEmpty()) return null
 
+        // Low-RAM boxes take the cheapest decodable stream first; ordering only, so a
+        // regex/exclusion still sees and can still pick everything it matches.
+        val orderedCandidates = SourcePlayability.orderForDevice(candidateStreams)
+
         // Binge group matching takes priority over mode — even in MANUAL mode,
         // a persisted binge group should auto-play without showing the picker.
         val targetBingeGroup = preferredBingeGroup?.trim().orEmpty()
@@ -100,7 +107,7 @@ object StreamAutoPlaySelector {
 
         return when (mode) {
             StreamAutoPlayMode.MANUAL -> null
-            StreamAutoPlayMode.FIRST_STREAM -> candidateStreams.firstOrNull { isPlayable(it) }
+            StreamAutoPlayMode.FIRST_STREAM -> orderedCandidates.firstOrNull { isPlayable(it) }
             StreamAutoPlayMode.REGEX_MATCH -> {
                 val pattern = regexPattern.trim()
  
@@ -122,7 +129,7 @@ object StreamAutoPlaySelector {
                 } else null
 
                 // 1. Build list of ALL regex‑matching streams
-                val matchingStreams = candidateStreams.filter { stream ->
+                val matchingStreams = orderedCandidates.filter { stream ->
                     if (!isPlayable(stream)) return@filter false
 
                     val searchableText = buildString {

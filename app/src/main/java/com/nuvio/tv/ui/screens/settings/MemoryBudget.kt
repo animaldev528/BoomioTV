@@ -75,6 +75,19 @@ object MemoryBudget {
     val isLowRamTier: Boolean =
         maxHeapMb < HIGH_HEAP_THRESHOLD_MB || (physicalRamMb in 1..LOW_PHYSICAL_RAM_MB)
 
+    // A byte cap alone is wrong in both directions: 46 MB on a 1 GB stick is ~5 s at a
+    // 71 Mbps remux but ~100 s at 3.6 Mbps, so low-bitrate content silently keeps far
+    // more heap than the box can spare. Pair the byte cap with a time window; the
+    // effective buffer is whichever binds first (bytes win, see the stock builder).
+    val stockMinBufferMs: Int = if (isLowRamTier) 4_000 else 8_000
+    val stockMaxBufferMs: Int = if (isLowRamTier) 10_000 else 20_000
+    /** Start gate and post-rebuffer gate; both must be <= [stockMinBufferMs]. */
+    val stockStartGateMs: Int = 1_000
+    val stockRebufferGateMs: Int = 2_000
+
+    /** Max source bitrate to prefer on this tier when auto-selecting a stream (Mbps). */
+    val preferredMaxBitrateMbps: Int = if (isLowRamTier) 15 else Int.MAX_VALUE
+
     /** Hard ceiling the ratio budget is clamped to for this device's physical RAM. */
     private val budgetCeilMb: Int = when {
         // Unreadable: keep the heap-derived budget rather than guessing.
