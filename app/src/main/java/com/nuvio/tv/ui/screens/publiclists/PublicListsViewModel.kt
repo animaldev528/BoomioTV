@@ -233,6 +233,6 @@ class PublicListsViewModel @Inject constructor(
          * many, so the request and the screen agree; [PublicListsUiState.totalAvailable]
          * still reports the real total, and the header says so when it is larger.
          */
-        const val MAX_ROWS = 8
+        const val MAX_ROWS = 25
     }
 }
