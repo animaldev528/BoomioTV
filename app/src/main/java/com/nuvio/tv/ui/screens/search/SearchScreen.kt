@@ -356,6 +356,8 @@ fun SearchScreen(
     val focusedResultItemIndex = remember { mutableIntStateOf(viewModel.savedFocusItemIndex.coerceAtLeast(0)) }
     var lastFocusedRowKey by remember { mutableStateOf(viewModel.savedFocusRowKey) }
     var posterOptionsRowKey by remember { mutableStateOf<String?>(null) }
+    // A person whose tile was held down, awaiting "Add to Actors row".
+    var personPinTarget by remember { mutableStateOf<com.nuvio.tv.domain.model.PersonSearchPreview?>(null) }
 
     val saveSearchFocusForDetail: (String) -> Unit = { rowKey ->
         viewModel.savedFocusRowKey = rowKey
@@ -719,6 +721,7 @@ fun SearchScreen(
                         onPersonClick = { person ->
                             onNavigateToCastDetail(person.tmdbId, person.name, false)
                         },
+                        onPersonLongClick = { person -> personPinTarget = person },
                         onPersonFocused = { _ ->
                             // Mirrors the catalog rows' onItemFocused: once the user lands on (or
                             // navigates within) the strip, retire any pending auto-focus so it can't
@@ -953,7 +956,28 @@ fun SearchScreen(
                                 },
                                 onItemLongPress = { item, addonBaseUrl ->
                                     posterOptionsRowKey = catalogKey
-                                    viewModel.posterOptions.show(item, addonBaseUrl)
+                                    // An episode search is pinnable: the row is the search, so the
+                                    // term (not the tile) is what Home remembers.
+                                    val rowContext = if (catalogRow.catalogId == EPISODE_SEARCH_CATALOG_ID) {
+                                        val term = catalogRow.extraArgs["search"]
+                                            ?.takeIf { it.isNotBlank() }
+                                            ?: uiState.submittedQuery.trim()
+                                        if (term.isNotBlank()) {
+                                            com.nuvio.tv.ui.components.posteroptions.PosterOptionsRowContext
+                                                .episodeSearch(
+                                                    searchTerm = term,
+                                                    addonBaseUrl = catalogRow.addonBaseUrl,
+                                                    addonId = catalogRow.addonId,
+                                                    catalogId = catalogRow.catalogId,
+                                                    catalogType = catalogRow.apiType
+                                                )
+                                        } else {
+                                            null
+                                        }
+                                    } else {
+                                        null
+                                    }
+                                    viewModel.posterOptions.show(item, addonBaseUrl, rowContext)
                                 },
                                 onSeeAll = {
                                     onNavigateToSeeAll(
@@ -1025,7 +1049,35 @@ fun SearchScreen(
             onNavigateToDetail(id, type, addonBaseUrl)
         }
     )
+
+    // Held-down person tile: the only action is adding them to Home's Actors row, so this is a
+    // one-button confirmation rather than a menu.
+    val pinTarget = personPinTarget
+    if (pinTarget != null) {
+        com.nuvio.tv.ui.components.NuvioDialog(
+            onDismiss = { personPinTarget = null },
+            title = pinTarget.name,
+            subtitle = stringResource(R.string.pin_people_dialog_subtitle)
+        ) {
+            androidx.tv.material3.Button(
+                onClick = {
+                    viewModel.addPersonToActors(pinTarget)
+                    personPinTarget = null
+                },
+                modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                colors = androidx.tv.material3.ButtonDefaults.colors(
+                    containerColor = com.nuvio.tv.ui.theme.NuvioTheme.colors.BackgroundCard,
+                    contentColor = com.nuvio.tv.ui.theme.NuvioTheme.colors.TextPrimary
+                )
+            ) {
+                androidx.tv.material3.Text(stringResource(R.string.pin_people_add_to_home))
+            }
+        }
+    }
 }
+
+/** bsf's episode-search catalog: the one search row whose *term* is worth keeping on Home. */
+private const val EPISODE_SEARCH_CATALOG_ID = "ai-search-episodes"
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable

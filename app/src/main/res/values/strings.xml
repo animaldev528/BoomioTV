@@ -3018,6 +3018,10 @@
     <string name="poster_options_error_load_lists_failed">Failed to load lists</string>
     <string name="poster_options_error_update_lists_failed">Failed to update lists</string>
     <string name="poster_options_public_lists">Public Lists</string>
+    <string name="poster_options_add_to_home">Add row to Home</string>
+    <string name="poster_options_remove_from_home">Remove row from Home</string>
+    <string name="pin_people_add_to_home">Add to Actors row</string>
+    <string name="pin_people_dialog_subtitle">Add this person to the Actors row on Home.</string>
     <string name="poster_options_public_lists_subtitle">Public Trakt lists that include this title.</string>
     <string name="poster_options_public_lists_loading">Loading public lists…</string>
     <string name="poster_options_public_lists_none">Not on any public list.</string>

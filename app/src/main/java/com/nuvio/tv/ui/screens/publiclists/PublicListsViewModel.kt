@@ -70,6 +70,21 @@ class PublicListsViewModel @Inject constructor(
      */
     private val rowSources = mutableMapOf<String, TraktCollectionSource>()
 
+    /**
+     * The pinnable identity of [row]: these rows ARE public Trakt lists, so any tile in one can
+     * put the whole list on Home. Null for a row this screen did not resolve itself.
+     */
+    fun pinnedRowContextFor(row: CatalogRow): com.nuvio.tv.ui.components.posteroptions.PosterOptionsRowContext? {
+        val source = rowSources[row.catalogId] ?: return null
+        return com.nuvio.tv.ui.components.posteroptions.PosterOptionsRowContext.traktList(
+            title = row.catalogName.ifBlank { source.title },
+            traktListId = source.traktListId,
+            traktMediaType = source.mediaType.value,
+            sortBy = source.sortBy,
+            sortHow = source.sortHow
+        )
+    }
+
     /** Rows with a page in flight, so scrolling at the end cannot stack requests. */
     private val pagingRows = mutableSetOf<String>()
 

@@ -171,7 +171,11 @@ fun PublicListsScreen(
                             // out on every row header would be eight repetitions of "Movies".
                             showCatalogTypeSuffix = false,
                             onItemLongPress = { item: MetaPreview, addonBaseUrl: String ->
-                                viewModel.posterOptions.show(item, addonBaseUrl)
+                                viewModel.posterOptions.show(
+                                    item,
+                                    addonBaseUrl,
+                                    viewModel.pinnedRowContextFor(row)
+                                )
                             },
                             // entryFocusRequester, not rowFocusRequester: it lands on a CARD,
                             // so the first thing the user sees is a focused poster rather

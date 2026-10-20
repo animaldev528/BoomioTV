@@ -130,6 +130,7 @@ class PosterOptionsControllerShowTest {
             tmdbService = tmdbService,
             likePreferences = mockk(relaxed = true),
             likeSyncService = mockk(relaxed = true),
+            pinnedHomeRows = mockk(relaxed = true),
             profileManager = mockk(relaxed = true)
         )
         controller.bind(backgroundScope)
@@ -175,6 +176,7 @@ class PosterOptionsControllerShowTest {
             tmdbService = tmdbService,
             likePreferences = mockk(relaxed = true),
             likeSyncService = mockk(relaxed = true),
+            pinnedHomeRows = mockk(relaxed = true),
             profileManager = mockk(relaxed = true)
         )
         controller.bind(backgroundScope)
@@ -212,6 +214,7 @@ class PosterOptionsControllerShowTest {
             tmdbService = tmdbService,
             likePreferences = mockk(relaxed = true),
             likeSyncService = mockk(relaxed = true),
+            pinnedHomeRows = mockk(relaxed = true),
             profileManager = mockk(relaxed = true)
         )
     }

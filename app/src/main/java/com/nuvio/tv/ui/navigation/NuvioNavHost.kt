@@ -221,6 +221,9 @@ private fun PlaybackNavHost(
             }
 
             HomeScreen(
+                onNavigateToCastDetail = { personId, personName, preferCrew ->
+                    navController.navigate(Screen.CastDetail.createRoute(personId, personName, preferCrew))
+                },
                 onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
                     val heroBackdrop = HeroBackdropState.consumeAndClear()
                     navController.navigate(
