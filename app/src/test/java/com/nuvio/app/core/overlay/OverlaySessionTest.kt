@@ -9,6 +9,7 @@ import kotlin.test.assertIs
 import kotlin.test.assertTrue
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 /**
@@ -52,6 +53,22 @@ class OverlaySessionTest {
 
     private fun driverOn(tunnelProvider: () -> OverlayWgTunnel? = { device }) =
         OverlaySessionDriver(tunnel = tunnelProvider, localCidr = { "10.77.0.2/32" })
+
+    /**
+     * The same driver, reading the user's choice from [flag] every time it applies — which is
+     * what production does (`{ OverlayWgTunnelController.manuallyDisconnected.value }`).
+     *
+     * A supplier rather than a captured boolean on purpose: a driver that froze the answer at
+     * construction would pass a "disconnected" test while being unable to *become* disconnected
+     * after the ladder had already brought the device up, and that is the only order that
+     * matters in the field.
+     */
+    private fun driverWithManualFlag(flag: () -> Boolean) =
+        OverlaySessionDriver(
+            tunnel = { device },
+            localCidr = { "10.77.0.2/32" },
+            manuallyDisconnected = flag,
+        )
 
     private fun foundEndpoint(
         host: String = "192.168.68.65",
@@ -247,6 +264,121 @@ class OverlaySessionTest {
 
         assertIs<TunnelState.Failed>(state)
     }
+
+    @Test
+    fun `a manually disconnected driver ignores a found endpoint`() {
+        // ⚠️ The invariant the whole control rests on. The ladder keeps walking while the user
+        // has asked for the tunnel down — by design, so Reconnect is instant — which means a
+        // `Found` *will* arrive. If that could bring the device up, "Disconnect" would undo
+        // itself on the next discovery pass, on a cadence the user never sees.
+        var manual = true
+        val driver = driverWithManualFlag { manual }
+
+        assertFalse(driver.apply(foundEndpoint()))
+
+        assertEquals(0, binding.upCalls, "no device should have been configured at all")
+        assertEquals(emptyList(), binding.calls)
+        assertFalse(driver.isUp)
+    }
+
+    @Test
+    fun `disconnect forgets the endpoint, so reconnect rebuilds it`() {
+        // ⚠️ **Clearing `configuredFor` is what makes Reconnect work at all.** The endpoint has
+        // not changed across a disconnect, so without the clear the next `apply` would answer
+        // "already configured", return false, and leave the device down forever — a Reconnect
+        // button that is pressable and inert.
+        var manual = false
+        val driver = driverWithManualFlag { manual }
+
+        driver.apply(foundEndpoint())
+        assertEquals(1, binding.upCalls)
+
+        manual = true
+        driver.disconnect()
+
+        assertEquals(listOf("up", "down"), binding.calls)
+        assertFalse(driver.isUp, "the memo has to be gone, or the rebuild below is suppressed")
+
+        // Still disconnected: the ladder's next walk must not undo it.
+        assertFalse(driver.apply(foundEndpoint()))
+        assertEquals(1, binding.upCalls)
+
+        manual = false
+        assertTrue(driver.apply(foundEndpoint()), "the same endpoint is news again after a disconnect")
+
+        assertEquals(listOf("up", "down", "up"), binding.calls)
+        assertEquals("192.168.68.65:51820", binding.lastUp?.endpoint)
+        assertTrue(driver.isUp)
+    }
+
+    @Test
+    fun `a disconnected driver refuses a retry after a failed bring-up`() {
+        // A failed `apply` deliberately leaves the memo null so the ladder's next walk retries.
+        // That retry path must still check the flag: "not remembered" is not "consented to".
+        binding.failUpWith = IllegalStateException("the config was rejected")
+        var manual = false
+        val driver = driverWithManualFlag { manual }
+
+        assertTrue(driver.apply(foundEndpoint()))
+        assertEquals(1, binding.upCalls)
+
+        manual = true
+        binding.failUpWith = null
+
+        assertFalse(driver.apply(foundEndpoint()))
+        assertEquals(
+            1,
+            binding.upCalls,
+            "the failed attempt left nothing remembered — only the flag can refuse this retry",
+        )
+    }
+
+    @Test
+    fun `the projection puts the user's choice ahead of the device state`() {
+        // ⚠️ The teardown is asynchronous: the flag is set on the caller's thread and `down()`
+        // runs on a background scope, so the device genuinely reports `Up` in between. Reading
+        // that as connected would flip the button back to "Disconnect" under the user's finger.
+        val up = TunnelState.Up("last_handshake_time_sec=1750000000")
+
+        assertEquals(OverlayTunnelUiState.Disconnected, OverlayTunnelUiState.of(up, true))
+        assertEquals(OverlayTunnelUiState.Connected, OverlayTunnelUiState.of(up, false))
+        assertEquals(OverlayTunnelUiState.Down, OverlayTunnelUiState.of(TunnelState.Down, false))
+        assertEquals(
+            OverlayTunnelUiState.Failed("no route"),
+            OverlayTunnelUiState.of(TunnelState.Failed("no route"), false),
+        )
+    }
+
+    @Test
+    fun `the disconnect choice survives a process restart`() {
+        // The promise the control makes is "the tunnel stays down until you reconnect", and it
+        // has to hold across the one event that wipes every in-memory flag. Simulating the
+        // restart is the only way to test that without trusting the two lines involved.
+        val context = RuntimeEnvironment.getApplication()
+
+        OverlayWgTunnelController.resetForTests()
+        OverlayWgTunnelController.initialize(context)
+        assertFalse(OverlayWgTunnelController.manuallyDisconnected.value)
+
+        OverlayWgTunnelController.setManuallyDisconnected(true)
+
+        OverlayWgTunnelController.resetForTests()
+        assertFalse(
+            OverlayWgTunnelController.manuallyDisconnected.value,
+            "the reset must drop the in-memory flag, or this test proves nothing",
+        )
+
+        OverlayWgTunnelController.initialize(context)
+        assertTrue(
+            OverlayWgTunnelController.manuallyDisconnected.value,
+            "the choice has to come back off disk — `commit()`, not `apply()`",
+        )
+
+        // Leave the shared preference store as it was found: other tests initialize this same
+        // process-wide controller, and a leftover `true` would silently disable their tunnels.
+        OverlayWgTunnelController.setManuallyDisconnected(false)
+        OverlayWgTunnelController.resetForTests()
+    }
 }
 
 /** One lifecycle call's arguments, recorded so the assertions can be about what crossed. */
@@ -300,7 +432,12 @@ private class SessionBinding : OverlayWgBinding {
         calls += "down"
     }
 
-    override fun status(): String = "handshake=1.2s rx=0 tx=0"
+    // ⚠️ **The real device's status is IpcGet's key/value lines, and `up` now means "a
+    // handshake completed", not "Up() returned".** A stale `handshake=1.2s` here made every
+    // bring-up wait out its full eight seconds and land in Failed: the fake predates the
+    // handshake gate, and the naive string looked plausible enough to hide that.
+    override fun status(): String =
+        "last_handshake_time_sec=1750000000\nlast_handshake_time_nsec=0\nrx_bytes=0\ntx_bytes=0"
 
     override fun generateKeypair(): OverlayWgKeypair = error("a stored pair is supplied by the test")
 

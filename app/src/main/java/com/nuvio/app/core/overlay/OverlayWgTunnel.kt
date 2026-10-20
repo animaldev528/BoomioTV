@@ -1,6 +1,7 @@
 package com.nuvio.app.core.overlay
 
 import android.content.Context
+import androidx.annotation.VisibleForTesting
 import android.content.SharedPreferences
 import android.util.Base64
 import android.util.Log
@@ -345,15 +346,50 @@ internal object OverlayWgTunnelController {
     @Volatile
     private var prefs: SharedPreferences? = null
 
+    /**
+     * The user's "keep the tunnel down" choice, persisted so it survives process death.
+     *
+     * ⚠️ **Separate from the device's own state on purpose.** `Down` is what the tunnel
+     * reports; this is what the user asked for. Without it a relaunch would bring the
+     * tunnel back up on the next `Found`, and "Disconnect" would mean "until the app
+     * restarts" — which is not what a troubleshooting control promises.
+     */
+    private val _manuallyDisconnected = MutableStateFlow(false)
+    val manuallyDisconnected: StateFlow<Boolean> = _manuallyDisconnected.asStateFlow()
+
+    fun setManuallyDisconnected(value: Boolean) {
+        _manuallyDisconnected.value = value
+        // ⚠️ `commit()`, not `apply()`: the choice must be on disk before the
+        // process can be killed. Being killed right after a Disconnect is exactly
+        // the case this preference exists for.
+        prefs?.edit()?.putBoolean(KEY_MANUALLY_DISCONNECTED, value)?.commit()
+    }
+
     fun initialize(context: Context) {
         if (tunnel != null) return
         val store = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs = store
+        _manuallyDisconnected.value = store.getBoolean(KEY_MANUALLY_DISCONNECTED, false)
         tunnel = OverlayWgTunnel(
             binding = GomobileWgBinding,
             loadKeypair = { readKeypair(store) },
             saveKeypair = { writeKeypair(store, it) },
         )
+    }
+
+    /**
+     * Drops the process-wide device so the next [initialize] re-reads preferences.
+     *
+     * A test seam, and a narrow one on purpose: production has exactly one [initialize] per
+     * process and nothing calls this. It exists so the persistence claim — the choice survives a
+     * process death — can be tested by *simulating* the restart rather than by trusting the two
+     * lines that read and write the key.
+     */
+    @VisibleForTesting
+    internal fun resetForTests() {
+        tunnel = null
+        prefs = null
+        _manuallyDisconnected.value = false
     }
 
     /** Null until [initialize] — callers treat that as "no tunnel", never as an error. */
@@ -380,6 +416,7 @@ internal object OverlayWgTunnelController {
             .apply()
     }
 
+    private const val KEY_MANUALLY_DISCONNECTED = "manually_disconnected"
     private const val KEY_PRIVATE_B64 = "private_key_b64"
     private const val KEY_PUBLIC_B64 = "public_key_b64"
     private const val KEY_PRIVATE_HEX = "private_key_hex"

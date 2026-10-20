@@ -7,6 +7,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -57,6 +61,16 @@ internal object OverlaySession {
     @Volatile
     private var lifecycleStarted = false
 
+    private val _connectionState =
+        MutableStateFlow<OverlayTunnelUiState>(OverlayTunnelUiState.Down)
+
+    /**
+     * The tunnel as the Settings screen shows it: the device's state projected through the
+     * user's "keep it down" choice. One collector, started in [initialize]; see
+     * [OverlayTunnelUiState.of] for why this is a projection and not a second state machine.
+     */
+    val connectionState: StateFlow<OverlayTunnelUiState> = _connectionState.asStateFlow()
+
     /**
      * Starts the session for this process, once.
      *
@@ -74,6 +88,18 @@ internal object OverlaySession {
         lifecycleStarted = true
 
         OverlayWgTunnelController.initialize(context)
+
+        // The one place the two facts meet. `initialize` has just created the device, so a
+        // null here would mean the controller refused to start at all — and then there is no
+        // tunnel state to project, only `Down`.
+        OverlayWgTunnelController.instance?.let { device ->
+            scope.launch {
+                combine(device.state, OverlayWgTunnelController.manuallyDisconnected) { state, manual ->
+                    OverlayTunnelUiState.of(state, manual)
+                }.collect { _connectionState.value = it }
+            }
+        }
+
         startDriverIfConfigured()
     }
 
@@ -100,6 +126,9 @@ internal object OverlaySession {
         val created = OverlaySessionDriver(
             tunnel = { OverlayWgTunnelController.instance },
             localCidr = { BoomioConfig.overlayLocalCidr },
+            // Read at apply time, never captured: the flag is the user's, it outlives this
+            // driver, and Disconnect can be pressed long after the collector was launched.
+            manuallyDisconnected = { OverlayWgTunnelController.manuallyDisconnected.value },
         )
         driver = created
 
@@ -144,6 +173,53 @@ internal object OverlaySession {
         if (held != null) driver?.apply(held)
     }
 
+    /**
+     * The user's Disconnect control: tear the tunnel down and keep it down.
+     *
+     * ⚠️ **The flag is set FIRST, before anything is launched.** Every `apply` that starts
+     * after this line returns immediately, including one the endpoint ladder is about to
+     * deliver; setting it inside the coroutine would leave a window in which a `Found` could
+     * bring the device straight back up. The teardown itself runs on [scope] because a
+     * bring-up in flight holds the driver's monitor for its handshake wait and the Settings
+     * screen must not block behind that.
+     *
+     * Discovery and enrollment keep running: the address can still be learned while the
+     * tunnel is down, so Reconnect is instant and a newly assigned address is not lost.
+     */
+    @Synchronized
+    fun disconnect() {
+        OverlayWgTunnelController.setManuallyDisconnected(true)
+        scope.launch {
+            val active = driver
+            if (active != null) active.disconnect() else OverlayWgTunnelController.instance?.down()
+            OverlayTunnel.refreshAsync()
+        }
+    }
+
+    /**
+     * The user's Reconnect control.
+     *
+     * ⚠️ **The held endpoint is re-applied explicitly.** The ladder collector is
+     * `distinctUntilChanged`, and the endpoint almost certainly has not changed since before
+     * the disconnect — so clearing the flag alone would leave the device down until some
+     * *new* endpoint appeared. Re-applying the held `Found` is what rebuilds it.
+     */
+    @Synchronized
+    fun reconnect() {
+        OverlayWgTunnelController.setManuallyDisconnected(false)
+        startDriverIfConfigured()
+        val held = OverlayEndpointState.status.value as? OverlayEndpointStatus.Found
+        scope.launch {
+            if (held != null) driver?.apply(held)
+            // A re-resolve may have been due while the tunnel was down; walk the same seams
+            // the Settings screen's "Check again" row walks. Each is fire-and-forget and
+            // takes its own mutex.
+            OverlayLocalDiscovery.refreshAsync()
+            OverlayEndpointDiscovery.refreshAsync()
+            OverlayTunnel.refreshAsync()
+        }
+    }
+
     /** Tears the device down and stops reacting to the ladder. Tests and the debug probe. */
     @Synchronized
     fun stop() {
@@ -179,6 +255,13 @@ internal object OverlaySession {
 internal class OverlaySessionDriver(
     private val tunnel: () -> OverlayWgTunnel?,
     private val localCidr: () -> String,
+    /**
+     * True while the user has asked for the tunnel to stay down.
+     *
+     * A supplier rather than a value because the preference outlives any one `apply`, and
+     * a captured boolean would let a long-lived collector act on a stale answer.
+     */
+    private val manuallyDisconnected: () -> Boolean = { false },
 ) {
 
     /**
@@ -218,6 +301,10 @@ internal class OverlaySessionDriver(
      */
     @Synchronized
     fun apply(found: OverlayEndpointStatus.Found?): Boolean {
+        // `Found` is discovery news, not consent to bring the device back up. Re-checked
+        // inside the monitor so a disconnect that raced the ladder cannot be undone by it.
+        if (manuallyDisconnected()) return false
+
         val endpoint = found?.endpoint?.takeIf { it.isUsable }
 
         if (endpoint == null) {
@@ -271,5 +358,22 @@ internal class OverlaySessionDriver(
                 true
             }
         }
+    }
+
+    /**
+     * Tears the device down **and forgets what it was configured for**.
+     *
+     * ⚠️ **Clearing [configuredFor] is the whole of Reconnect working at all.** [apply] treats
+     * the same endpoint as "already configured" — correct for an unchanged `Found`, fatal
+     * here — so a disconnect that only called `down()` would make every later `Found` a no-op
+     * and Reconnect a dead button until the endpoint happened to change. Done under the same
+     * monitor as [apply], so a bring-up in flight completes first and is then torn down.
+     */
+    @Synchronized
+    fun disconnect() {
+        configuredFor = null
+        configuredLocalCidr = null
+        // `down()` is safe when already down and normalises the state either way.
+        tunnel()?.down()
     }
 }
