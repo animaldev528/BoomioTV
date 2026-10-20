@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Divider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -64,6 +66,7 @@ import com.nuvio.tv.ui.components.PosterCardDefaults
 import com.nuvio.tv.ui.components.PosterCardStyle
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.LocalMoreLikeThisNavigator
+import com.nuvio.tv.LocalPublicListsNavigator
 import com.nuvio.tv.R
 import com.nuvio.tv.core.tracking.LOCAL_LIBRARY_LIST_KEY
 import com.nuvio.tv.core.tracking.supportsMembershipFor
@@ -509,6 +512,23 @@ fun HomeScreen(
         } else {
             null
         }
+        // "Public Lists": the same browsable screen the shared poster-options dialog offers
+        // (More Like This, catalog hubs). Home's dialog is bespoke, so it has to wire the
+        // navigator itself or the action is missing exactly where most tiles are pressed.
+        val navigatePublicLists = LocalPublicListsNavigator.current
+        val onShowPublicLists = if (navigatePublicLists != null && (isMovie || isSeries)) {
+            {
+                navigatePublicLists(
+                    if (isMovie) "movie" else "series",
+                    item.id,
+                    item.name,
+                    item.imdbId
+                )
+                posterOptionsTarget = null
+            }
+        } else {
+            null
+        }
         HomePosterOptionsDialog(
             title = item.name,
             isInLibrary = uiState.posterLibraryMembership[statusKey] == true,
@@ -524,6 +544,7 @@ fun HomeScreen(
                 posterOptionsTarget = null
             },
             onMoreLikeThis = onMoreLikeThis,
+            onShowPublicLists = onShowPublicLists,
             onToggleLibrary = {
                 if (uiState.librarySourceMode != LibrarySourceMode.LOCAL) {
                     viewModel.openPosterListPicker(item, selectedPoster.addonBaseUrl)
@@ -807,6 +828,9 @@ private fun HomePosterOptionsDialog(
     onDismiss: () -> Unit,
     onDetails: () -> Unit,
     onMoreLikeThis: (() -> Unit)? = null,
+    // Public Lists (Trakt reverse lookup): present for movie/series tiles, exactly as the
+    // shared PosterOptionsDialog offers it. Home has its own dialog, so it wires its own.
+    onShowPublicLists: (() -> Unit)? = null,
     onToggleLibrary: () -> Unit,
     onToggleWatched: () -> Unit,
     // Like-bootstrap row (mirrors the shared PosterOptionsDialog): present only for
@@ -837,103 +861,102 @@ private fun HomePosterOptionsDialog(
         title = title,
         subtitle = stringResource(R.string.home_poster_dialog_subtitle)
     ) {
-        Button(
-            onClick = onDetails,
+        // NuvioDialog caps its height and never scrolls, and this dialog now carries one
+        // more action than it used to: on a 540dp TV the last action would be clipped
+        // (focusable but invisible). Scroll the actions so every one stays reachable.
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .focusRequester(primaryFocusRequester),
-            colors = ButtonDefaults.colors(
-                containerColor = NuvioTheme.colors.BackgroundCard,
-                contentColor = NuvioTheme.colors.TextPrimary
-            )
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.lg)
         ) {
-            Text(stringResource(R.string.cw_action_go_to_details))
-        }
-
-        if (onMoreLikeThis != null) {
             Button(
-                onClick = onMoreLikeThis,
-                modifier = Modifier.fillMaxWidth(),
+                onClick = onDetails,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(primaryFocusRequester),
                 colors = ButtonDefaults.colors(
                     containerColor = NuvioTheme.colors.BackgroundCard,
                     contentColor = NuvioTheme.colors.TextPrimary
                 )
             ) {
-                Text(stringResource(R.string.detail_tab_more_like_this))
+                Text(stringResource(R.string.cw_action_go_to_details))
             }
-        }
 
-        if (showLike && onToggleLike != null) {
-            Button(
-                onClick = onToggleLike,
-                enabled = !isLikePending,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.colors(
-                    containerColor = if (isLiked) NuvioTheme.colors.FocusBackground else NuvioTheme.colors.BackgroundCard,
-                    contentColor = NuvioTheme.colors.TextPrimary
-                )
-            ) {
-                Text(
-                    stringResource(
-                        if (isLiked) R.string.like_action_unlike else R.string.like_action_like
+            if (onMoreLikeThis != null) {
+                Button(
+                    onClick = onMoreLikeThis,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.colors(
+                        containerColor = NuvioTheme.colors.BackgroundCard,
+                        contentColor = NuvioTheme.colors.TextPrimary
                     )
-                )
-            }
-        }
-
-        if (showNotInterested && onNotInterested != null) {
-            Button(
-                onClick = onNotInterested,
-                enabled = !isNotInterestedPending,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.colors(
-                    containerColor = NuvioTheme.colors.BackgroundCard,
-                    contentColor = NuvioTheme.colors.TextPrimary
-                )
-            ) {
-                Text(stringResource(R.string.like_action_not_interested))
-            }
-        }
-
-        if (onRemovePinnedRow != null) {
-            Button(
-                onClick = onRemovePinnedRow,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.colors(
-                    containerColor = NuvioTheme.colors.BackgroundCard,
-                    contentColor = NuvioTheme.colors.TextPrimary
-                )
-            ) {
-                Text(stringResource(R.string.poster_options_remove_from_home))
-            }
-        }
-
-        Button(
-            onClick = onToggleLibrary,
-            enabled = !isLibraryPending,
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.colors(
-                containerColor = NuvioTheme.colors.BackgroundCard,
-                contentColor = NuvioTheme.colors.TextPrimary
-            )
-        ) {
-            Text(
-                if (showManageLists) {
-                    stringResource(R.string.library_manage_lists)
-                } else {
-                    if (isInLibrary) {
-                        stringResource(R.string.hero_remove_from_library)
-                    } else {
-                        stringResource(R.string.hero_add_to_library)
-                    }
+                ) {
+                    Text(stringResource(R.string.detail_tab_more_like_this))
                 }
-            )
-        }
+            }
 
-        if (isMovie || isSeries) {
+            if (onShowPublicLists != null) {
+                Button(
+                    onClick = onShowPublicLists,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.colors(
+                        containerColor = NuvioTheme.colors.BackgroundCard,
+                        contentColor = NuvioTheme.colors.TextPrimary
+                    )
+                ) {
+                    Text(stringResource(R.string.poster_options_public_lists))
+                }
+            }
+
+            if (showLike && onToggleLike != null) {
+                Button(
+                    onClick = onToggleLike,
+                    enabled = !isLikePending,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.colors(
+                        containerColor = if (isLiked) NuvioTheme.colors.FocusBackground else NuvioTheme.colors.BackgroundCard,
+                        contentColor = NuvioTheme.colors.TextPrimary
+                    )
+                ) {
+                    Text(
+                        stringResource(
+                            if (isLiked) R.string.like_action_unlike else R.string.like_action_like
+                        )
+                    )
+                }
+            }
+
+            if (showNotInterested && onNotInterested != null) {
+                Button(
+                    onClick = onNotInterested,
+                    enabled = !isNotInterestedPending,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.colors(
+                        containerColor = NuvioTheme.colors.BackgroundCard,
+                        contentColor = NuvioTheme.colors.TextPrimary
+                    )
+                ) {
+                    Text(stringResource(R.string.like_action_not_interested))
+                }
+            }
+
+            if (onRemovePinnedRow != null) {
+                Button(
+                    onClick = onRemovePinnedRow,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.colors(
+                        containerColor = NuvioTheme.colors.BackgroundCard,
+                        contentColor = NuvioTheme.colors.TextPrimary
+                    )
+                ) {
+                    Text(stringResource(R.string.poster_options_remove_from_home))
+                }
+            }
+
             Button(
-                onClick = onToggleWatched,
-                enabled = !isWatchedPending,
+                onClick = onToggleLibrary,
+                enabled = !isLibraryPending,
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.colors(
                     containerColor = NuvioTheme.colors.BackgroundCard,
@@ -941,12 +964,36 @@ private fun HomePosterOptionsDialog(
                 )
             ) {
                 Text(
-                    if (isWatched) {
-                        stringResource(R.string.hero_mark_unwatched)
+                    if (showManageLists) {
+                        stringResource(R.string.library_manage_lists)
                     } else {
-                        stringResource(R.string.hero_mark_watched)
+                        if (isInLibrary) {
+                            stringResource(R.string.hero_remove_from_library)
+                        } else {
+                            stringResource(R.string.hero_add_to_library)
+                        }
                     }
                 )
+            }
+
+            if (isMovie || isSeries) {
+                Button(
+                    onClick = onToggleWatched,
+                    enabled = !isWatchedPending,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.colors(
+                        containerColor = NuvioTheme.colors.BackgroundCard,
+                        contentColor = NuvioTheme.colors.TextPrimary
+                    )
+                ) {
+                    Text(
+                        if (isWatched) {
+                            stringResource(R.string.hero_mark_unwatched)
+                        } else {
+                            stringResource(R.string.hero_mark_watched)
+                        }
+                    )
+                }
             }
         }
     }
