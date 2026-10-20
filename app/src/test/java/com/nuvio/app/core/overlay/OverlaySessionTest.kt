@@ -128,6 +128,31 @@ class OverlaySessionTest {
     }
 
     @Test
+    fun `a device that dropped on its own is rebuilt by the same endpoint`() {
+        // ⚠️ **The bug this pins, seen on the TV.** `configuredFor` records what the driver
+        // asked for, not what is running. When the device goes down behind the driver's back —
+        // link loss, a lapsed handshake, the user toggling a VPN under the app — that memory
+        // survives, and the ladder is `distinctUntilChanged`, so the endpoint is never
+        // re-delivered. The old guard then answered "already configured" forever: no rebuild,
+        // the relay falls open to the LAN, and the server refuses media with a 403 that
+        // outlives a force-quit because the memory is not the only thing that is stale.
+        val driver = driverOn()
+
+        driver.apply(foundEndpoint())
+        assertEquals(1, binding.upCalls)
+
+        // What a bounce looks like from here: the device is down, the driver was not told.
+        device.down()
+
+        val changed = driver.apply(foundEndpoint())
+
+        assertTrue(changed, "a stale memo must be a rebuild, not a no-op")
+        assertEquals(2, binding.upCalls)
+        assertEquals("192.168.68.65:51820", binding.lastUp?.endpoint)
+        assertTrue(driver.isUp)
+    }
+
+    @Test
     fun `a changed local address rebuilds the device onto the enrolled one`() {
         // ⚠️ The defect this pins, measured on device. Enrollment assigns this device its /32
         // *after* the ladder has already brought the tunnel up on the baked default, and the

@@ -5,6 +5,7 @@ import android.util.Log
 import com.nuvio.app.features.boomio.BoomioConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +17,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 private const val TAG = "OverlaySession"
+
+/** How long to let a drop settle before rebuilding; see the collector in [OverlaySession.initialize]. */
+private const val REBUILD_DELAY_MS = 1_500L
 
 /**
  * Turns a discovered endpoint into a running tunnel.
@@ -97,6 +101,37 @@ internal object OverlaySession {
                 combine(device.state, OverlayWgTunnelController.manuallyDisconnected) { state, manual ->
                     OverlayTunnelUiState.of(state, manual)
                 }.collect { _connectionState.value = it }
+            }
+
+            // **A tunnel that goes down on its own is brought back here.** Neither existing
+            // trigger covers it: the ladder is `distinctUntilChanged`, so the `Found` that
+            // would rebuild the device is not re-delivered after a bounce, and
+            // [OverlayTunnel]'s triggers only re-*probe* — they never call `up()`. Without
+            // this, a tunnel that drops (link loss, a lapsed handshake, a VPN toggled under
+            // the app, the relay's own watchdog) stays down until the user finds Reconnect,
+            // and the fail-open relay then serves media straight from the LAN — which the
+            // server refuses under `requireTunnelForMedia`, as a 403 the user sees as
+            // "playback is permanently broken".
+            //
+            // Only a transition OUT of `Up` is news: the StateFlow's first emission is the
+            // current state, so `wasUp` is seeded from it and a cold start is not a "drop".
+            scope.launch {
+                var wasUp = device.state.value is TunnelState.Up
+                device.state.collect { state ->
+                    val up = state is TunnelState.Up
+                    val dropped = wasUp && !up
+                    wasUp = up
+                    if (!dropped) return@collect
+                    // The user's own Disconnect is a drop too, and must stay down.
+                    if (OverlayWgTunnelController.manuallyDisconnected.value) return@collect
+                    // A beat, not immediately: `apply` takes the device down before it brings
+                    // it back, so rebuilding into a teardown already in flight would fight it.
+                    delay(REBUILD_DELAY_MS)
+                    if (OverlayWgTunnelController.manuallyDisconnected.value) return@collect
+                    val held = OverlayEndpointState.status.value as? OverlayEndpointStatus.Found
+                    Log.d(TAG, "Overlay tunnel dropped; rebuilding against ${held?.endpoint?.authority}")
+                    if (held != null && driver?.apply(held) == true) OverlayTunnel.refreshAsync()
+                }
             }
         }
 
@@ -316,7 +351,16 @@ internal class OverlaySessionDriver(
 
         val authority = endpoint.authority
         val cidr = localCidr()
-        if (authority == configuredFor && cidr == configuredLocalCidr) return false
+        val device = tunnel() ?: return false
+        if (authority == configuredFor && cidr == configuredLocalCidr) {
+            // `configuredFor` records what this driver ASKED for, not what is running. A
+            // device that went down on its own — link loss, a lapsed handshake, the app
+            // resumed — leaves that memory untouched, and then this same endpoint would be
+            // suppressed for the life of the process: the ladder is `distinctUntilChanged`,
+            // so nothing re-delivers it. A stale memory is a rebuild, not a no-op.
+            if (device.state.value is TunnelState.Up) return false
+            Log.d(TAG, "Overlay tunnel is no longer up for $authority; rebuilding")
+        }
         if (authority == configuredFor) {
             // Same server, different local address: this device has been assigned its /32 since
             // the device came up, and it is still running on the old one. Rebuilding is the
@@ -325,7 +369,6 @@ internal class OverlaySessionDriver(
         }
 
         val serverKey = endpoint.serverPublicKeyBase64 ?: return false
-        val device = tunnel() ?: return false
 
         // An endpoint that moved means the old device is pointed at the wrong server. `up()`
         // on a live device is not documented to reconfigure in place, so it is taken down
