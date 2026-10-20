@@ -567,10 +567,19 @@ internal fun PlayerRuntimeController.initializePlayer(
                 Log.i(
                     PlayerRuntimeController.TAG,
                     "BUFFER_GATE: engine=exo-stock master=off; DefaultLoadControl " +
-                            "(1.5s back buffer, no VOD cache) host=${url.safeHost()}"
+                            "(1.5s back buffer, no VOD cache, budgetMb=${MemoryBudget.budgetMb}) host=${url.safeHost()}"
                 )
+                // "Stock" still runs on a 1-2 GB box: without a byte ceiling a high-bitrate
+                // remux buffers until the heap ceiling and the lowmemorykiller picks the app.
+                // Use the same physical-RAM tier the custom engine is capped by; let the
+                // min-buffer time threshold win over it so a cap can never starve playback.
+                val stockBudgetBytes = (MemoryBudget.budgetMb * 1024L * 1024L)
+                    .coerceAtMost(Int.MAX_VALUE.toLong())
+                    .toInt()
                 DefaultLoadControl.Builder()
                     .setBackBuffer(1_500, /* retainBackBufferFromKeyframe = */ true)
+                    .setTargetBufferBytes(stockBudgetBytes)
+                    .setPrioritizeTimeOverSizeThresholds(true)
                     .build()
             }
             _loadControl = loadControl

@@ -20,6 +20,16 @@ object MemoryBudget {
     // The buffer allocator is on the Java heap; on low-RAM reserve a slice for the UI/decoder/caches
     // and give the rest to the buffer (a flat % of max heap overcommits and starves them).
     private const val LOW_HEAP_RESERVE_MB = 210L
+    // The manifest sets largeHeap=true, so Runtime.maxMemory() is pinned at the same
+    // ceiling (~512 MB) on a 1 GB Firestick and an 8 GB Shield. The heap ceiling alone
+    // therefore cannot decide the tier: a 2 GB box reads as high-RAM and would be handed
+    // an 85% (~435 MB) byte budget — most of the device. Physical RAM is the honest input.
+    private const val LOW_PHYSICAL_RAM_MB = 2_300L
+    // Absolute byte-budget ceilings by physical RAM, so a largeHeap-inflated ratio can
+    // never take a slice the codec, surface buffers and UI need on a tight box.
+    private const val BUDGET_CEIL_1GB_MB = 72
+    private const val BUDGET_CEIL_2GB_MB = 128
+    private const val BUDGET_CEIL_3GB_MB = 256
 
     /** ParallelRangeDataSource schedules maxAhead = parallelConnections + 1 chunks concurrently */
     private const val BUFFER_OVERHEAD = 2
@@ -48,12 +58,38 @@ object MemoryBudget {
 
     private val maxHeapMb: Long = Runtime.getRuntime().maxMemory() / (1024L * 1024L)
 
-    /** True when the app heap is below the high-RAM threshold (Fire TV / TV-stick class). */
-    val isLowRamTier: Boolean = maxHeapMb < HIGH_HEAP_THRESHOLD_MB
+    /** Physical RAM from /proc/meminfo, or 0 when it cannot be read. */
+    private val physicalRamMb: Long = try {
+        java.io.File("/proc/meminfo").useLines { lines ->
+            val match = java.util.regex.Pattern.compile("\\d+").matcher(lines.firstOrNull().orEmpty())
+            if (match.find()) match.group().toLong() / 1024L else 0L
+        }
+    } catch (_: Exception) {
+        0L
+    }
+
+    /**
+     * True for TV-stick class hardware: a small heap, or 2 GB of physical RAM or less
+     * regardless of the largeHeap-inflated heap ceiling.
+     */
+    val isLowRamTier: Boolean =
+        maxHeapMb < HIGH_HEAP_THRESHOLD_MB || (physicalRamMb in 1..LOW_PHYSICAL_RAM_MB)
+
+    /** Hard ceiling the ratio budget is clamped to for this device's physical RAM. */
+    private val budgetCeilMb: Int = when {
+        // Unreadable: keep the heap-derived budget rather than guessing.
+        physicalRamMb <= 0L -> Int.MAX_VALUE
+        physicalRamMb < 1_450L -> BUDGET_CEIL_1GB_MB
+        physicalRamMb < LOW_PHYSICAL_RAM_MB -> BUDGET_CEIL_2GB_MB
+        physicalRamMb < 3_200L -> BUDGET_CEIL_3GB_MB
+        else -> Int.MAX_VALUE
+    }
 
     // Pre-cap ratio budget; conversionBudgetMb derives from this so DV7 headroom isn't cut by the cap.
     private val rawBudgetMb: Int =
-        (maxHeapMb * (if (isLowRamTier) LOW_HEAP_RATIO else HIGH_HEAP_RATIO)).toInt()
+        (maxHeapMb * (if (isLowRamTier) LOW_HEAP_RATIO else HIGH_HEAP_RATIO))
+            .toInt()
+            .coerceAtMost(budgetCeilMb)
 
     val budgetMb: Int =
         if (isLowRamTier)
