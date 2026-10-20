@@ -40,13 +40,38 @@ class PinnedHomeRowResolver @Inject constructor(
         }
     }.getOrNull()
 
+    /**
+     * Fetches the WHOLE list, not just its first page.
+     *
+     * A pinned row has no See-all destination, so the row itself is the only place these
+     * titles can appear: stopping at page 1 left a 500-title list showing 150, which reads
+     * as "the list is broken/cut short". Pages are merged until the list is exhausted or
+     * [MAX_ITEMS] is reached; a page that fails mid-list keeps what was already collected
+     * rather than blanking the row.
+     */
     private suspend fun resolveTraktList(row: PinnedHomeRow): CatalogRow? {
         val source = row.traktSource() ?: return null
-        val result = traktPublicListSourceResolver
-            .resolve(source, page = 1)
-            .first { it !is NetworkResult.Loading }
-        val resolved = (result as? NetworkResult.Success)?.data ?: return null
-        return resolved.asPinned(row)
+        val items = LinkedHashMap<String, MetaPreview>()
+        var lastPage: CatalogRow? = null
+        var page = 1
+        while (items.size < MAX_ITEMS) {
+            val result = traktPublicListSourceResolver
+                .resolve(source, page = page, pageSize = PAGE_SIZE)
+                .first { it !is NetworkResult.Loading }
+            val pageRow = (result as? NetworkResult.Success)?.data ?: break
+            pageRow.items.forEach { item ->
+                if (item.id.isNotBlank()) {
+                    items.putIfAbsent("${item.apiType}:${item.id}", item)
+                }
+            }
+            lastPage = pageRow
+            // A page of nothing but duplicates means no further progress is possible.
+            if (!pageRow.hasMore || pageRow.items.isEmpty()) break
+            page++
+        }
+        val resolved = lastPage ?: return null
+        if (items.isEmpty()) return null
+        return resolved.copy(items = items.values.toList()).asPinned(row)
     }
 
     private suspend fun resolveEpisodeSearch(row: PinnedHomeRow): CatalogRow? = withContext(Dispatchers.IO) {
@@ -105,8 +130,10 @@ class PinnedHomeRowResolver @Inject constructor(
     /**
      * Re-keys a resolved row onto the pinned identity.
      *
-     * `hasMore = false` and the item cap are deliberate: a pinned row has no See-all
-     * destination behind it, so it must never render one.
+     * `hasMore = false` is deliberate: a pinned row has no See-all destination behind it,
+     * so it must never render one — the See-all suppression in the classic/grid pipelines
+     * keys off the pinned addon id for the same reason. [MAX_ITEMS] is only a runaway guard
+     * (a pathological list), not a display cap.
      */
     private fun CatalogRow.asPinned(row: PinnedHomeRow) = copy(
         addonId = PinnedHomeRow.PINNED_ADDON_ID,
@@ -123,7 +150,8 @@ class PinnedHomeRowResolver @Inject constructor(
     )
 
     companion object {
-        /** Below every See-all threshold in [com.nuvio.tv.ui.components.CatalogRowSection]. */
-        private const val MAX_ITEMS = 14
+        /** Safety ceiling on fetched items, not a display cap: Trakt allows 250 per page. */
+        private const val PAGE_SIZE = TraktPublicListSourceResolver.MAX_PAGE_LIMIT
+        private const val MAX_ITEMS = 2000
     }
 }

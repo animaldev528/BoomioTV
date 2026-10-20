@@ -54,19 +54,29 @@ class TraktPublicListSourceResolver @Inject constructor(
     private fun string(resId: Int): String = appContext.getString(resId)
     private fun string(resId: Int, vararg args: Any): String = appContext.getString(resId, *args)
 
-    fun resolve(source: TraktCollectionSource, page: Int = 1): Flow<NetworkResult<CatalogRow>> = flow {
+    /**
+     * [pageSize] exists for callers that want a whole list in a few requests — a pinned Home
+     * row has no See-all behind it, so it must fetch every page itself. Trakt caps a page at
+     * [MAX_PAGE_LIMIT]; anything larger is clamped rather than rejected.
+     */
+    fun resolve(
+        source: TraktCollectionSource,
+        page: Int = 1,
+        pageSize: Int = PAGE_LIMIT
+    ): Flow<NetworkResult<CatalogRow>> = flow {
         emit(NetworkResult.Loading)
         val result = runCatching {
             withContext(Dispatchers.IO) {
                 val type = source.mediaType.toTraktType()
                 val sortBy = TraktListSort.normalize(source.sortBy)
                 val sortHow = TraktSortHow.normalize(source.sortHow)
+                val limit = pageSize.coerceIn(1, MAX_PAGE_LIMIT)
                 val response = publicRequest {
                     traktApi.getPublicListItems(
                         id = source.traktListId.toString(),
                         type = type,
                         page = page,
-                        limit = PAGE_LIMIT,
+                        limit = limit,
                         sortBy = sortBy,
                         sortHow = sortHow
                     )
@@ -85,7 +95,8 @@ class TraktPublicListSourceResolver @Inject constructor(
                     ),
                     page = page,
                     hasMore = page < pageCount && items.isNotEmpty(),
-                    items = items
+                    items = items,
+                    pageSize = limit
                 )
             }
         }
@@ -148,7 +159,13 @@ class TraktPublicListSourceResolver @Inject constructor(
         return traktAuthService.executePublicRequest(call) ?: error(string(R.string.trakt_error_public_request_failed))
     }
 
-    private fun row(source: TraktCollectionSource, page: Int, hasMore: Boolean, items: List<MetaPreview>): CatalogRow {
+    private fun row(
+        source: TraktCollectionSource,
+        page: Int,
+        hasMore: Boolean,
+        items: List<MetaPreview>,
+        pageSize: Int = PAGE_LIMIT
+    ): CatalogRow {
         val rawType = source.mediaType.toCollectionRawType()
         return CatalogRow(
             addonId = "trakt",
@@ -163,7 +180,7 @@ class TraktPublicListSourceResolver @Inject constructor(
             hasMore = hasMore,
             currentPage = page,
             supportsSkip = hasMore,
-            skipStep = PAGE_LIMIT
+            skipStep = pageSize
         )
     }
 
@@ -331,5 +348,8 @@ class TraktPublicListSourceResolver @Inject constructor(
 
     companion object {
         const val PAGE_LIMIT = 50
+
+        /** Trakt's own ceiling for `limit` on list items. */
+        const val MAX_PAGE_LIMIT = 250
     }
 }

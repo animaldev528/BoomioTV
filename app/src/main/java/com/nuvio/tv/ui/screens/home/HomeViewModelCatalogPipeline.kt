@@ -9,6 +9,7 @@ import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.HomeLayout
+import com.nuvio.tv.domain.model.PinnedHomeRow
 import com.nuvio.tv.domain.model.catalogRowStableKey
 import com.nuvio.tv.domain.model.enabledAddons
 import com.nuvio.tv.domain.model.legacyKey
@@ -837,7 +838,10 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                             ))
                             // Show "See All" if there are more items than fit in the
                             // displayed rows, or the API indicates more pages exist.
-                            val showSeeAll = row.hasMore || row.items.size > maxDisplaySlots
+                            // Never for a pinned row: it carries the whole list already and
+                            // has no catalog screen behind it.
+                            val showSeeAll = row.addonId != PinnedHomeRow.PINNED_ADDON_ID &&
+                                (row.hasMore || row.items.size > maxDisplaySlots)
                             val rawMax = if (showSeeAll) maxDisplaySlots - 1 else maxDisplaySlots
                             val displayItems = row.items.take(rawMax)
                             displayItems.forEach { item ->

@@ -50,6 +50,7 @@ import com.nuvio.tv.ui.util.asStable
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.domain.model.PinnedHomeRow
 import com.nuvio.tv.domain.model.Collection
 import com.nuvio.tv.domain.model.CollectionFolder
 import com.nuvio.tv.domain.model.legacyKey
@@ -838,6 +839,10 @@ fun ClassicHomeContent(
                         isItemWatched = isCatalogItemWatched,
                         onItemLongPress = onCatalogItemLongPress,
                         seeAllLabel = catalogSeeAllLabel,
+                        // A pinned row holds the whole list and has no See-all destination;
+                        // the default heuristic (>= 15 items) would otherwise draw a card
+                        // that goes nowhere.
+                        showSeeAll = catalogRow.addonId != PinnedHomeRow.PINNED_ADDON_ID,
                         onItemClick = { id, type, addonBaseUrl ->
                             onNavigateToDetail(id, type, addonBaseUrl)
                         },
