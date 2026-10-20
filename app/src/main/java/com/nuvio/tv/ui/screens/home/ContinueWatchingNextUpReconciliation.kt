@@ -86,10 +86,11 @@ internal suspend fun HomeViewModel.applyConclusiveOlderNextUpResults(
         )
         val sorted = sortContinueWatchingItems(reconciled, sortMode)
         val (main, upcoming) = splitUpcomingItems(sorted, sortMode)
-        if (state.continueWatchingItems == main && state.upcomingItems == upcoming) {
+        val mergedUpcoming = withDiscoveredUpcoming(upcoming, sortMode)
+        if (state.continueWatchingItems == main && state.upcomingItems == mergedUpcoming) {
             state
         } else {
-            state.copy(continueWatchingItems = main, upcomingItems = upcoming)
+            state.copy(continueWatchingItems = main, upcomingItems = mergedUpcoming)
         }
     }
 
