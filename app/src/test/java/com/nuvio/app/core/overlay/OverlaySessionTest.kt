@@ -6,6 +6,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -150,6 +151,41 @@ class OverlaySessionTest {
         assertEquals(2, binding.upCalls)
         assertEquals("192.168.68.65:51820", binding.lastUp?.endpoint)
         assertTrue(driver.isUp)
+    }
+
+    @Test
+    fun `a silent drop is rebuilt even though the device still reports Up`() {
+        // ⚠️ The other half of the TV bug, and the half a state *transition* cannot see. A
+        // link dropped underneath a userspace device leaves [TunnelState] saying `Up` — that
+        // state is what the driver last set, not what the network is doing — so `apply` is
+        // correctly a no-op and the tunnel stays wedged until the process dies. The liveness
+        // watchdog needs a door that ignores the memo; this is that door.
+        val driver = driverOn()
+
+        driver.apply(foundEndpoint())
+        assertEquals(1, binding.upCalls)
+
+        assertFalse(driver.apply(foundEndpoint()), "an unchanged endpoint is still a no-op")
+        assertTrue(driver.rebuild(foundEndpoint()))
+
+        assertEquals(2, binding.upCalls)
+        assertEquals(
+            listOf("up", "down", "up"),
+            binding.calls,
+            "the dead device is taken down before it is replaced",
+        )
+        assertTrue(driver.isUp)
+    }
+
+    @Test
+    fun `the handshake clock is read, and an absent one is not guessed at`() {
+        // The watchdog's whole input. `last_handshake_time_sec` is the only field in the dump
+        // that distinguishes a live tunnel from one shouting into a network that will never
+        // answer, and a dump that does not say reads as "unknown", never as "fresh".
+        assertEquals(42L, handshakeAgeSeconds("last_handshake_time_sec=1000\nrx_bytes=1", 1042))
+        assertEquals(0L, handshakeAgeSeconds("last_handshake_time_sec=2000", 1042), "a clock that moved backwards is not an age")
+        assertNull(handshakeAgeSeconds("last_handshake_time_sec=0", 1042), "never handshaked")
+        assertNull(handshakeAgeSeconds("unavailable: boom", 1042))
     }
 
     @Test

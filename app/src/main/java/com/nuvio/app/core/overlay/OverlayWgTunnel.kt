@@ -51,6 +51,27 @@ internal fun handshakeCompleted(rawStatus: String): Boolean =
         ?: false
 
 /**
+ * Seconds since the device's last completed handshake, or null when the dump does not say.
+ *
+ * ⚠️ **This is the only evidence a tunnel that died *silently* leaves behind.** Nothing
+ * notices a link dropping underneath a userspace device: [OverlayWgTunnel.state] is only what
+ * the driver last set, so it keeps saying `Up` while every packet goes nowhere. The handshake
+ * clock is the exception — a live tunnel rekeys at least every two minutes (wireguard-go
+ * rekeys once the current pair passes 120 s, and the 25 s persistent keepalive is what keeps
+ * that clock running) — so an old timestamp means the tunnel is carrying nothing.
+ *
+ * Pure, for the same reason [handshakeCompleted] is: the JNI binding cannot load on the host.
+ */
+internal fun handshakeAgeSeconds(rawStatus: String, nowEpochSeconds: Long): Long? =
+    rawStatus.lineSequence()
+        .firstOrNull { it.substringBefore('=').trim() == "last_handshake_time_sec" }
+        ?.substringAfter('=', "")
+        ?.trim()
+        ?.toLongOrNull()
+        ?.takeIf { it > 0L }
+        ?.let { (nowEpochSeconds - it).coerceAtLeast(0L) }
+
+/**
  * What the userspace tunnel is doing.
  *
  * ⚠️ **Deliberately not the same type as [RelayState] or [OverlayTunnel]'s, even though the

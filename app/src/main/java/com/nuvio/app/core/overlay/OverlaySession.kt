@@ -21,6 +21,18 @@ private const val TAG = "OverlaySession"
 /** How long to let a drop settle before rebuilding; see the collector in [OverlaySession.initialize]. */
 private const val REBUILD_DELAY_MS = 1_500L
 
+/** How often the liveness watchdog looks at the handshake clock. */
+private const val LIVENESS_TICK_MS = 30_000L
+
+/**
+ * How old the last handshake may be before the tunnel is treated as dead.
+ *
+ * Generous on purpose. A working tunnel rekeys at least every two minutes, so 180 s is well
+ * clear of the healthy case, and the cost of being wrong in the other direction — tearing down
+ * a tunnel that was fine — is a visible stall mid-episode.
+ */
+private const val STALE_HANDSHAKE_SECONDS = 180L
+
 /**
  * Turns a discovered endpoint into a running tunnel.
  *
@@ -131,6 +143,40 @@ internal object OverlaySession {
                     val held = OverlayEndpointState.status.value as? OverlayEndpointStatus.Found
                     Log.d(TAG, "Overlay tunnel dropped; rebuilding against ${held?.endpoint?.authority}")
                     if (held != null && driver?.apply(held) == true) OverlayTunnel.refreshAsync()
+                }
+            }
+
+            // **The half the collector above cannot see: a tunnel that dies silently.** That
+            // one fires on a state *transition*, and a link dropped underneath a userspace
+            // device produces none — the state stays `Up` while every packet goes nowhere.
+            // The handshake clock is the only evidence such a death leaves, so it is what this
+            // watches; see [handshakeAgeSeconds].
+            //
+            // It also retries a bring-up that failed, which matters more than it looks: after a
+            // bounce the rebuild fails while the network is still down, and without a retry the
+            // app would sit there dead — the ladder is `distinctUntilChanged` and a failed
+            // `up()` deliberately leaves no memo to change.
+            scope.launch {
+                while (true) {
+                    delay(LIVENESS_TICK_MS)
+                    if (OverlayWgTunnelController.manuallyDisconnected.value) continue
+                    // Nothing to aim at: discovery has not found an endpoint yet, and this is
+                    // not the thing that should be guessing at one.
+                    val held = OverlayEndpointState.status.value as? OverlayEndpointStatus.Found
+                        ?: continue
+                    val state = device.state.value
+                    val needsRebuild = if (state is TunnelState.Up) {
+                        val age = handshakeAgeSeconds(device.status(), System.currentTimeMillis() / 1000)
+                        // An unreadable dump is not evidence of health; rebuilding is the safe
+                        // direction, because `up()` re-checks the handshake itself and answers
+                        // `Failed` (rather than `Up`) when it cannot complete one.
+                        age == null || age > STALE_HANDSHAKE_SECONDS
+                    } else {
+                        true
+                    }
+                    if (!needsRebuild) continue
+                    Log.d(TAG, "Overlay liveness: $state is not carrying traffic; rebuilding against ${held.endpoint.authority}")
+                    if (driver?.rebuild(held) == true) OverlayTunnel.refreshAsync()
                 }
             }
         }
@@ -401,6 +447,21 @@ internal class OverlaySessionDriver(
                 true
             }
         }
+    }
+
+    /**
+     * Rebuilds the device from scratch, whether or not the endpoint changed.
+     *
+     * ⚠️ **Only the liveness watchdog calls this, and it needs a door of its own.** A tunnel
+     * that died *silently* still reports [TunnelState.Up] — that state is what the driver set,
+     * not what the network is doing — so [apply] would answer "already configured" and leave
+     * it dead. Clearing the memo first is what makes the same `Found` news again.
+     */
+    @Synchronized
+    fun rebuild(found: OverlayEndpointStatus.Found?): Boolean {
+        configuredFor = null
+        configuredLocalCidr = null
+        return apply(found)
     }
 
     /**
