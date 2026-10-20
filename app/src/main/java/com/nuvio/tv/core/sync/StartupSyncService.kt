@@ -888,11 +888,16 @@ class StartupSyncService @Inject constructor(
             val now = SystemClock.elapsedRealtime()
             val last = trackerMirrorAtMs[profileId] ?: 0L
             if (minIntervalMs > 0L && now - last < minIntervalMs) return
-            trackerMirrorAtMs[profileId] = now
         }
         watchProgressSyncService.mirrorTrackingProviderProgress(profileId)
             .onSuccess { count ->
+                // Only arm the throttle once something actually reached the
+                // remote. An empty seed list usually means the tracker has not
+                // loaded yet, and should be retried on the next pull.
                 if (count > 0) {
+                    synchronized(trackerMirrorAtMs) {
+                        trackerMirrorAtMs[profileId] = SystemClock.elapsedRealtime()
+                    }
                     Log.d(TAG, "Mirrored $count tracker seeds to Supabase for profile $profileId")
                 }
             }
