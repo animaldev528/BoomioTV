@@ -10,6 +10,9 @@ internal fun PlayerRuntimeController.releasePlayer() {
 
 internal fun PlayerRuntimeController.releasePlayer(flushPlaybackState: Boolean) {
     logScrobbleDiagnostic("release_player", "flushPlaybackState=$flushPlaybackState")
+    // Close the memory session while the process still holds the player's buffers, so the
+    // peak in the summary is the peak playback actually reached.
+    PlaybackMemoryProfile.summary(PlayerRuntimeController.TAG, "release")
     isReleasingPlayer = true
     // A private-listening fork is bound to the active Exo session, not the WS connection: kill it
     // on any release (playback end, stop, engine handover) even if no audio_fork_stop ever arrives.

@@ -281,8 +281,14 @@ object NuvioExoPlayerPerformanceHelper {
      */
     fun buildLoadControl(context: Context? = null, chunkOverheadMb: Int = 0): DefaultLoadControl {
         return if (enabled) {
+            // getSafeNativeMemoryLimitMb is a native-allocation table (250 MB on a 2 GB
+            // Shield, 150 MB on a 1 GB stick). The byte budget that MemoryBudget derives
+            // from physical RAM is the one the rest of the player enforces (72/128/256),
+            // so perf mode must not exceed it — otherwise enabling the performance
+            // profile silently multiplies the buffer by up to 3x on the tightest boxes.
+            val tierCapMb = MemoryBudget.budgetMb.coerceAtLeast(MemoryBudget.MIN_BUFFER_MB)
             val effectiveTargetBufferMb = (targetBufferSizeMb - chunkOverheadMb)
-                .coerceAtLeast(MemoryBudget.MIN_BUFFER_MB)
+                .coerceIn(MemoryBudget.MIN_BUFFER_MB, tierCapMb)
             val targetBufferBytes = (effectiveTargetBufferMb.toLong() * 1024L * 1024L)
                 .coerceAtMost(Int.MAX_VALUE.toLong())
                 .toInt()
@@ -303,7 +309,9 @@ object NuvioExoPlayerPerformanceHelper {
                 .build()
         } else {
             DefaultLoadControl.Builder()
-                .setTargetBufferBytes(100 * 1024 * 1024)
+                .setTargetBufferBytes(
+                    MemoryBudget.budgetMb.coerceAtLeast(MemoryBudget.MIN_BUFFER_MB) * 1024 * 1024
+                )
                 .setBufferDurationsMs(
                     DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
                     70_000,

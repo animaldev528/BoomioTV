@@ -17,6 +17,7 @@ import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.torrent.TorrentSettings
 import com.nuvio.tv.core.torrent.TorrentService
 import com.nuvio.tv.core.torrent.TorrentState
+import com.nuvio.tv.core.player.SourcePlayability
 import com.nuvio.tv.core.player.StreamAutoPlayPolicy
 import com.nuvio.tv.core.player.StreamAutoPlaySelector
 import com.nuvio.tv.core.tracking.TrackingMediaKind
@@ -543,11 +544,11 @@ class StreamScreenViewModel @Inject constructor(
                 }
 
                 val currentFilter = _uiState.value.selectedAddonFilter
-                val fullFiltered = if (currentFilter == null) {
+                val fullFiltered = visibleStreams(if (currentFilter == null) {
                     allStreams
                 } else {
                     allStreams.filter { it.addonName == currentFilter }
-                }
+                })
                 streamFilterFullList = fullFiltered
                 val paginatedStreams = if (fullFiltered.size > STREAM_FILTER_PAGE_SIZE) {
                     fullFiltered.subList(0, STREAM_FILTER_PAGE_SIZE)
@@ -1200,11 +1201,11 @@ class StreamScreenViewModel @Inject constructor(
             if (state.selectedAddonFilter == addonName) {
                 return@updateUiStateIfChanged state
             }
-            val fullFiltered = if (addonName == null) {
+            val fullFiltered = visibleStreams(if (addonName == null) {
                 state.allStreams
             } else {
                 state.allStreams.filter { it.addonName == addonName }
-            }
+            })
             streamFilterFullList = fullFiltered
             val paginatedStreams = if (fullFiltered.size > STREAM_FILTER_PAGE_SIZE) {
                 fullFiltered.subList(0, STREAM_FILTER_PAGE_SIZE)
@@ -1218,6 +1219,16 @@ class StreamScreenViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Drop sources whose codec this box has no decoder for (a VC-1 remux on Fire TV is the
+     * case that surfaced this). If the filter would empty the list, the codec read was
+     * probably wrong for every entry — show everything and let the player's error path run.
+     */
+    private fun visibleStreams(streams: List<Stream>): List<Stream> {
+        val compatible = streams.filter { SourcePlayability.isCompatible(it) }
+        return if (compatible.isEmpty()) streams else compatible
+    }
+
     fun expandFilteredStreamsIfNeeded() {
         val current = _uiState.value.filteredStreams
         val full = streamFilterFullList
@@ -1229,6 +1240,12 @@ class StreamScreenViewModel @Inject constructor(
     }
 
     suspend fun resolveStreamForPlayback(stream: Stream): StreamPlaybackInfo? {
+        // Last line of defence for calls that bypass the picker (deep links, a stale list):
+        // handing an undecodable source to ExoPlayer ends in DECODER_INIT_FAILED.
+        if (!SourcePlayability.isCompatible(stream)) {
+            Log.w(TAG, "resolveStreamForPlayback: refusing ${SourcePlayability.codecFamily(stream)} — no decoder on this device")
+            return null
+        }
         if (!directDebridResolver.shouldResolveToPlayableStream(stream)) {
             Log.d(TAG, "resolveStreamForPlayback: no debrid resolve needed, using direct URL")
             return getStreamForPlayback(stream)

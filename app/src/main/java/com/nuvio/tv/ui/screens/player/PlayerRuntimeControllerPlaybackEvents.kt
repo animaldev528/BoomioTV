@@ -346,7 +346,19 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                         val usedMb = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
                         val maxMb = runtime.maxMemory() / (1024 * 1024)
                         Log.d(PlayerRuntimeController.TAG, "BUFFER: ahead=${bufAhead}s, loading=$loading, heap=$usedMb/${maxMb}MB, pos=${pos / 1000}s")
-                        
+
+                        // PSS/native alongside the heap: on a tight box the heap stays flat
+                        // while total PSS keeps growing, and PSS is what the LMK acts on.
+                        val videoFormat = player.videoFormat
+                        PlaybackMemoryProfile.sample(
+                            tag = PlayerRuntimeController.TAG,
+                            aheadMs = (player.bufferedPosition - player.currentPosition).coerceAtLeast(0L),
+                            loading = loading,
+                            bitrateBps = videoFormat?.bitrate?.takeIf { it > 0 }?.toLong(),
+                            width = videoFormat?.width,
+                            height = videoFormat?.height
+                        )
+
                         if (NuvioExoPlayerPerformanceHelper.shouldLogMemoryFootprint()) {
                             val defaultAllocator = _loadControl?.allocator as? androidx.media3.exoplayer.upstream.DefaultAllocator
                             val totalFootprintBytes = defaultAllocator?.let { allocator ->
