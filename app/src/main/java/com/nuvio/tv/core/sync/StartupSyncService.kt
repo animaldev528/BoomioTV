@@ -34,6 +34,7 @@ private const val FULL_STARTUP_PULL_TTL_MS = 6 * 60 * 60 * 1000L
 private const val FOREGROUND_ACTIVITY_PULL_DELAY_MS = 2_500L
 private const val FOREGROUND_ACTIVITY_PULL_MIN_INTERVAL_MS = 2 * 60_000L
 private const val PERIODIC_SURFACE_PULL_INTERVAL_MS = 15 * 60_000L
+private const val TRACKER_MIRROR_MIN_INTERVAL_MS = 60 * 60 * 1000L
 
 internal data class SurfacePullFreshness(
     val key: String? = null,
@@ -86,6 +87,7 @@ class StartupSyncService @Inject constructor(
     private var pendingResyncKey: String? = null
     @Volatile
     private var pendingResyncIncludesProfileSettings: Boolean = false
+    private val trackerMirrorAtMs = mutableMapOf<Int, Long>()
 
     init {
         scope.launch {
@@ -359,6 +361,7 @@ class StartupSyncService @Inject constructor(
             watchProgressRepository.hasCompletedInitialPull = true
             watchProgressRepository.hasCompletedInitialWatchedItemsPull = true
             Log.d(TAG, "Skipping periodic Supabase watch state pull for profile $profileId because a tracking provider is active")
+            mirrorTrackerSeeds(profileId, minIntervalMs = TRACKER_MIRROR_MIN_INTERVAL_MS)
             return true
         }
     }
@@ -502,6 +505,7 @@ class StartupSyncService @Inject constructor(
                 watchProgressRepository.hasCompletedInitialPull = true
                 watchProgressRepository.hasCompletedInitialWatchedItemsPull = true
                 Log.d(TAG, "Skipping Supabase watched items and watch progress for profile $profileId because a tracking provider is active")
+                mirrorTrackerSeeds(profileId)
             }
             startupSyncPreferences.markFullPull(
                 profileId = profileId,
@@ -543,6 +547,7 @@ class StartupSyncService @Inject constructor(
                 watchProgressRepository.hasCompletedInitialPull = true
                 watchProgressRepository.hasCompletedInitialWatchedItemsPull = true
                 Log.d(TAG, "Skipping warm Supabase watch progress sync for profile $profileId because a tracking provider is active")
+                mirrorTrackerSeeds(profileId)
             }
             startupSyncPreferences.markFullPull(
                 profileId = profileId,
@@ -869,5 +874,30 @@ class StartupSyncService @Inject constructor(
         } finally {
             watchProgressRepository.isSyncingFromRemote = false
         }
+    }
+
+    /**
+     * Push the active tracker's Up Next seeds to Supabase.
+     *
+     * Supabase is a read source only for devices that have no tracker signed
+     * in, so this mirror is what lets Up Next follow across them. Best effort:
+     * a failure never blocks startup sync.
+     */
+    private suspend fun mirrorTrackerSeeds(profileId: Int, minIntervalMs: Long = 0L) {
+        synchronized(trackerMirrorAtMs) {
+            val now = SystemClock.elapsedRealtime()
+            val last = trackerMirrorAtMs[profileId] ?: 0L
+            if (minIntervalMs > 0L && now - last < minIntervalMs) return
+            trackerMirrorAtMs[profileId] = now
+        }
+        watchProgressSyncService.mirrorTrackingProviderProgress(profileId)
+            .onSuccess { count ->
+                if (count > 0) {
+                    Log.d(TAG, "Mirrored $count tracker seeds to Supabase for profile $profileId")
+                }
+            }
+            .onFailure { error ->
+                Log.w(TAG, "Failed to mirror tracker seeds to Supabase for profile $profileId", error)
+            }
     }
 }
