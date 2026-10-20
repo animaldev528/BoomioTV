@@ -519,6 +519,22 @@
     <string name="overlay_status_searching">Looking for the server\u2026</string>
     <string name="overlay_status_idle">Not started</string>
 
+    <!-- The tunnel panel. Labels mirror the mobile VPN screen (`vpn_label_*`), so the two
+         clients describe the same tunnel with the same words; `overlay_details_open` is what
+         the row's trailing value says, because the row now opens this instead of acting. -->
+    <string name="overlay_details_open">Details</string>
+    <string name="overlay_details_section_interface">Interface — this device</string>
+    <string name="overlay_details_section_peer">Peer — the box</string>
+    <string name="overlay_details_device_name">Device name</string>
+    <string name="overlay_details_tunnel_address">Tunnel address</string>
+    <string name="overlay_details_overlay_address">Address on the overlay</string>
+    <string name="overlay_details_client_key">Device public key</string>
+    <string name="overlay_details_server_key">Server public key</string>
+    <string name="overlay_details_endpoint">Endpoint</string>
+    <string name="overlay_details_unset">Not assigned</string>
+    <string name="overlay_details_close">Close</string>
+    <string name="overlay_details_private_note">This device’s private key stays in this app’s storage — only its public half leaves the device.</string>
+
     <!-- The link gate. `overlay_link_title` names the thing the row is about rather than the
          action, because the row is also the linked state's parent: the action lives in `value`,
          and the subtitle carries what is true right now. -->

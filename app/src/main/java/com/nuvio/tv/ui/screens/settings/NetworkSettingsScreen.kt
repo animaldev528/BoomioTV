@@ -414,6 +414,7 @@ fun AdvancedSettingsContent(
     val networkListState = rememberLazyListState()
     var showExperienceModeConfirmation by remember { mutableStateOf(false) }
     var showSentryDialog by remember { mutableStateOf(false) }
+    var showTunnelDetails by remember { mutableStateOf(false) }
     Box(modifier = Modifier.fillMaxSize()) {
     LazyColumn(
         state = networkListState,
@@ -600,26 +601,14 @@ fun AdvancedSettingsContent(
                     SettingsActionRow(
                         title = stringResource(R.string.overlay_connection_title),
                         subtitle = overlayConnectionText(tunnelState),
-                        // ⚠️ The label is the action, not the state. A row that reads
-                        // "Connected" is one the user presses to find out what happens; a row
-                        // that reads "Disconnect" is one they press on purpose.
-                        value = if (tunnelState is OverlayTunnelUiState.Connected) {
-                            stringResource(R.string.overlay_connection_disconnect)
-                        } else {
-                            stringResource(R.string.overlay_connection_reconnect)
-                        },
-                        onClick = {
-                            // Real teardown, remembered across restarts -- see OverlaySession.
-                            // The projection above is what comes back, so the row can never
-                            // disagree with the device for longer than one frame.
-                            if (tunnelState is OverlayTunnelUiState.Connected) {
-                                OverlaySession.disconnect()
-                            } else {
-                                OverlaySession.reconnect()
-                            }
-                        },
-                        // Nothing to reconnect to before the ladder has any answer at all. Once
-                        // the user has disconnected by hand it stays live even from `Idle`:
+                        // The row opens a panel; the panel owns the action, the addresses and
+                        // both public keys -- see OverlayTunnelDetailsDialog. A row that named
+                        // the action instead made "what is this connected to, and as whom?" a
+                        // question with no door to it.
+                        value = stringResource(R.string.overlay_details_open),
+                        onClick = { showTunnelDetails = true },
+                        // Nothing to open before the ladder has any answer at all. Once the
+                        // user has disconnected by hand it stays live even from `Idle`:
                         // Reconnect re-walks the ladders, so it is their retry button too.
                         enabled = tunnelState !is OverlayTunnelUiState.Down ||
                             overlayEndpointStatus !is OverlayEndpointStatus.Idle
@@ -963,6 +952,14 @@ fun AdvancedSettingsContent(
                 )
             },
             onDismiss = { showSentryDialog = false }
+        )
+    }
+
+    if (showTunnelDetails) {
+        OverlayTunnelDetailsDialog(
+            tunnelState = tunnelState,
+            endpointStatus = overlayEndpointStatus,
+            onDismiss = { showTunnelDetails = false }
         )
     }
 }
