@@ -52,6 +52,12 @@ private const val CW_MAX_NEXT_UP_CONCURRENCY = 4
 private const val CW_MAX_ENRICHMENT_CONCURRENCY = 4
 private const val CW_PROGRESS_DEBOUNCE_MS = 500L
 
+/** How far ahead the Upcoming row looks for dated episodes of followed shows. */
+private const val CW_UPCOMING_WINDOW_DAYS = 30L
+
+/** Upper bound on the extra Upcoming cards, soonest release first. */
+private const val CW_UPCOMING_MAX_ITEMS = 20
+
 private data class ProgressSnapshot(
     val items: List<WatchProgress>,
     val nextUpSeeds: List<WatchProgress>,
@@ -550,16 +556,17 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                         )
                     )
                     val (mainItems, upcomingOnly) = splitUpcomingItems(initialItems, continueWatchingSortMode)
+                    val mergedUpcoming = withDiscoveredUpcoming(upcomingOnly, continueWatchingSortMode)
 
                     _uiState.update { state ->
-                        if (mainItems.isEmpty() && upcomingOnly.isEmpty() && state.continueWatchingItems.isNotEmpty()) {
+                        if (mainItems.isEmpty() && mergedUpcoming.isEmpty() && state.continueWatchingItems.isNotEmpty()) {
                             state
-                        } else if (state.continueWatchingItems == mainItems && state.upcomingItems == upcomingOnly) {
+                        } else if (state.continueWatchingItems == mainItems && state.upcomingItems == mergedUpcoming) {
                             state
                         } else if (!snapshot.hasLoadedRemoteProgress && state.continueWatchingItems.isNotEmpty() && mainItems.size < state.continueWatchingItems.size) {
                             state
                         } else {
-                            state.copy(continueWatchingItems = mainItems, upcomingItems = upcomingOnly)
+                            state.copy(continueWatchingItems = mainItems, upcomingItems = mergedUpcoming)
                         }
                     }
                     _initialCwResolved.value = true
@@ -640,8 +647,9 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                     )
                                 )
                                 val (partialMain, partialUpcoming) = splitUpcomingItems(partialItems, continueWatchingSortMode)
+                                val partialMergedUpcoming = withDiscoveredUpcoming(partialUpcoming, continueWatchingSortMode)
                                 _uiState.update { state ->
-                                    if (state.continueWatchingItems == partialMain && state.upcomingItems == partialUpcoming) {
+                                    if (state.continueWatchingItems == partialMain && state.upcomingItems == partialMergedUpcoming) {
                                         state
                                     } else if (!snapshot.hasLoadedRemoteProgress && state.continueWatchingItems.isNotEmpty()) {
                                         // Don't overwrite with partial data until remote progress
@@ -649,7 +657,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                         // cached items that include Trakt in-progress entries.
                                         state
                                     } else {
-                                        state.copy(continueWatchingItems = partialMain, upcomingItems = partialUpcoming)
+                                        state.copy(continueWatchingItems = partialMain, upcomingItems = partialMergedUpcoming)
                                     }
                                 }
                                 debug.recordPartialRendered(
@@ -1086,10 +1094,13 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                         normalMain.size < state.continueWatchingItems.size
                     if (shouldProtectCache || shouldPreventShrink) {
                         state
-                    } else if (state.continueWatchingItems == normalMain && state.upcomingItems == normalUpcoming) {
+                    } else if (state.continueWatchingItems == normalMain && state.upcomingItems == withDiscoveredUpcoming(normalUpcoming, continueWatchingSortMode)) {
                         state
                     } else {
-                        state.copy(continueWatchingItems = normalMain, upcomingItems = normalUpcoming)
+                        state.copy(
+                            continueWatchingItems = normalMain,
+                            upcomingItems = withDiscoveredUpcoming(normalUpcoming, continueWatchingSortMode)
+                        )
                     }
                 }
                 SimklContinueWatchingDisplayLogger.log(
@@ -1666,10 +1677,11 @@ private suspend fun HomeViewModel.enrichVisibleContinueWatchingItems(
             sortedMergedItems,
             continueWatchingSortMode
         )
-        if (state.continueWatchingItems == enrichedMain && state.upcomingItems == enrichedUpcoming) {
+        val mergedEnrichedUpcoming = withDiscoveredUpcoming(enrichedUpcoming, continueWatchingSortMode)
+        if (state.continueWatchingItems == enrichedMain && state.upcomingItems == mergedEnrichedUpcoming) {
             state
         } else {
-            state.copy(continueWatchingItems = enrichedMain, upcomingItems = enrichedUpcoming)
+            state.copy(continueWatchingItems = enrichedMain, upcomingItems = mergedEnrichedUpcoming)
         }
     }
     persistLocalContinueWatchingMetadata(
@@ -1797,6 +1809,142 @@ internal fun splitUpcomingItems(
     return main to sortedUpcoming
 }
 
+internal data class UpcomingEpisodeSelection(
+    val video: CwVideoSummary,
+    val releaseDate: LocalDate
+)
+
+/**
+ * Picks the episodes of one followed show that have a release date in
+ * (today, today + [windowDays]], soonest first.
+ *
+ * The Up Next pipeline only ever resolves the single episode that follows the
+ * last watched one. That is empty for a show whose next episode already aired,
+ * even when a later episode of the same show airs this week. This scan is what
+ * fills the Upcoming row.
+ */
+internal fun selectUpcomingEpisodes(
+    videos: List<CwVideoSummary>,
+    today: LocalDate,
+    windowDays: Long = CW_UPCOMING_WINDOW_DAYS,
+    maxItems: Int = CW_UPCOMING_MAX_ITEMS
+): List<UpcomingEpisodeSelection> {
+    val lastDay = today.plusDays(windowDays)
+    return videos.asSequence()
+        .filter { (it.season ?: 0) > 0 && (it.episode ?: 0) > 0 }
+        .mapNotNull { video ->
+            val date = parseEpisodeReleaseDate(video.released) ?: return@mapNotNull null
+            if (date.isAfter(today) && !date.isAfter(lastDay)) {
+                UpcomingEpisodeSelection(video, date)
+            } else {
+                null
+            }
+        }
+        .distinctBy { it.video.season to it.video.episode }
+        .sortedWith(
+            compareBy<UpcomingEpisodeSelection> { it.releaseDate }
+                .thenBy { it.video.season }
+                .thenBy { it.video.episode }
+        )
+        .take(maxItems)
+        .toList()
+}
+
+/**
+ * Records this show's upcoming dated episodes for the Upcoming row. Runs against
+ * the meta [buildNextUpItem] already resolved, so it costs no extra request.
+ */
+private fun HomeViewModel.collectUpcomingEpisodes(
+    progress: WatchProgress,
+    meta: CwMetaSummary?,
+    name: String
+) {
+    if (continueWatchingSortMode != ContinueWatchingSortMode.SPLIT_UPCOMING) return
+    val items = buildUpcomingItemsForSeed(progress, meta, name)
+    synchronized(discoveredUpcomingEpisodes) {
+        discoveredUpcomingEpisodes.removeAll { it.info.contentId == progress.contentId }
+        discoveredUpcomingEpisodes.addAll(items)
+    }
+}
+
+private fun HomeViewModel.buildUpcomingItemsForSeed(
+    progress: WatchProgress,
+    meta: CwMetaSummary?,
+    name: String
+): List<ContinueWatchingItem.NextUp> {
+    if (meta == null) return emptyList()
+    val today = LocalDate.now(ZoneId.systemDefault())
+    return selectUpcomingEpisodes(meta.videos, today).mapNotNull { selection ->
+        val video = selection.video
+        val season = video.season ?: return@mapNotNull null
+        val episode = video.episode ?: return@mapNotNull null
+        val released = video.released?.trim()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        val releaseTimestamp = parseEpisodeReleaseInstant(released)?.toEpochMilli() ?: return@mapNotNull null
+        ContinueWatchingItem.NextUp(
+            NextUpInfo(
+                contentId = progress.contentId,
+                contentType = progress.contentType,
+                name = name,
+                poster = progress.poster.normalizeImageUrl() ?: meta.poster.normalizeImageUrl(),
+                backdrop = progress.backdrop.normalizeImageUrl() ?: meta.backdropUrl.normalizeImageUrl(),
+                logo = progress.logo.normalizeImageUrl() ?: meta.logo.normalizeImageUrl(),
+                videoId = video.id.takeIf { it.isNotBlank() }
+                    ?: buildLightweightEpisodeVideoId(progress.contentId, season, episode),
+                season = season,
+                episode = episode,
+                episodeTitle = video.title?.takeIf { it.isNotBlank() },
+                episodeDescription = video.overview?.takeIf { it.isNotBlank() },
+                thumbnail = video.thumbnail.normalizeImageUrl(),
+                released = released,
+                hasAired = false,
+                airDateLabel = formatEpisodeAirDateLabel(selection.releaseDate),
+                lastWatched = progress.lastWatched,
+                imdbRating = meta.imdbRating,
+                genres = meta.genres.take(3),
+                releaseInfo = meta.releaseInfo?.takeIf { it.isNotBlank() },
+                sortTimestamp = releaseTimestamp,
+                releaseTimestamp = releaseTimestamp,
+                isReleaseAlert = false,
+                isNewSeasonRelease = progress.season != null && season != progress.season,
+                seedSeason = progress.season,
+                seedEpisode = progress.episode,
+                contentLanguage = normalizeLanguageCode(meta.language)
+                    ?: countryToLanguageCode(meta.country)
+            )
+        )
+    }
+}
+
+/**
+ * Appends the discovered upcoming episodes to the Upcoming row, skipping any
+ * episode the Next Up pipeline already put there. Only meaningful in
+ * [ContinueWatchingSortMode.SPLIT_UPCOMING].
+ */
+internal fun mergeUpcomingItems(
+    upcoming: List<ContinueWatchingItem>,
+    comingSoon: List<ContinueWatchingItem.NextUp>,
+    mode: ContinueWatchingSortMode
+): List<ContinueWatchingItem> {
+    if (mode != ContinueWatchingSortMode.SPLIT_UPCOMING || comingSoon.isEmpty()) return upcoming
+    val alreadyListed = upcoming
+        .filterIsInstance<ContinueWatchingItem.NextUp>()
+        .mapTo(mutableSetOf()) { Triple(it.info.contentId, it.info.season, it.info.episode) }
+    val extras = comingSoon
+        .distinctBy { Triple(it.info.contentId, it.info.season, it.info.episode) }
+        .filter { Triple(it.info.contentId, it.info.season, it.info.episode) !in alreadyListed }
+        .sortedBy { it.info.releaseTimestamp ?: Long.MAX_VALUE }
+    return if (extras.isEmpty()) upcoming else upcoming + extras
+}
+
+internal fun HomeViewModel.withDiscoveredUpcoming(
+    items: List<ContinueWatchingItem>,
+    mode: ContinueWatchingSortMode
+): List<ContinueWatchingItem> = mergeUpcomingItems(
+    upcoming = items,
+    comingSoon = synchronized(discoveredUpcomingEpisodes) { discoveredUpcomingEpisodes.toList() },
+    mode = mode
+)
+
 private suspend fun HomeViewModel.buildNextUpItem(
     progress: WatchProgress,
     showUnairedNextUp: Boolean,
@@ -1850,6 +1998,15 @@ private suspend fun HomeViewModel.buildNextUpItem(
                 mapOf(progress.contentId to deadline)
             )
         }
+        // A caught-up show can still have a dated episode in the Upcoming
+        // window even though no Next Up card is produced for it.
+        collectUpcomingEpisodes(
+            progress = progress,
+            meta = cachedMeta,
+            name = progress.name.trim().takeIf { it.isNotEmpty() }
+                ?: cachedMeta?.name
+                ?: progress.contentId
+        )
         return null
     }
     val seedMeta = resolveMetaForProgress(progress, cwMetaCache, debug)
@@ -1898,6 +2055,7 @@ private suspend fun HomeViewModel.buildNextUpItem(
         "built contentId=${progress.contentId} name=${progress.name} next=${nextUp.season}x${nextUp.episode} " +
             "videoId=${nextUp.videoId} lastWatched=${nextUp.lastWatched}"
     )
+    collectUpcomingEpisodes(progress, seedMeta, name)
     return ContinueWatchingItem.NextUp(info)
 }
 
@@ -2179,7 +2337,10 @@ private suspend fun HomeViewModel.findNextUpEpisodeFromMetaSeed(
     val nextSeason = nextVideo.season ?: return null
     val nextEpisode = nextVideo.episode ?: return null
     val rawReleased = nextVideo.released?.trim()?.takeIf { it.isNotBlank() }
-    val computedHasAired = hasEpisodeAired(rawReleased, fallback = true)
+    // resolveNextUpVideoFromMeta accepts a date-less episode when
+    // showUnairedNextUp is on, mirroring isNextUpEpisodeUnaired(). Treat it as
+    // unaired here too, otherwise it is split back into the aired row.
+    val computedHasAired = hasEpisodeAired(rawReleased, fallback = !showUnairedNextUp)
     val resolution = NextUpResolution(
         season = nextSeason,
         episode = nextEpisode,

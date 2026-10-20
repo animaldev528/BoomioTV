@@ -281,6 +281,14 @@ class HomeViewModel @Inject constructor(
     internal val cwNextUpResolutionCache = Collections.synchronizedMap(mutableMapOf<String, NextUpResolution?>())
     internal val cwNextUpNegativeCacheTimestamps = ConcurrentHashMap<String, Long>()
     internal val discoveredOlderNextUpItems = Collections.synchronizedList(mutableListOf<ContinueWatchingItem.NextUp>())
+    /**
+     * Episodes from followed series that have a dated release in the next
+     * [CW_UPCOMING_WINDOW_DAYS] days. Unlike [discoveredOlderNextUpItems] these
+     * can coexist with the show's own Next Up card, so they are merged into the
+     * Upcoming row only at presentation time instead of entering the one-item-
+     * per-show Next Up pipeline.
+     */
+    internal val discoveredUpcomingEpisodes = Collections.synchronizedList(mutableListOf<ContinueWatchingItem.NextUp>())
     internal val cwLastProcessedNextUpContentIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
     internal val cwProcessedOlderSeedContentIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
     internal val cwEnrichedNextUpOverlay = ConcurrentHashMap<String, NextUpInfo>()
@@ -392,6 +400,7 @@ class HomeViewModel @Inject constructor(
                     cwNextUpResolutionCache.clear()
                     cwNextUpNegativeCacheTimestamps.clear()
                     discoveredOlderNextUpItems.clear()
+        discoveredUpcomingEpisodes.clear()
                     cwLastProcessedNextUpContentIds.clear()
                     cwProcessedOlderSeedContentIds.clear()
                     cwEnrichedNextUpOverlay.clear()
@@ -446,6 +455,7 @@ class HomeViewModel @Inject constructor(
         cwNextUpResolutionCache.clear()
         cwNextUpNegativeCacheTimestamps.clear()
         discoveredOlderNextUpItems.clear()
+        discoveredUpcomingEpisodes.clear()
         cwLastProcessedNextUpContentIds.clear()
         cwProcessedOlderSeedContentIds.clear()
         cwEnrichedNextUpOverlay.clear()
@@ -606,6 +616,7 @@ class HomeViewModel @Inject constructor(
                         cwEnrichedNextUpOverlay.clear()
                         cwEnrichedInProgressOverlay.clear()
                         discoveredOlderNextUpItems.clear()
+        discoveredUpcomingEpisodes.clear()
                         cwLastProcessedNextUpContentIds.clear()
                         // Clear disk cache for current profile.
                         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -741,7 +752,12 @@ class HomeViewModel @Inject constructor(
             )
             if (items.isNotEmpty()) {
                 val (mainItems, upcomingOnly) = splitUpcomingItems(items, sortMode)
-                _uiState.update { it.copy(continueWatchingItems = mainItems, upcomingItems = upcomingOnly) }
+                _uiState.update {
+                    it.copy(
+                        continueWatchingItems = mainItems,
+                        upcomingItems = withDiscoveredUpcoming(upcomingOnly, sortMode)
+                    )
+                }
                 _initialCwResolved.value = true
             }
         }
