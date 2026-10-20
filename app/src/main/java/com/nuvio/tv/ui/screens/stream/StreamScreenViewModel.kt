@@ -212,11 +212,14 @@ class StreamScreenViewModel @Inject constructor(
                         }
                         val updatedAllStreams = updatedAddonStreams.flatMap { it.streams }
                         val currentFilter = state.selectedAddonFilter
-                        val fullFiltered = if (currentFilter == null) {
+                        // Badges arrive after the first pass and rewrite the visible page; the
+                        // codec gate has to run here too or the badge pass resurrects sources
+                        // the first pass hid.
+                        val fullFiltered = visibleStreams(if (currentFilter == null) {
                             updatedAllStreams
                         } else {
                             updatedAllStreams.filter { it.addonName == currentFilter }
-                        }
+                        })
                         streamFilterFullList = fullFiltered
                         val pageEnd = state.filteredStreams.size.coerceAtMost(fullFiltered.size)
                             .coerceAtLeast(STREAM_FILTER_PAGE_SIZE.coerceAtMost(fullFiltered.size))
@@ -944,11 +947,13 @@ class StreamScreenViewModel @Inject constructor(
                     val updatedGroups = listOf(boomioGroup) + state.addonStreams
                     val updatedAllStreams = updatedGroups.flatMap { it.streams }
                     val currentFilter = state.selectedAddonFilter
-                    val filteredStreams = if (currentFilter == null) {
+                    // The Boomio resolver prepends its own group here and bypassed the codec
+                    // gate: a VC-1 remux reached the picker on a stick with no VC-1 decoder.
+                    val filteredStreams = visibleStreams(if (currentFilter == null) {
                         updatedAllStreams
                     } else {
                         updatedAllStreams.filter { it.addonName == currentFilter }
-                    }
+                    })
                     state.copy(
                         addonStreams = updatedGroups,
                         allStreams = updatedAllStreams,
@@ -1226,6 +1231,12 @@ class StreamScreenViewModel @Inject constructor(
      */
     private fun visibleStreams(streams: List<Stream>): List<Stream> {
         val compatible = streams.filter { SourcePlayability.isCompatible(it) }
+        if (compatible.size != streams.size) {
+            val families = streams.filterNot { SourcePlayability.isCompatible(it) }
+                .mapNotNull { SourcePlayability.codecFamily(it) }
+                .distinct()
+            Log.i(TAG, "codec gate: hid ${streams.size - compatible.size} of ${streams.size} sources (families=$families)")
+        }
         return if (compatible.isEmpty()) streams else compatible
     }
 
