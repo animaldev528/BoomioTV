@@ -567,10 +567,25 @@ internal fun PlayerRuntimeController.initializePlayer(
                 Log.i(
                     PlayerRuntimeController.TAG,
                     "BUFFER_GATE: engine=exo-stock master=off; DefaultLoadControl " +
-                            "(1.5s back buffer, no VOD cache) host=${url.safeHost()}"
+                            "(1.5s back buffer, no VOD cache, budgetMb=${MemoryBudget.budgetMb}) host=${url.safeHost()}"
                 )
+                // "Stock" still runs on a 1-2 GB box. Media3's default window is 50 s at *any*
+                // bitrate (DEFAULT_MIN/MAX_BUFFER_MS = 50_000): on the 28.5 Mbps remux measured on
+                // the Shield that is ~180 MB of Java-heap byte[], and it is what pushed the app to
+                // ~430 MB PSS before the lowmemorykiller swept the box. Cap the allocator at the
+                // same physical-RAM tier the custom engine uses.
+                //
+                // The byte cap has to win over the time window: with
+                // prioritizeTimeOverSizeThresholds(true) the 50 s min buffer keeps loading past
+                // the cap (measured: 292 MB Java heap with a 128 MB target). With it off, loading
+                // stops at the cap and playback still starts — 128 MB is >10 s even at 100 Mbps,
+                // well past the 1 s start gate.
+                val stockBudgetBytes = (MemoryBudget.budgetMb * 1024L * 1024L)
+                    .coerceAtMost(Int.MAX_VALUE.toLong())
+                    .toInt()
                 DefaultLoadControl.Builder()
                     .setBackBuffer(1_500, /* retainBackBufferFromKeyframe = */ true)
+                    .setTargetBufferBytes(stockBudgetBytes)
                     .build()
             }
             _loadControl = loadControl
