@@ -27,6 +27,7 @@ import javax.inject.Singleton
 
 private const val TAG = "WatchProgressSyncService"
 private const val WATCH_PROGRESS_DELTA_PAGE_SIZE = 900
+private const val WATCH_PROGRESS_MIRROR_CHUNK_SIZE = 200
 private const val WATCH_PROGRESS_EVENT_UPSERT = "upsert"
 private const val WATCH_PROGRESS_EVENT_DELETE = "delete"
 
@@ -260,6 +261,79 @@ class WatchProgressSyncService @Inject constructor(
         } catch (e: Exception) {
             Log.e(TAG, "Failed to push single watch progress to remote", e)
             Result.failure(e)
+        }
+    }
+
+    /**
+     * Mirror the active tracking provider's Up Next seeds into Supabase.
+     *
+     * Supabase pulls stay disabled while a tracker is active — the tracker is
+     * the source of truth on that device — but the reverse direction was never
+     * wired up, so the tracker's back catalogue never reached Supabase and a
+     * second device without that tracker signed in (which falls back to
+     * NUVIO_SYNC) had nothing to continue from.
+     *
+     * Only the compact seed set is mirrored, one entry per show, rather than
+     * the full watched history. That is exactly what a Supabase-backed device
+     * needs to derive the same next-unwatched episode.
+     *
+     * @return the number of entries mirrored.
+     */
+    suspend fun mirrorTrackingProviderProgress(
+        profileId: Int = profileManager.activeProfileId.value
+    ): Result<Int> = withContext(Dispatchers.IO) {
+        try {
+            if (!authManager.isAuthenticated) return@withContext Result.success(0)
+            val source = traktSettingsDataStore.getWatchProgressSource(profileId)
+            val providerId = source.providerId ?: return@withContext Result.success(0)
+            val provider = trackingProviderRegistry.provider(providerId)
+                ?: return@withContext Result.success(0)
+            if (provider.isAuthenticated.first() != true) return@withContext Result.success(0)
+
+            val entries = selectMirrorEntries(provider.nextUpSeeds.first())
+            if (entries.isEmpty()) return@withContext Result.success(0)
+
+            var mirrored = 0
+            entries.chunked(WATCH_PROGRESS_MIRROR_CHUNK_SIZE).forEach { chunk ->
+                val params = buildJsonObject {
+                    put("p_entries", buildJsonArray {
+                        chunk.forEach { progress ->
+                            addJsonObject {
+                                put("content_id", progress.contentId)
+                                put("content_type", progress.contentType)
+                                put("video_id", progress.videoId)
+                                progress.season?.let { put("season", it) }
+                                progress.episode?.let { put("episode", it) }
+                                put("position", progress.position)
+                                put("duration", progress.duration)
+                                put("last_watched", progress.lastWatched)
+                                put("progress_key", mirrorKey(progress))
+                            }
+                        }
+                    })
+                    put("p_profile_id", profileId)
+                    putSyncOriginClientId(syncClientIdentity)
+                }
+                withJwtRefreshRetry {
+                    postgrest.rpc("sync_push_watch_progress", params)
+                }
+                mirrored += chunk.size
+            }
+            Log.d(TAG, "Mirrored $mirrored tracker seeds to remote for profile $profileId")
+            Result.success(mirrored)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to mirror tracker progress to remote", e)
+            Result.failure(e)
+        }
+    }
+
+    private fun mirrorKey(progress: WatchProgress): String {
+        val season = progress.season
+        val episode = progress.episode
+        return if (season != null && episode != null) {
+            episodeKey(progress.contentId, season, episode)
+        } else {
+            progress.contentId
         }
     }
 
@@ -623,3 +697,17 @@ class WatchProgressSyncService @Inject constructor(
         )
     }
 }
+
+/**
+ * Reduce a provider's seeds to one entry per show, newest first.
+ *
+ * The tracker already emits a seed per followed show, but the list can carry
+ * duplicates (history plus optimistic playback); keeping the newest entry per
+ * [WatchProgress.contentId] both deduplicates and bounds the mirror payload.
+ */
+internal fun selectMirrorEntries(seeds: List<WatchProgress>): List<WatchProgress> =
+    seeds
+        .filter { it.contentId.isNotBlank() }
+        .groupBy { it.contentId }
+        .mapNotNull { (_, items) -> items.maxByOrNull { it.lastWatched } }
+        .sortedByDescending { it.lastWatched }
