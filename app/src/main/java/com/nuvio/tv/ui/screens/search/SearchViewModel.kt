@@ -7,6 +7,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.R
+import com.nuvio.tv.core.boomio.WhoPlayedLookup
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.profile.KidsContentFilter
 import com.nuvio.tv.core.tmdb.TmdbMetadataService
@@ -754,10 +755,35 @@ class SearchViewModel @Inject constructor(
             _uiState.update { it.copy(peopleLoading = true) }
             val language = runCatching { tmdbSettingsDataStore.settings.first().language }
                 .getOrDefault("en")
-            val results = tmdbMetadataService.searchPeople(query, language = language, limit = 12)
+            val results = if (WhoPlayedLookup.matches(query)) {
+                lookupWhoPlayed(query)
+            } else {
+                tmdbMetadataService.searchPeople(query, language = language, limit = 12)
+            }
             if (generation != searchGeneration) return@launch
             _uiState.update { it.copy(people = results, peopleLoading = false) }
         }
+    }
+
+    /**
+     * "who played buzz lightyear" → the performer. TMDB's person search matches names only,
+     * so the role is resolved by the boomio addon's `/who-played` endpoint (Gemini names the
+     * actor, TMDB grounds the id). With no boomio addon installed the lookup is simply empty;
+     * the AI catalog rows still answer with the source title.
+     */
+    private suspend fun lookupWhoPlayed(query: String): List<com.nuvio.tv.domain.model.PersonSearchPreview> {
+        val addons = try {
+            addonRepository.getInstalledAddons().first().enabledAddons()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return emptyList()
+        }
+        val baseUrl = addons
+            .firstOrNull { addon -> addon.catalogs.any { it.id == WhoPlayedLookup.AI_SEARCH_CATALOG_ID } }
+            ?.baseUrl
+            ?: return emptyList()
+        return WhoPlayedLookup.lookup(baseUrl, query)
     }
 
     /**
