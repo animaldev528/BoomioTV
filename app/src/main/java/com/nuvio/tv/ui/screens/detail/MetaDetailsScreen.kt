@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -892,11 +893,28 @@ fun MetaDetailsScreen(
                     restoreSharedTrailerFocusToken = restoreSharedTrailerFocusToken,
                     onSharedTrailerFocusRestored = { restoreSharedTrailerFocusToken = 0 },
                     onNavigateToCastDetail = onNavigateToCastDetail,
+                    onCastMemberSelected = { member, onResolved ->
+                        viewModel.onCastMemberSelected(member, onResolved)
+                    },
+                    onCastMemberLongPressed = { member ->
+                        viewModel.onCastMemberLongPressed(member)
+                    },
                     onNavigateToTmdbEntityBrowse = onNavigateToTmdbEntityBrowse,
                     onNavigateToDetail = onNavigateToDetail,
                     onPosterLongPress = { item -> viewModel.posterOptions.show(item, null) }
                 )
             }
+        }
+
+        // A held cast/crew circle: one action that adds the person to Home's Cast & crew row,
+        // or takes them off it — the label comes from whether they are on it already.
+        val castCrewTarget by viewModel.castCrewDialog.collectAsState()
+        castCrewTarget?.let { target ->
+            CastCrewRowDialog(
+                target = target,
+                onConfirm = viewModel::toggleCastCrewPerson,
+                onDismiss = viewModel::dismissCastCrewDialog
+            )
         }
 
         if (uiState.showListPicker) {
@@ -1091,6 +1109,10 @@ private fun MetaDetailsContent(
     restoreSharedTrailerFocusToken: Int,
     onSharedTrailerFocusRestored: () -> Unit,
     onNavigateToCastDetail: (personId: Int, personName: String, preferCrew: Boolean) -> Unit = { _, _, _ -> },
+    // Cast/crew circles: a click needs a TMDB id first (addon cast often has none), and a held
+    // circle opens the Cast & crew row dialog.
+    onCastMemberSelected: (MetaCastMember, (Int) -> Unit) -> Unit = { _, _ -> },
+    onCastMemberLongPressed: (MetaCastMember) -> Unit = {},
     onNavigateToTmdbEntityBrowse: (entityKind: String, entityId: Int, entityName: String, sourceType: String) -> Unit = { _, _, _, _ -> },
     onNavigateToDetail: (itemId: String, itemType: String, addonBaseUrl: String?) -> Unit = { _, _, _ -> },
     onPosterLongPress: (MetaPreview) -> Unit = {}
@@ -2004,13 +2026,16 @@ private fun MetaDetailsContent(
                                         clearPendingRestore()
                                     },
                                     onCastMemberClick = { member ->
-                                        member.tmdbId?.let { id ->
+                                        val preferCrew = member.character.equals("Creator", ignoreCase = true) ||
+                                            member.character.equals("Director", ignoreCase = true) ||
+                                            member.character.equals("Writer", ignoreCase = true)
+                                        onCastMemberSelected(member) { id ->
                                             markCastMemberRestore(id)
-                                            val preferCrew = member.character.equals("Creator", ignoreCase = true) ||
-                                                member.character.equals("Director", ignoreCase = true) ||
-                                                member.character.equals("Writer", ignoreCase = true)
                                             onNavigateToCastDetail(id, member.name, preferCrew)
                                         }
+                                    },
+                                    onCastMemberLongClick = { member ->
+                                        onCastMemberLongPressed(member)
                                     },
                                     modifier = Modifier.onSizeChanged { castSectionHeightPx = it.height }
                                 )
@@ -2554,6 +2579,47 @@ private fun PeopleSectionTabButton(
             },
             modifier = Modifier.padding(horizontal = NuvioTheme.spacing.xxs, vertical = NuvioTheme.spacing.xxs)
         )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun CastCrewRowDialog(
+    target: CastCrewDialogTarget,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val primaryFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(target.tmdbId) {
+        primaryFocusRequester.requestFocus()
+    }
+
+    NuvioDialog(
+        onDismiss = onDismiss,
+        title = target.name,
+        subtitle = stringResource(
+            if (target.onRow) R.string.cast_crew_dialog_subtitle_remove
+            else R.string.cast_crew_dialog_subtitle_add
+        )
+    ) {
+        Button(
+            onClick = onConfirm,
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(primaryFocusRequester),
+            colors = ButtonDefaults.colors(
+                containerColor = NuvioTheme.colors.BackgroundCard,
+                contentColor = NuvioTheme.colors.TextPrimary
+            )
+        ) {
+            Text(
+                stringResource(
+                    if (target.onRow) R.string.cast_crew_remove_from_row
+                    else R.string.cast_crew_add_to_row
+                )
+            )
+        }
     }
 }
 

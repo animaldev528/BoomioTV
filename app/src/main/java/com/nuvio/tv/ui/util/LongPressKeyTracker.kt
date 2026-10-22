@@ -3,10 +3,48 @@ package com.nuvio.tv.ui.util
 import android.view.KeyEvent
 import android.view.ViewConfiguration
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 
 @Composable
 fun rememberLongPressKeyTracker(): LongPressKeyTracker = remember { LongPressKeyTracker() }
+
+/**
+ * A held D-pad SELECT on a surface built from `androidx.tv.material3.Card`, which has no
+ * long-click slot of its own. The press is tracked on the way down and the trailing UP is
+ * swallowed, so the Card's own onClick does not also fire. No-op when [onLongClick] is null.
+ */
+@Composable
+fun Modifier.selectLongPress(onLongClick: (() -> Unit)?): Modifier {
+    if (onLongClick == null) return this
+    val tracker = rememberLongPressKeyTracker()
+    var triggered by remember { mutableStateOf(false) }
+    return this.onPreviewKeyEvent { keyEvent ->
+        val native = keyEvent.nativeKeyEvent
+        if (tracker.handle(native, ::isSelectKey) {
+                triggered = true
+                onLongClick()
+            }
+        ) {
+            if (native.action == KeyEvent.ACTION_UP) triggered = false
+            return@onPreviewKeyEvent true
+        }
+        if (native.action == KeyEvent.ACTION_UP && triggered) {
+            triggered = false
+            return@onPreviewKeyEvent true
+        }
+        false
+    }
+}
+
+private fun isSelectKey(keyCode: Int): Boolean =
+    keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+        keyCode == KeyEvent.KEYCODE_ENTER ||
+        keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER
 
 class LongPressKeyTracker(
     private val timeoutMillis: Long = ViewConfiguration.getLongPressTimeout().toLong()

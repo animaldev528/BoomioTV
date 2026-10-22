@@ -1050,18 +1050,24 @@ fun SearchScreen(
         }
     )
 
-    // Held-down person tile: the only action is adding them to Home's Actors row, so this is a
-    // one-button confirmation rather than a menu.
+    // Held-down person tile: one button that toggles them on Home's Cast & crew row. The label
+    // and the effect both come from membership, so a second long-press offers the undo rather
+    // than the same "add" it offered the first time.
     val pinTarget = personPinTarget
     if (pinTarget != null) {
+        val peopleRowIds by viewModel.peopleRowIds.collectAsState()
+        val alreadyOnRow = pinTarget.tmdbId in peopleRowIds
         com.nuvio.tv.ui.components.NuvioDialog(
             onDismiss = { personPinTarget = null },
             title = pinTarget.name,
-            subtitle = stringResource(R.string.pin_people_dialog_subtitle)
+            subtitle = stringResource(
+                if (alreadyOnRow) R.string.pin_people_dialog_subtitle_remove
+                else R.string.pin_people_dialog_subtitle
+            )
         ) {
             androidx.tv.material3.Button(
                 onClick = {
-                    viewModel.addPersonToActors(pinTarget)
+                    viewModel.togglePersonInPeopleRow(pinTarget)
                     personPinTarget = null
                 },
                 modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
@@ -1070,7 +1076,12 @@ fun SearchScreen(
                     contentColor = com.nuvio.tv.ui.theme.NuvioTheme.colors.TextPrimary
                 )
             ) {
-                androidx.tv.material3.Text(stringResource(R.string.pin_people_add_to_home))
+                androidx.tv.material3.Text(
+                    stringResource(
+                        if (alreadyOnRow) R.string.pin_people_remove_from_row
+                        else R.string.pin_people_add_to_home
+                    )
+                )
             }
         }
     }

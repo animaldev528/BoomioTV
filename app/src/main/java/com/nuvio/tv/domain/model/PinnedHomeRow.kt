@@ -17,7 +17,7 @@ enum class PinnedRowKind {
     /** An episode search (bsf's `ai-search-episodes`), pinned from one of its results. */
     EPISODE_SEARCH,
 
-    /** The single "Actors" row, union-merged from people long-pressed in Search. */
+    /** The single "Cast & crew" row, union-merged from people long-pressed anywhere. */
     PEOPLE
 }
 
@@ -110,6 +110,17 @@ fun traktMediaTypeOf(apiType: String?): String =
 
 /** `person:<tmdbId>` — the id a person tile carries on the pinned Actors row. */
 fun personPreviewId(tmdbId: Int): String = "${PinnedHomeRow.PEOPLE_RAW_TYPE}:$tmdbId"
+
+/**
+ * The tmdb ids on the Cast & crew row, from an already-decoded row list. One row holds every
+ * person, so membership is a set membership test, not a search over rows.
+ */
+fun List<PinnedHomeRow>.castCrewIds(): Set<Int> =
+    firstOrNull { it.kind == PinnedRowKind.PEOPLE }
+        ?.people
+        ?.map { it.tmdbId }
+        ?.toSet()
+        .orEmpty()
 
 /** Parses the tmdb id back out of a [personPreviewId], or null when this is not a person tile. */
 fun tmdbIdFromPersonPreviewId(id: String?): Int? {

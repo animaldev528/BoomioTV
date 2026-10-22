@@ -30,6 +30,7 @@ import com.nuvio.tv.domain.model.ListMembershipChanges
 import com.nuvio.tv.core.tracking.TrackingMembershipRemovalConfirmation
 import com.nuvio.tv.core.tracking.toggleTrackingMembershipSelection
 import com.nuvio.tv.domain.model.Meta
+import com.nuvio.tv.domain.model.MetaCastMember
 import com.nuvio.tv.domain.model.MetaTrailer
 import com.nuvio.tv.domain.model.NextToWatch
 import com.nuvio.tv.domain.model.TmdbSettings
@@ -77,6 +78,16 @@ import javax.inject.Inject
 
 private const val TAG = "MetaDetailsViewModel"
 
+/**
+ * A held cast/crew circle, resolved to a person and to their membership on Home's row.
+ */
+data class CastCrewDialogTarget(
+    val tmdbId: Int,
+    val name: String,
+    val photoUrl: String?,
+    val onRow: Boolean
+)
+
 @HiltViewModel
 class MetaDetailsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -103,6 +114,7 @@ class MetaDetailsViewModel @Inject constructor(
     private val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
     val posterOptions: com.nuvio.tv.ui.components.posteroptions.PosterOptionsController,
     private val activityEventReporter: ActivityEventReporter,
+    private val pinnedHomeRows: com.nuvio.tv.data.local.PinnedHomeRowsPreferences,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
     private val itemId: String = savedStateHandle["itemId"] ?: ""
@@ -114,6 +126,62 @@ class MetaDetailsViewModel @Inject constructor(
 
     private val _posterCardCornerRadiusDp = MutableStateFlow(12)
     val posterCardCornerRadiusDp: StateFlow<Int> = _posterCardCornerRadiusDp.asStateFlow()
+
+    /**
+     * The person a held cast/crew circle is about, and whether they are already on Home's
+     * Cast & crew row — so the one dialog can label itself add or remove.
+     */
+    private val _castCrewDialog = MutableStateFlow<CastCrewDialogTarget?>(null)
+    val castCrewDialog: StateFlow<CastCrewDialogTarget?> = _castCrewDialog.asStateFlow()
+
+    /**
+     * A cast/crew member's TMDB id. Addon-supplied cast frequently arrives with a name and a
+     * face but no id (see the name-only fallback in MetaDetailsScreen), which is exactly when a
+     * click on the circle had nothing to open; resolve by name before giving up.
+     */
+    private suspend fun resolveCastPersonId(member: MetaCastMember): Int? =
+        member.tmdbId ?: runCatching {
+            tmdbMetadataService.searchPeople(member.name, limit = 1).firstOrNull()?.tmdbId
+        }.getOrNull()
+
+    /** A short click on a circle: open that person's filmography once we know who they are. */
+    fun onCastMemberSelected(member: MetaCastMember, onResolved: (Int) -> Unit) {
+        viewModelScope.launch {
+            resolveCastPersonId(member)?.let(onResolved)
+        }
+    }
+
+    /** A held circle: open the add/remove dialog, grounded to a real TMDB person. */
+    fun onCastMemberLongPressed(member: MetaCastMember) {
+        viewModelScope.launch {
+            val id = resolveCastPersonId(member) ?: return@launch
+            _castCrewDialog.value = CastCrewDialogTarget(
+                tmdbId = id,
+                name = member.name,
+                photoUrl = member.photo,
+                onRow = pinnedHomeRows.peopleIdsNow().contains(id)
+            )
+        }
+    }
+
+    /** The dialog's single action: add this person to the Cast & crew row, or take them off. */
+    fun toggleCastCrewPerson() {
+        val target = _castCrewDialog.value ?: return
+        _castCrewDialog.value = null
+        viewModelScope.launch {
+            pinnedHomeRows.togglePerson(
+                com.nuvio.tv.domain.model.PinnedPerson(
+                    tmdbId = target.tmdbId,
+                    name = target.name,
+                    profilePhotoUrl = target.photoUrl
+                )
+            )
+        }
+    }
+
+    fun dismissCastCrewDialog() {
+        _castCrewDialog.value = null
+    }
 
     private val localizedContext: Context
         get() = context.withAppLocale()

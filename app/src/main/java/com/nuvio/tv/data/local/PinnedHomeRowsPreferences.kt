@@ -9,6 +9,7 @@ import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.domain.model.PinnedHomeRow
 import com.nuvio.tv.domain.model.PinnedPerson
 import com.nuvio.tv.domain.model.PinnedRowKind
+import com.nuvio.tv.domain.model.castCrewIds
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -69,7 +70,50 @@ class PinnedHomeRowsPreferences @Inject constructor(
         }
     }
 
-    /** Drops one person from the Actors row, and the row itself once it is empty. */
+    /** The tmdb ids currently on the Cast & crew row, or an empty set when there is no row. */
+    suspend fun peopleIdsNow(): Set<Int> = rowsNow().castCrewIds()
+
+    /**
+     * One long-press, one state change: adds [person] when they are not on the row yet, drops
+     * them when they are. Returns true when the person is now on the row.
+     *
+     * This is what makes the action a toggle in the UI — the same gesture, with the label and
+     * the effect both read from [peopleIdsNow].
+     */
+    suspend fun togglePerson(person: PinnedPerson): Boolean {
+        var added = false
+        mutate { current ->
+            val index = current.indexOfFirst { it.kind == PinnedRowKind.PEOPLE }
+            val present = index >= 0 && current[index].people.any { it.tmdbId == person.tmdbId }
+            when {
+                present -> {
+                    val remaining = current[index].people.filterNot { it.tmdbId == person.tmdbId }
+                    if (remaining.isEmpty()) current.removeAt(index) else current[index] = current[index].copy(people = remaining)
+                    added = false
+                }
+                index >= 0 -> {
+                    current[index] = current[index].copy(people = current[index].people + person)
+                    added = true
+                }
+                current.size >= MAX_ROWS -> added = false
+                else -> {
+                    current.add(
+                        PinnedHomeRow(
+                            id = PinnedHomeRow.PEOPLE_ROW_ID,
+                            kind = PinnedRowKind.PEOPLE,
+                            title = PEOPLE_ROW_TITLE,
+                            people = listOf(person)
+                        )
+                    )
+                    added = true
+                }
+            }
+            true
+        }
+        return added
+    }
+
+    /** Drops one person from the Cast & crew row, and the row itself once it is empty. */
     suspend fun removePerson(tmdbId: Int) {
         mutate { current ->
             val index = current.indexOfFirst { it.kind == PinnedRowKind.PEOPLE }
@@ -125,6 +169,12 @@ class PinnedHomeRowsPreferences @Inject constructor(
             .getOrNull()
             .orEmpty()
             .filter { it.id.isNotBlank() }
+            // The people row was called "Actors" before it grew to cover directors and writers.
+            // The title is stored inside the row, so an already-pinned row would keep the old
+            // name forever; rewrite it on read instead of asking the user to re-pin.
+            .map { row ->
+                if (row.kind == PinnedRowKind.PEOPLE) row.copy(title = PEOPLE_ROW_TITLE) else row
+            }
     }
 
     companion object {
@@ -133,7 +183,10 @@ class PinnedHomeRowsPreferences @Inject constructor(
         /** Home is a wall, not a file manager; past a handful of pinned rows it stops being one. */
         const val MAX_ROWS = 8
 
-        /** Matches [PinnedHomeRow]'s default title for the people row. */
-        const val PEOPLE_ROW_TITLE = "Actors"
+        /**
+         * The people row covers performers AND the crew behind them (directors, writers,
+         * creators), so it is named for both — one row, no per-role split.
+         */
+        const val PEOPLE_ROW_TITLE = "Cast & crew"
     }
 }

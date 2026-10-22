@@ -40,9 +40,13 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import com.nuvio.tv.domain.model.castCrewIds
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -72,13 +76,19 @@ class SearchViewModel @Inject constructor(
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
+    /** Who is already on Home's Cast & crew row, so a long-press can offer add *or* remove. */
+    val peopleRowIds: StateFlow<Set<Int>> = pinnedHomeRows.rows
+        .map { rows -> rows.castCrewIds() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
     /**
-     * Pins a person from the People strip onto Home's Actors row. The row is one row, not one
-     * per actor: [com.nuvio.tv.data.local.PinnedHomeRowsPreferences.addPerson] union-merges.
+     * One action for a person long-pressed in the People strip: adds them to Home's Cast & crew
+     * row, or takes them off it when they are already there. The row is one row, not one per
+     * person — [com.nuvio.tv.data.local.PinnedHomeRowsPreferences.togglePerson] handles both.
      */
-    fun addPersonToActors(person: com.nuvio.tv.domain.model.PersonSearchPreview) {
+    fun togglePersonInPeopleRow(person: com.nuvio.tv.domain.model.PersonSearchPreview) {
         viewModelScope.launch {
-            pinnedHomeRows.addPerson(
+            pinnedHomeRows.togglePerson(
                 com.nuvio.tv.domain.model.PinnedPerson(
                     tmdbId = person.tmdbId,
                     name = person.name,
