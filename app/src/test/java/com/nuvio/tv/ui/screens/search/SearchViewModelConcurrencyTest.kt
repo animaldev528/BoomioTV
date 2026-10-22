@@ -143,6 +143,10 @@ class SearchViewModelConcurrencyTest {
             watchProgressRepository = watchProgress,
             watchedSeriesStateHolder = watchedSeries,
             posterOptions = mockk<PosterOptionsController>(relaxed = true),
+            // Relaxed doubles: these tests run as a non-kids profile, so the kids gate is
+            // never reached (`isKidsActive()` answers false) and no pinned rows exist.
+            kidsContentFilter = mockk(relaxed = true),
+            pinnedHomeRows = mockk(relaxed = true),
             tmdbMetadataService = mockk<com.nuvio.tv.core.tmdb.TmdbMetadataService>(relaxed = true),
             tmdbSettingsDataStore = mockk<com.nuvio.tv.data.local.TmdbSettingsDataStore>(relaxed = true),
             activityEventReporter = mockk(relaxed = true),

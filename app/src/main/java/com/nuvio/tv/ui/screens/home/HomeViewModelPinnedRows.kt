@@ -60,3 +60,13 @@ internal fun HomeViewModel.removePinnedRow(rowId: String) {
         pinnedHomeRows.remove(rowId)
     }
 }
+
+/**
+ * Takes one person off the Cast & crew row. The store drops the row itself when that was the
+ * last person, so the row is never left behind empty.
+ */
+internal fun HomeViewModel.removePersonFromPeopleRow(tmdbId: Int) {
+    viewModelScope.launch {
+        pinnedHomeRows.removePerson(tmdbId)
+    }
+}

@@ -530,6 +530,10 @@ fun HomeScreen(
         } else {
             null
         }
+        // The held tile's tmdb person id, but only while that tile really is a member of the
+        // Cast & crew row — a person card anywhere else has nothing to be removed from.
+        val personOnCastCrewRow = tmdbIdFromPersonPreviewId(item.id)
+            ?.takeIf { selectedPoster.pinnedRowId == PinnedHomeRow.PEOPLE_ROW_ID }
         HomePosterOptionsDialog(
             title = item.name,
             isInLibrary = uiState.posterLibraryMembership[statusKey] == true,
@@ -580,12 +584,24 @@ fun HomeScreen(
                 }
                 posterOptionsTarget = null
             },
-            onRemovePinnedRow = selectedPoster.pinnedRowId?.let { rowId ->
+            // A person tile on the Cast & crew row is removed one person at a time; the row
+            // itself disappears when its last member does, so it never sits there empty.
+            castCrewRemovalName = personOnCastCrewRow?.let { item.name },
+            onRemoveFromCastCrew = personOnCastCrewRow?.let { tmdbId ->
                 {
-                    viewModel.removePinnedRow(rowId)
+                    viewModel.removePersonFromPeopleRow(tmdbId)
                     posterOptionsTarget = null
                 }
-            }
+            },
+            // Every other pinned row keeps the whole-row action; the people row does not.
+            onRemovePinnedRow = selectedPoster.pinnedRowId
+                ?.takeIf { personOnCastCrewRow == null }
+                ?.let { rowId ->
+                    {
+                        viewModel.removePinnedRow(rowId)
+                        posterOptionsTarget = null
+                    }
+                }
         )
     }
 
@@ -849,7 +865,11 @@ private fun HomePosterOptionsDialog(
     // Only on a tile that belongs to a pinned row: the action removes the whole row, which is
     // what the user asked for ("long clicking either item would offer the option to remove the
     // row"), not the single title.
-    onRemovePinnedRow: (() -> Unit)? = null
+    onRemovePinnedRow: (() -> Unit)? = null,
+    // On the Cast & crew row the action is per person, not per row: the row is a collection of
+    // people, and it should vanish only when nobody is left on it.
+    castCrewRemovalName: String? = null,
+    onRemoveFromCastCrew: (() -> Unit)? = null
 ) {
     val primaryFocusRequester = remember { FocusRequester() }
 
@@ -939,6 +959,24 @@ private fun HomePosterOptionsDialog(
                     )
                 ) {
                     Text(stringResource(R.string.like_action_not_interested))
+                }
+            }
+
+            if (castCrewRemovalName != null && onRemoveFromCastCrew != null) {
+                Button(
+                    onClick = onRemoveFromCastCrew,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.colors(
+                        containerColor = NuvioTheme.colors.BackgroundCard,
+                        contentColor = NuvioTheme.colors.TextPrimary
+                    )
+                ) {
+                    Text(
+                        stringResource(
+                            R.string.poster_options_remove_from_cast_crew,
+                            castCrewRemovalName
+                        )
+                    )
                 }
             }
 

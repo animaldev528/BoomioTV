@@ -4,6 +4,7 @@ import com.nuvio.tv.ui.theme.NuvioTheme
 import com.nuvio.tv.domain.model.CardDepthSurface
 import com.nuvio.tv.ui.components.LocalCardDepthStyle
 import com.nuvio.tv.ui.components.nuvioCardDepth
+import com.nuvio.tv.ui.util.selectLongPress
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -74,7 +75,9 @@ fun CastSection(
     restoreFocusToken: Int = 0,
     onRestoreFocusHandled: () -> Unit = {},
     onCastMemberFocused: (MetaCastMember) -> Unit = {},
-    onCastMemberClick: (MetaCastMember) -> Unit = {}
+    onCastMemberClick: (MetaCastMember) -> Unit = {},
+    // Held SELECT on a circle: add this person to Home's Cast & crew row, or take them off it.
+    onCastMemberLongClick: ((MetaCastMember) -> Unit)? = null
 ) {
     if (cast.isEmpty() && leadingCast.isEmpty()) return
 
@@ -193,7 +196,10 @@ fun CastSection(
                                     onRestoreFocusHandled()
                                 }
                             },
-                            onClick = { onCastMemberClick(member) }
+                            onClick = { onCastMemberClick(member) },
+                            onLongClick = onCastMemberLongClick?.let { callback ->
+                                { callback(member) }
+                            }
                         )
                     }
                 }
@@ -246,7 +252,10 @@ fun CastSection(
                                 onRestoreFocusHandled()
                             }
                         },
-                        onClick = { onCastMemberClick(member) }
+                        onClick = { onCastMemberClick(member) },
+                        onLongClick = onCastMemberLongClick?.let { callback ->
+                            { callback(member) }
+                        }
                     )
                 }
             }
@@ -262,7 +271,8 @@ private fun CastMemberItem(
     itemWidth: Dp = 150.dp,
     cardSize: Dp = 100.dp,
     onFocused: () -> Unit = {},
-    onClick: () -> Unit = {}
+    onClick: () -> Unit = {},
+    onLongClick: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -295,6 +305,7 @@ private fun CastMemberItem(
             onClick = onClick,
             modifier = modifier
                 .size(cardSize)
+                .selectLongPress(onLongClick)
                 .align(Alignment.Start)
                 .onFocusChanged { state ->
                     isFocused = state.isFocused
