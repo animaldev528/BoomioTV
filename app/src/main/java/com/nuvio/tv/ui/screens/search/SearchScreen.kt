@@ -899,7 +899,14 @@ fun SearchScreen(
                                 rowFocusRequester = rowFocusRequester,
                                 entryFocusRequester = entryFocusRequester,
                                 // Anchor Up to the field; geometric focus varies with the card.
-                                upFocusRequester = if (index == 0) searchFocusRequester else null,
+                                // When the People strip sits between the field and the rows, Up
+                                // belongs there: focus does not resolve geometrically back into a
+                                // LazyRow from the LazyRow below it.
+                                upFocusRequester = when {
+                                    index != 0 -> null
+                                    peopleVisible -> peopleEntryFocusRequester
+                                    else -> searchFocusRequester
+                                },
                                 listState = listState,
                                 restorerFocusedIndex = if (restoringSearchFocus.value && catalogKey == viewModel.savedFocusRowKey) {
                                     viewModel.savedFocusItemIndex

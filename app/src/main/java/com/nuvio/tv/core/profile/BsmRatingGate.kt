@@ -16,8 +16,9 @@ import javax.inject.Singleton
 /**
  * Client-side soft rating gate: fetches each Nuvio profile's content-rating ceiling
  * from BSM (`GET /api/nuvio/profile-ratings`) and exposes the active profile's ceiling
- * as a [StateFlow]. When BSM is unreachable (e.g. off-LAN) or a rating is unknown the
- * gate fails open — this is a convenience filter, not a security boundary.
+ * as a [StateFlow]. When BSM is unreachable (e.g. off-LAN) there is no ceiling and the
+ * gate fails open; once a ceiling is in force a title whose rating we cannot place on
+ * the scale is hidden, because "unrecognised" must not read as "safe".
  */
 @Singleton
 class BsmRatingGate @Inject constructor(

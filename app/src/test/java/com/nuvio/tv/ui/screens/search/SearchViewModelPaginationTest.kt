@@ -227,6 +227,10 @@ class SearchViewModelPaginationTest {
             watchProgressRepository = watchProgress,
             watchedSeriesStateHolder = watchedSeries,
             posterOptions = mockk<PosterOptionsController>(relaxed = true),
+            // Relaxed doubles: these tests run as a non-kids profile, so the kids gate is
+            // never reached (`isKidsActive()` answers false) and no pinned rows exist.
+            kidsContentFilter = mockk(relaxed = true),
+            pinnedHomeRows = mockk(relaxed = true),
             // C7 adds these two as required ctor params for the People strip. The fork's own
             // commits repaired the other two SearchViewModel test files but not this one —
             // upstream 1.0.0 has a third construction site the fork's C7-era tree did not.
