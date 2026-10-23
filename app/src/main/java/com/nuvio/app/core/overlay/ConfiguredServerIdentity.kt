@@ -1,6 +1,9 @@
 package com.nuvio.app.core.overlay
 
+import com.nuvio.app.core.network.ServerAliases
 import com.nuvio.app.core.network.ServerConfigurationRepository
+import com.nuvio.app.features.boomio.BOOMIO_SERVICE_HOST
+import com.nuvio.app.features.boomio.BoomioConfig
 
 /**
  * Whether an advert read off the network may move the **configured** server's plane.
@@ -45,5 +48,44 @@ internal fun advertMatchesConfiguredServer(svcName: String?): Boolean {
         ?.takeIf { it.isNotBlank() }
         ?.let { hostOf(if (it.contains("://")) it else "https://$it") }
         ?: return false
-    return configuredHost.equals(svcHost, ignoreCase = true)
+    // ⚠️ **Compared through the alias table, not as strings.** A person may have typed the box's
+    // private address (see `ServerAliases`), while the advert always names the deployment by its
+    // published `svc=` — the same box under the other spelling. A string comparison would read
+    // that as a foreign server and refuse the user's own advert.
+    return ServerAliases.sameHost(configuredHost, svcHost)
 }
+
+/**
+ * The name whose TXT tuple describes the server this client should talk to.
+ *
+ * **The compiled name is a bootstrap default, not this deployment's name.** With a server chosen
+ * by hand, resolving [BOOMIO_SERVICE_HOST] asks DNS about somebody else's box and gets that box's
+ * `lan=`/`wan=`/`ppk` back — which is how a TV told to use `192.168.1.65` still minted its pairing
+ * code on the reference box: the code landed in the other deployment's Redis, so the Pi's TV page
+ * never had it to accept.
+ *
+ * A bare literal cannot be resolved this way — there is no TXT record for an address — and
+ * [ServerAliases] is what turns one into the name that does have a record.
+ */
+internal val provisioningRecordHost: String
+    get() {
+        val configured = ServerConfigurationRepository.active.value
+        val host = configured
+            .takeIf { it.isCustom }
+            ?.backendUrl
+            ?.let { hostOf(it) }
+            ?.takeIf { it.isNotBlank() }
+        return host?.let { ServerAliases.canonicalHost(it) } ?: BoomioConfig.serviceHostOrNull()
+            ?: BOOMIO_SERVICE_HOST
+    }
+
+/**
+ * The host of [BoomioConfig.serviceOrigin], when that origin is not the compiled floor.
+ *
+ * Covers the window where a server was applied to the service plane but the configuration store
+ * has not been published yet (`NuvioApplication` publishes before the overlay starts, so this is
+ * belt and braces rather than the normal path).
+ */
+private fun BoomioConfig.serviceHostOrNull(): String? =
+    hostOf(serviceOrigin)?.takeIf { !ServerAliases.sameHost(it, BOOMIO_SERVICE_HOST) }
+

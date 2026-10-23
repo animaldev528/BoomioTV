@@ -516,13 +516,18 @@ internal object OverlayEndpointDiscovery {
      * the private address to fall back to.
      */
     private suspend fun rung2DiscoveryRecord(context: Context): OverlayEndpoint? {
-        val resolved = OverlayDnsClient.resolve(context, PROV_RECORD, RUNG2_BUDGET_MS) ?: return null
+        // ⚠️ **The record of the server this client was pointed at, not the compiled one.** A TV
+        // that was told to use a second box must read *that* box's tuple: resolving the bootstrap
+        // name here handed it a stranger's `lan=`/`wan=` and key, and `applyServicePins` would
+        // then rewrite the origin back to the stranger. See [provisioningRecordHost].
+        val record = provisioningRecordHost
+        val resolved = OverlayDnsClient.resolve(context, record, RUNG2_BUDGET_MS) ?: return null
         // Same reasoning as rung 1: recorded whether or not this record's key is usable, because
         // the targets are a fact about the server rather than about this particular answer.
         rememberTargets(resolved.tuple.targets)
         val key = validServerKeyOrNull(resolved.tuple.serverPublicKeyBase64)
         if (key == null) {
-            Log.d(TAG, "Rung 2: '$PROV_RECORD' resolved but published no usable key")
+            Log.d(TAG, "Rung 2: '$record' resolved but published no usable key")
             return null
         }
         return endpointOf(

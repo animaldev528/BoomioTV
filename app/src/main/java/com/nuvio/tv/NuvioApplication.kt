@@ -173,7 +173,12 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
         // overwritten a few seconds later — see `advertMatchesConfiguredServer` in
         // `OverlayEndpointDiscovery.applyServicePins` and `OverlayLocalDiscovery.candidateOf`.
         if (activeServerConfiguration.isCustom) {
-            BoomioConfig.serviceOrigin = activeServerConfiguration.backendUrl
+            // ⚠️ **The name, not the literal that was typed.** A saved address is canonicalised on
+            // the way in (`ServerAliases`), and canonicalised again here so a configuration stored
+            // by an older build — before the alias table existed — still lands on the name the
+            // edge has a certificate for.
+            BoomioConfig.serviceOrigin = com.nuvio.app.core.network.ServerAliases
+                .canonicalInput(activeServerConfiguration.backendUrl)
         }
 
         // The OTHER half of the same allow-set, and the half that decides whether the home

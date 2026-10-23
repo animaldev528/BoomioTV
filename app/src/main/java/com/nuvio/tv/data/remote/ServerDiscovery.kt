@@ -1,5 +1,6 @@
 package com.nuvio.tv.data.remote
 
+import com.nuvio.app.core.network.ServerAliases
 import com.nuvio.app.core.overlay.withOverlayProxy
 import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.domain.model.ServerCapabilities
@@ -146,8 +147,14 @@ class ServerDiscoveryService @Inject constructor() {
 
     suspend fun discover(input: String): Result<ServerConfiguration> = withContext(Dispatchers.IO) {
         runCatching {
+            // ⚠️ **An address and its name are one server, and only the name can hold a
+            // certificate.** A person typing the address their router shows them would otherwise
+            // hit a TLS handshake the edge has no site block for (`alert internal error`), which
+            // reads as "the server is down". `ServerAliases` rewrites a known literal to the name
+            // it is published under and leaves everything else untouched.
+            val target = ServerAliases.canonicalInput(input)
             try {
-                discoverOnce(input)
+                discoverOnce(target)
             } catch (error: ServerDiscoveryException) {
                 // ⚠️ **A bare private address is typed as `192.168.1.65`, and HTTPS is the wrong
                 // first guess for one.** The scheme default is `https://` because that is right for
@@ -156,7 +163,7 @@ class ServerDiscoveryService @Inject constructor() {
                 // reach the discovery endpoint" — which reads as a wrong address rather than a
                 // wrong scheme. One retry over HTTP for a private host covers the case without
                 // widening anything: a public host still gets only the scheme it named.
-                val retryInput = privateHttpFallback(input, error) ?: throw error
+                val retryInput = privateHttpFallback(target, error) ?: throw error
                 discoverOnce(retryInput)
             }
         }.onFailure { if (it is CancellationException) throw it }
