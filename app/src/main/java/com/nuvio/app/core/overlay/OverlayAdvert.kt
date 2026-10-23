@@ -213,6 +213,28 @@ internal data class OverlayAdvertTuple(
             )
         }
 
+    /**
+     * The tunnel port that belongs to [address], read from the plane that names it.
+     *
+     * ⚠️ **`port=` is the port a client dials from *outside*.** A box that forwards WAN 51821 to
+     * a local 51820 publishes both numbers, correctly and differently, as `wanport`/`lanport` —
+     * and a client that resolves the record's own `A` (the LAN literal at home) and pairs it with
+     * the generic `port` then dials a closed port while HTTPS to the same box answers.
+     *
+     * Measured 2026-10-23 against the Pi: it bound 51820, published `port=51821 lanport=51820`,
+     * and every client on the house LAN was handed `192.168.1.65:51821` — nothing listened there,
+     * so the handshake timed out and the ladder re-ran forever. Rungs 1 and 2 carry an address
+     * without a plane, and this is how they recover the port that address actually serves.
+     */
+    fun tunnelPortFor(address: InetAddress): Int? {
+        val literal = address.hostAddress
+        return when {
+            lanAddress != null && literal == lanAddress -> lanPort ?: port
+            wanAddress != null && literal == wanAddress -> wanPort ?: port
+            else -> port
+        }
+    }
+
     companion object {
         /** The WG listen port when the advert does not name one. The POC's port, and the default. */
         const val DEFAULT_PORT = 51820

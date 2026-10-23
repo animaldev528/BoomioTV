@@ -492,7 +492,8 @@ internal object OverlayEndpointDiscovery {
         }
         return endpointOf(
             address = advert.address,
-            port = advert.tuple.port ?: DEFAULT_WG_PORT,
+            // The advert's address is always the one on *this* wire, so it takes the plane port.
+            port = advert.tuple.tunnelPortFor(advert.address) ?: DEFAULT_WG_PORT,
             key = key,
             source = OverlayEndpointSource.MDNS,
         )
@@ -532,7 +533,12 @@ internal object OverlayEndpointDiscovery {
         }
         return endpointOf(
             address = resolved.address,
-            port = resolved.tuple.port ?: DEFAULT_WG_PORT,
+            // ⚠️ **The port of the plane this address is on, not the generic `port=`.** At home
+            // the `A` resolves to the record's own `lan=` literal, and `port=` is what the router
+            // forwards from outside — a box that remaps WAN 51821 to a local 51820 answers HTTPS
+            // on the LAN and listens for WireGuard on neither 51821. See
+            // [OverlayAdvertTuple.tunnelPortFor].
+            port = resolved.tuple.tunnelPortFor(resolved.address) ?: DEFAULT_WG_PORT,
             key = key,
             source = OverlayEndpointSource.LOCAL_DNS,
         )
@@ -711,14 +717,14 @@ internal object OverlayEndpointDiscovery {
      * by a fallback. The names this replaced needed one resolve each and could not work at all on a
      * network without a resolver.
      *
-     * ⚠️ **An address supplies only the host; the key and the port are reused from [seed].** That
-     * is not a shortcut but the correct reading — the tuple published beside `lan=`/`wan=` belongs
-     * to the same server. If that server's key had changed, the handshake would fail and the next
-     * publication would correct it, which is the honest outcome; inventing a key here would hide
-     * it. ⚠️ **The seed's port wins over the plane's `lanport=`/`wanport=` deliberately**: this
-     * tier hands back an [OverlayEndpoint], which is a *tunnel* endpoint, and the per-plane ports
-     * are the same number reached by a different route. Reading the plane's instead would make the
-     * tier's answer disagree with every other rung's for no benefit.
+     * ⚠️ **An address supplies the host; the key comes from [seed], the port from the plane.**
+     * The key is the seed's because the tuple published beside `lan=`/`wan=` belongs to the same
+     * server — if it changed, the handshake fails and the next publication corrects it, which is
+     * the honest outcome; inventing a key here would hide it. The port cannot follow the same
+     * reasoning: `port=` is the number a client dials from **outside**, and on a box that remaps
+     * the external port the two planes answer on *different* numbers (`lanport`/`wanport`).
+     * Reusing the seed's port there would send the LAN literal to the WAN port or the reverse —
+     * each a closed port on the same healthy box. See [OverlayAdvertTuple.tunnelPortFor].
      *
      * ⚠️ **A null [seed] makes this a no-op, deliberately.** With no endpoint anywhere there is no
      * key to dial with, so there is nothing to try — and a first-ever launch away from home has no
@@ -779,7 +785,11 @@ internal object OverlayEndpointDiscovery {
                     val address = literalOrNull(plane.host) ?: continue
                     val candidate = endpointOf(
                         address = address,
-                        port = known.port,
+                        // ⚠️ **The plane's own port, not the seed's.** This tier walks `lan=`
+                        // and `wan=` precisely because the two routes use different numbers on a
+                        // box that remaps the external port; reusing the seed's would send the
+                        // WAN plane to the LAN port (and back) the moment they differ.
+                        port = plane.tunnelPort,
                         key = key,
                         source = OverlayEndpointSource.DISCOVERY_RECORD,
                     ) ?: continue
