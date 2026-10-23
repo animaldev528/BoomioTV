@@ -32,6 +32,7 @@ import com.nuvio.app.core.overlay.withOverlayProxy
 import com.nuvio.app.core.network.ServerConfigurationRepository
 import com.nuvio.app.features.addons.AddonRef
 import com.nuvio.app.features.addons.AddonRepository
+import com.nuvio.app.features.boomio.BoomioConfig
 import com.nuvio.app.features.boomio.BoomioSessionRepository
 import com.nuvio.tv.core.diagnostics.SentryInitializer
 import com.nuvio.tv.core.boomio.boomioOwnHosts
@@ -151,7 +152,29 @@ class NuvioApplication : Application(), SingletonImageLoader.Factory {
         // read is already populated. The TV's configuration is a plain singleton whose changes
         // are applied by an app restart rather than an emission, so one publish per process is
         // the whole of it -- there is nothing to observe.
-        ServerConfigurationRepository.publish(serverConfigurationStore.loadActive())
+        val activeServerConfiguration = serverConfigurationStore.loadActive()
+        ServerConfigurationRepository.publish(activeServerConfiguration)
+
+        // ⚠️ **A manually chosen server owns the whole service plane, not just auth.**
+        //
+        // `BoomioConfig.serviceOrigin` is the one seam every boomio URL is built from, and until
+        // now its only runtime writer was discovery: a TV told by hand to use a different box kept
+        // deriving `/bsc`, `/bsf`, `/bss-iptv` and `/bsm` from the compile-time name, and the next
+        // mDNS advert on the LAN rewrote the origin back to *that* server. Measured on a LAN with
+        // two servers: the TV's sign-in went to the address the user typed while every catalogue
+        // and media request went to the other server, which is the "can't put a TV on a second
+        // box" failure this exists to fix.
+        //
+        // Applied here rather than in the store so it runs *before* the overlay initialisers
+        // below: they publish host sets and place pins from `serviceOrigin`, and a value set after
+        // them would be one the first browse could contradict.
+        //
+        // The discovery side must also stand down for a different server, or this value is simply
+        // overwritten a few seconds later — see `advertMatchesConfiguredServer` in
+        // `OverlayEndpointDiscovery.applyServicePins` and `OverlayLocalDiscovery.candidateOf`.
+        if (activeServerConfiguration.isCustom) {
+            BoomioConfig.serviceOrigin = activeServerConfiguration.backendUrl
+        }
 
         // The OTHER half of the same allow-set, and the half that decides whether the home
         // screen works. The relay's route decision is an exact set-membership test over

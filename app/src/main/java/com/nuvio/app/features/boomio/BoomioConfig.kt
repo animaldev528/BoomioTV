@@ -242,6 +242,20 @@ object BoomioConfig {
     }
 
     /**
+     * Puts the service origin back on the build's own floor, undoing a manual server.
+     *
+     * ⚠️ **Needed because "Use official server" clears the stored configuration, not this object.**
+     * A process that survives the switch — an automatic restart that failed — would otherwise keep
+     * building every boomio URL from the server the user just left. On the next cold start this
+     * value is re-derived anyway (`NuvioApplication` applies a custom server only when one is
+     * configured, and the object's initialiser already floors the rest), so this is the in-process
+     * half of the same rule.
+     */
+    fun resetServiceOrigin() {
+        serviceOrigin = DEFAULT_SERVICE_ORIGIN
+    }
+
+    /**
      * Establishes the one-name floor, then lets a build override each base individually.
      *
      * ⚠️ **This block exists because assigning [serviceOrigin]'s initializer does not run its

@@ -10,6 +10,7 @@ import com.nuvio.tv.data.local.ServerConfigurationStore
 import com.nuvio.tv.data.remote.ServerDiscoveryException
 import com.nuvio.tv.data.remote.ServerDiscoveryFailure
 import com.nuvio.tv.data.remote.ServerDiscoveryService
+import com.nuvio.app.features.boomio.BoomioConfig
 import com.nuvio.tv.domain.model.ServerConfiguration
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -91,6 +92,19 @@ class ServerConnectionViewModel @Inject constructor(
                     it.copy(isSwitching = false, error = context.getString(R.string.custom_server_save_failed))
                 }
                 return@launch
+            }
+            // ⚠️ **Apply the choice to the running process, not only to the next one.**
+            // `NuvioApplication` applies the saved server at startup, but a restart that fails
+            // leaves this process alive — and it would then keep the *old* origin for every
+            // service URL while the store already said otherwise, which is the split-brain this
+            // whole change exists to remove. Also the inverse: clearing the custom server must
+            // restore the build's own floor rather than leave the previous server's origin in
+            // memory.
+            val savedServer = configurationStore.loadActive()
+            if (savedServer.isCustom) {
+                BoomioConfig.serviceOrigin = savedServer.backendUrl
+            } else {
+                BoomioConfig.resetServiceOrigin()
             }
             if (!appRestarter.restart()) {
                 _uiState.update {

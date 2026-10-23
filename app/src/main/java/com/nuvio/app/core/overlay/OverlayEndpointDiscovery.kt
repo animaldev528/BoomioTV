@@ -658,6 +658,18 @@ internal object OverlayEndpointDiscovery {
      * concurrent lookup sees one snapshot or the other, never a half-updated pair.
      */
     private fun applyServicePins(targets: OverlayDiscoveryTargets) {
+        // ⚠️ **A hand-picked server outranks discovery, and this guard is where that is decided.**
+        // The record is read from *whatever* advertised on this network — the mDNS service carries
+        // no field this client can attribute to one deployment over another — so on a LAN with a
+        // second boomio box its `svc=` would silently rewrite the user's explicit choice a few
+        // seconds after they made it. `advertMatchesConfiguredServer` refuses every advert that
+        // does not name the configured host; with no custom server it is unconditionally true, so
+        // the reference deployment's behaviour is unchanged.
+        if (!advertMatchesConfiguredServer(targets.svcName)) {
+            Log.i(TAG, "Ignoring discovery record from ${targets.svcName ?: "<no svc>"}: " +
+                "a server was configured manually")
+            return
+        }
         // The host set is re-derived rather than passed in: the addon catalogue — where most of the
         // app's server hosts live — loads asynchronously, so this call returns a *larger* set later
         // in the session. The service name is added explicitly because it is the one host the

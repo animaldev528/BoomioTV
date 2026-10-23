@@ -4,6 +4,7 @@ import com.nuvio.app.core.overlay.withOverlayProxy
 import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.domain.model.ServerCapabilities
 import com.nuvio.tv.domain.model.ServerConfiguration
+import com.nuvio.tv.domain.model.isPublicServerHost
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -145,51 +146,86 @@ class ServerDiscoveryService @Inject constructor() {
 
     suspend fun discover(input: String): Result<ServerConfiguration> = withContext(Dispatchers.IO) {
         runCatching {
-            val discoveryUrl = ServerDiscoveryPolicy.discoveryUrl(input)
-            if (ServerDiscoveryPolicy.matchesBackend(discoveryUrl, BuildConfig.SUPABASE_URL)) {
-                throw ServerDiscoveryException(ServerDiscoveryFailure.OFFICIAL_SERVER)
-            }
-            val request = Request.Builder()
-                .url(discoveryUrl)
-                .header("Accept", "application/json")
-                .header("User-Agent", "${BuildConfig.APPLICATION_ID}/${BuildConfig.VERSION_NAME.ifBlank { "dev" }}")
-                .get()
-                .build()
-            val response = try {
-                client.newCall(request).execute()
-            } catch (error: IOException) {
-                throw ServerDiscoveryException(ServerDiscoveryFailure.CONNECTION_FAILED, cause = error)
-            }
-            response.use {
-                if (!it.isSuccessful) {
-                    throw ServerDiscoveryException(
-                        failure = ServerDiscoveryFailure.HTTP_ERROR,
-                        statusCode = it.code
-                    )
-                }
-                if (
-                    discoveryUrl.startsWith("https://", ignoreCase = true) &&
-                    it.request.url.scheme != "https"
-                ) {
-                    throw ServerDiscoveryException(ServerDiscoveryFailure.CONNECTION_FAILED)
-                }
-                val body = it.body
-                    ?: throw ServerDiscoveryException(ServerDiscoveryFailure.INVALID_DOCUMENT)
-                val output = ByteArrayOutputStream()
-                val buffer = ByteArray(8_192)
-                body.byteStream().use { stream ->
-                    while (output.size() <= MAX_DOCUMENT_BYTES) {
-                        val read = stream.read(buffer)
-                        if (read < 0) break
-                        output.write(buffer, 0, read)
-                    }
-                }
-                if (output.size() > MAX_DOCUMENT_BYTES) {
-                    throw ServerDiscoveryException(ServerDiscoveryFailure.RESPONSE_TOO_LARGE)
-                }
-                ServerDiscoveryPolicy.parse(discoveryUrl, output.toString(Charsets.UTF_8.name()))
+            try {
+                discoverOnce(input)
+            } catch (error: ServerDiscoveryException) {
+                // ⚠️ **A bare private address is typed as `192.168.1.65`, and HTTPS is the wrong
+                // first guess for one.** The scheme default is `https://` because that is right for
+                // a public server, but a second box on the LAN often answers plain HTTP (or is not
+                // yet trusted for its address at all), and the failure a person sees is "could not
+                // reach the discovery endpoint" — which reads as a wrong address rather than a
+                // wrong scheme. One retry over HTTP for a private host covers the case without
+                // widening anything: a public host still gets only the scheme it named.
+                val retryInput = privateHttpFallback(input, error) ?: throw error
+                discoverOnce(retryInput)
             }
         }.onFailure { if (it is CancellationException) throw it }
+    }
+
+    /**
+     * The same address over HTTP, but only when all three hold: no scheme was typed, the host is
+     * private, and the failure was connectivity rather than a bad document.
+     *
+     * Anything else is returned as `null` so the original failure is what the user sees — a
+     * fallback must not turn "your server answered 500" into "your server is unreachable".
+     */
+    private fun privateHttpFallback(input: String, error: ServerDiscoveryException): String? {
+        val trimmed = input.trim()
+        if (trimmed.isEmpty() || trimmed.contains("://")) return null
+        if (error.failure != ServerDiscoveryFailure.CONNECTION_FAILED) return null
+        // Strip a path and any port before asking the host test; `isPublicServerHost` parses the
+        // whole URL and would otherwise judge the port as part of the host.
+        val host = trimmed.substringBefore('/')
+        val hostOnly = if (host.count { it == ':' } == 1) host.substringBefore(':') else host
+        if (isPublicServerHost("http://$hostOnly")) return null
+        return "http://$trimmed"
+    }
+
+    private fun discoverOnce(input: String): ServerConfiguration {
+        val discoveryUrl = ServerDiscoveryPolicy.discoveryUrl(input)
+        if (ServerDiscoveryPolicy.matchesBackend(discoveryUrl, BuildConfig.SUPABASE_URL)) {
+            throw ServerDiscoveryException(ServerDiscoveryFailure.OFFICIAL_SERVER)
+        }
+        val request = Request.Builder()
+            .url(discoveryUrl)
+            .header("Accept", "application/json")
+            .header("User-Agent", "${BuildConfig.APPLICATION_ID}/${BuildConfig.VERSION_NAME.ifBlank { "dev" }}")
+            .get()
+            .build()
+        val response = try {
+            client.newCall(request).execute()
+        } catch (error: IOException) {
+            throw ServerDiscoveryException(ServerDiscoveryFailure.CONNECTION_FAILED, cause = error)
+        }
+        return response.use {
+            if (!it.isSuccessful) {
+                throw ServerDiscoveryException(
+                    failure = ServerDiscoveryFailure.HTTP_ERROR,
+                    statusCode = it.code
+                )
+            }
+            if (
+                discoveryUrl.startsWith("https://", ignoreCase = true) &&
+                it.request.url.scheme != "https"
+            ) {
+                throw ServerDiscoveryException(ServerDiscoveryFailure.CONNECTION_FAILED)
+            }
+            val body = it.body
+                ?: throw ServerDiscoveryException(ServerDiscoveryFailure.INVALID_DOCUMENT)
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(8_192)
+            body.byteStream().use { stream ->
+                while (output.size() <= MAX_DOCUMENT_BYTES) {
+                    val read = stream.read(buffer)
+                    if (read < 0) break
+                    output.write(buffer, 0, read)
+                }
+            }
+            if (output.size() > MAX_DOCUMENT_BYTES) {
+                throw ServerDiscoveryException(ServerDiscoveryFailure.RESPONSE_TOO_LARGE)
+            }
+            ServerDiscoveryPolicy.parse(discoveryUrl, output.toString(Charsets.UTF_8.name()))
+        }
     }
 
     private companion object {

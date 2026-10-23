@@ -2158,8 +2158,13 @@
     <string name="server_options_connect_custom">Connect to custom server</string>
     <string name="server_options_change_custom">Connect to another server</string>
     <string name="server_options_use_official">Use official server</string>
+    <string name="server_section_title">Server</string>
+    <string name="server_entry_title">Server</string>
+    <string name="server_entry_default">Using the server found on this network</string>
+    <string name="server_entry_custom">Using %1$s</string>
+    <string name="server_entry_action">Change</string>
     <string name="custom_server_title">Connect to custom server</string>
-    <string name="custom_server_description">Enter the Backend URL provided by your server administrator.</string>
+    <string name="custom_server_description">Enter the Backend URL provided by your server administrator. A LAN address such as 192.168.1.65 works too — HTTPS is tried first, then HTTP.</string>
     <string name="custom_server_url_placeholder">https://backend.example.com</string>
     <string name="custom_server_check">Check server</string>
     <string name="custom_server_checking">Checking\u2026</string>

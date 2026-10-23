@@ -29,6 +29,8 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.nuvio.tv.ui.screens.account.ServerConnectionEntryRow
 import com.nuvio.tv.ui.screens.settings.BoomioLinkPanel
 import com.nuvio.tv.ui.screens.settings.SettingsActionRow
 import com.nuvio.tv.ui.screens.settings.SettingsGroupCard
@@ -142,6 +144,17 @@ internal fun BoomioSetupGate(
                         OverlayTunnel.refreshAsync()
                     }
                 )
+            }
+
+            // ⚠️ **The manual door belongs on THIS screen, not only behind it.** Pairing finds the
+            // server by discovery, and discovery follows whatever advert is on the network — on a
+            // LAN with a second boomio box that is the other box. A TV whose owner means a server
+            // at a different address could previously only get there by skipping pairing, signing
+            // in to the wrong server, and hunting a hidden overflow menu. A saved server outranks
+            // every advert (see `advertMatchesConfiguredServer`), so this row changes where the
+            // pairing and sign-in below it actually go.
+            SettingsGroupCard(modifier = Modifier.fillMaxWidth()) {
+                ServerConnectionEntryRow(viewModel = hiltViewModel())
             }
 
             SettingsGroupCard(modifier = Modifier.fillMaxWidth()) {

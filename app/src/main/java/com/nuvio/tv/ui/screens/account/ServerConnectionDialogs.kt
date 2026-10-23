@@ -55,6 +55,7 @@ import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.ServerConfiguration
 import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
+import com.nuvio.tv.ui.screens.settings.SettingsActionRow
 import com.nuvio.tv.ui.theme.NuvioTheme
 import kotlinx.coroutines.delay
 
@@ -210,8 +211,59 @@ private fun ServerMenuItem(
     )
 }
 
+/**
+ * A settings-screen door to the same manual server dialog the sign-in overflow menu shows.
+ *
+ * ⚠️ **The menu alone was not enough, and this is why.** [ServerOptionsMenuHost] is rendered on
+ * the sign-in screen, which a TV reaches only before it is linked — and a linked TV is exactly the
+ * one whose owner wants to move it to a different box. Worse, on a LAN with a second boomio
+ * advertising, the boot-time browse is what the app follows, so "there is no way to point this TV
+ * elsewhere" was the whole complaint. This row is reachable from Settings at any time, and the
+ * server it saves takes precedence over every advert on the network (see
+ * `advertMatchesConfiguredServer`).
+ *
+ * It renders [ServerConnectionDialog] itself rather than a copy, so both call sites share one
+ * state machine (discover → trust → switch → restart) and one set of strings.
+ */
 @Composable
-private fun ServerConnectionDialog(
+internal fun ServerConnectionEntryRow(
+    viewModel: ServerConnectionViewModel,
+    modifier: Modifier = Modifier,
+) {
+    val uiState by viewModel.uiState.collectAsState()
+    var showConnectionDialog by remember { mutableStateOf(false) }
+    val active = uiState.activeServer
+
+    SettingsActionRow(
+        title = stringResource(R.string.server_entry_title),
+        subtitle = if (active.isCustom) {
+            stringResource(R.string.server_entry_custom, active.backendUrl)
+        } else {
+            stringResource(R.string.server_entry_default)
+        },
+        value = stringResource(R.string.server_entry_action),
+        onClick = {
+            viewModel.resetDiscovery()
+            showConnectionDialog = true
+        },
+        modifier = modifier
+    )
+
+    if (showConnectionDialog) {
+        ServerConnectionDialog(
+            uiState = uiState,
+            onDiscover = viewModel::discover,
+            onConnect = viewModel::connectDiscoveredServer,
+            onDismiss = {
+                viewModel.resetDiscovery()
+                showConnectionDialog = false
+            }
+        )
+    }
+}
+
+@Composable
+internal fun ServerConnectionDialog(
     uiState: ServerConnectionUiState,
     onDiscover: (String) -> Unit,
     onConnect: () -> Unit,
