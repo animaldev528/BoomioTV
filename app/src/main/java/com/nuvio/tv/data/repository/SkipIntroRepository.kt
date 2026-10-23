@@ -1,7 +1,8 @@
 package com.nuvio.tv.data.repository
 
 import android.util.Log
-import com.nuvio.tv.BuildConfig
+import com.nuvio.app.features.boomio.BoomioConfig
+import com.nuvio.app.features.boomio.skipSegmentsUrl
 import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.data.local.AnimeSkipSettingsDataStore
 import com.nuvio.tv.data.remote.api.AniSkipApi
@@ -61,7 +62,22 @@ class SkipIntroRepository @Inject constructor(
 ) {
     private val cache = ConcurrentHashMap<String, List<SkipInterval>>()
     private val animeSkipShowIdCache = ConcurrentHashMap<String, String>()
-    private val introDbConfigured = BuildConfig.INTRODB_API_URL.isNotEmpty()
+
+    /**
+     * Absolute URL of the segment-markers adapter, resolved **at call time**.
+     *
+     * ⚠️ **Not a `val` captured in the constructor.** This is a `@Singleton`, built once at app
+     * start, while [BoomioConfig.serviceOrigin] is rewritten later — by a discovery record, or by
+     * the user choosing a server. A URL captured here would pin the adapter to whichever box was
+     * configured at launch and keep answering from it after the device moved, the same
+     * freeze-at-construction failure the bsm Retrofit already hit. Reading it per call is also what
+     * makes one APK follow *any* user's box, with no skip URL baked into the binary at all.
+     */
+    private val introDbUrl: String
+        get() = BoomioConfig.skipSegmentsUrl
+
+    private val introDbConfigured: Boolean
+        get() = introDbUrl.isNotEmpty()
 
     suspend fun getMovieSkipIntervals(contentId: String?, videoId: String? = null): List<SkipInterval> {
         if (!introDbConfigured) return emptyList()
@@ -251,8 +267,12 @@ class SkipIntroRepository @Inject constructor(
         episode: Int? = null,
         isMovie: Boolean = false
     ): List<SkipInterval> {
+        // Read once per call, so a server switch between the caller's check and this request
+        // cannot make the two disagree.
+        val url = introDbUrl
+        if (url.isEmpty()) return emptyList()
         return try {
-            val response = introDbApi.getSegments(imdbId, season, episode, true.takeIf { isMovie })
+            val response = introDbApi.getSegments(url, imdbId, season, episode, true.takeIf { isMovie })
             if (response.isSuccessful && response.body() != null) {
                 response.body()!!.toSkipIntervals(isMovie)
             } else emptyList()

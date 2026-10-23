@@ -103,14 +103,14 @@ internal fun hostScopedCallFactory(
  * configuration (`bss-dav`, `bss-tor`, …) and the addon hosts, so re-adding the service hosts here
  * would restore a second source of truth for a question that now has exactly one answer.
  *
- * ⚠️ **`INTRODB_API_URL` is deliberately NOT here, even though `/skip/segments` is one of the boomio
- * routes.** It is a generic, operator-set endpoint whose natural value is a THIRD-PARTY service
- * (`api.introdb.app`) that bsc merely proxies for; unioning it would make that public host read as
- * ours and offer it this device's certificate — the exact leak this whole file exists to prevent. The
- * skip client is instead scoped by this set as it stands, which already gives the right answer at
- * both ends: pointed at bsc its host is here (the companion base is the same origin), and pointed at
- * the real IntroDB it is not. An unknown third-party endpoint is the one case where withholding the
- * credential must win over presenting it.
+ * ⚠️ **`INTRODB_API_URL` is deliberately NOT added here, even though `/skip/segments` is one of the
+ * boomio routes.** It is a generic, operator-set override whose natural value could as well be a
+ * THIRD-PARTY service (`api.introdb.app`) that bsc merely proxies for; unioning it would make that
+ * public host read as ours and offer it this device's certificate — the exact leak this whole file
+ * exists to prevent. The skip base normally needs no entry at all: it is derived from the service
+ * origin (`BoomioConfig.skipBaseUrl`), so the host it dials is the origin's host, which this set
+ * already carries. The override is the one case where the two can disagree, and there withholding
+ * the credential must win over presenting it to an unknown endpoint.
  */
 internal fun boomioOwnHosts(): Set<String> = localServerHosts()
 

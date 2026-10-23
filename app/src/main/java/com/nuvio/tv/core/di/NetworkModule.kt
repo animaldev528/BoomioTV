@@ -568,11 +568,17 @@ object NetworkModule {
      * present the client certificate on it like every other boomio route; without it the edge serves
      * the request as an *unidentified* device rather than refusing.
      *
-     * ⚠️ **Host-scoped, not attached unconditionally.** `INTRODB_API_URL` is a compile-time knob and
-     * can point at the *public* IntroDB service (`api.introdb.app`) as easily as at our own bsc. A
-     * certificate handed to that host would be this device's credential offered to a stranger, so the
-     * factory picks between the two clients per request off the URL's own host — see
+     * ⚠️ **Host-scoped, not attached unconditionally.** The skip base derives from the service
+     * origin (`BoomioConfig.skipBaseUrl`), but `INTRODB_API_URL` can still override it to point at
+     * the *public* IntroDB service (`api.introdb.app`). A certificate handed to that host would be
+     * this device's credential offered to a stranger, so the factory picks between the two clients
+     * per request off the URL's own host — see
      * [com.nuvio.tv.core.boomio.hostScopedCallFactory].
+     *
+     * ⚠️ **The base URL here is a placeholder and nothing dials it.** The base is a runtime value
+     * that changes when the device is pointed at another server, so `IntroDbApi.getSegments` takes
+     * the absolute URL as `@Url` and Retrofit's frozen `baseUrl` is never used. It must still be a
+     * syntactically valid URL for `Retrofit.Builder` to accept the instance.
      */
     @Provides
     @Singleton
@@ -584,7 +590,7 @@ object NetworkModule {
         moshi: Moshi
     ): Retrofit =
         Retrofit.Builder()
-            .baseUrl(BuildConfig.INTRODB_API_URL.ifEmpty { "https://localhost/" })
+            .baseUrl("https://skip.invalid/")
             // `callFactory`, not `client`: `Retrofit.Builder.client()` takes an `OkHttpClient`
             // specifically, and what this needs to install is the *factory* that chooses between two
             // of them per request. `callFactory` is Retrofit's general override and takes the

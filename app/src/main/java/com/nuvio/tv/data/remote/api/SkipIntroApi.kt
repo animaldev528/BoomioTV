@@ -9,12 +9,24 @@ import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.Url
 
 // --- IntroDB API ---
 
 interface IntroDbApi {
-    @GET("segments")
+    /**
+     * `GET <skipBaseUrl>/segments` — the boomio segment-markers adapter, or IntroDB itself.
+     *
+     * ⚠️ **`@Url`, not a `@GET("segments")` path, and that is load-bearing.** The base is a runtime
+     * value (`BoomioConfig.skipBaseUrl`, derived from the service origin the device is paired with),
+     * while a Retrofit `baseUrl` is frozen at construction. The DI module's `@Named("introDb")`
+     * Retrofit therefore carries only a placeholder base and every call supplies the absolute URL,
+     * so moving to a hand-picked server mid-session re-points the adapter instead of leaving it
+     * dialling the previous box.
+     */
+    @GET
     suspend fun getSegments(
+        @Url url: String,
         @Query("imdb_id") imdbId: String,
         @Query("season") season: Int? = null,
         @Query("episode") episode: Int? = null,
