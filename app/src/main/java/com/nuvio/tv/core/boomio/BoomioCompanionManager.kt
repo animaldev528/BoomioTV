@@ -40,6 +40,8 @@ import javax.inject.Singleton
 import kotlin.math.pow
 
 private const val TAG = "BoomioCompanionManager"
+/** How often the companion socket re-checks that it still dials the current server. */
+private const val ORIGIN_WATCH_MS = 15_000L
 
 /**
  * The TV's companion receiver for the bsc companion hub.
@@ -94,9 +96,19 @@ class BoomioCompanionManager @Inject constructor(
         .build()
 
     @Volatile private var webSocket: WebSocket? = null
+    /**
+     * The URL the CURRENT socket was opened against, or null when none is open.
+     *
+     * ⚠️ [wsUrl] is a getter over a MUTABLE seam, but a socket is not: the host it dialled is
+     * fixed for the life of that connection. This records it so [ensureConnection] can tell "the
+     * tunnel is already up against the right box" from "the app has moved and this socket is
+     * still talking to the box it was pointed at when it opened".
+     */
+    @Volatile private var connectedUrl: String? = null
     private var reconnectJob: Job? = null
     private var reconnectAttempts = 0
     private var telemetryJob: Job? = null
+    private var originWatch: Job? = null
     private var lastTelemetryWasActive = false
 
     private val _currentPartyId = MutableStateFlow<String?>(null)
@@ -162,12 +174,66 @@ class BoomioCompanionManager @Inject constructor(
         }
     }
 
-    /** Starts the companion connection. Safe to call repeatedly. */
+    /**
+     * Starts the companion connection. Safe to call repeatedly.
+     *
+     * ⚠️ **This does NOT open a socket if one is already up against the CURRENT origin — but it
+     * WILL replace one that is not.** The app boots dialling the compile-time floor and discovery
+     * rewrites [BoomioConfig.companionBaseUrl] a moment later (manual entry or a published
+     * record); a socket opened against the floor keeps its host until the connection drops, and a
+     * healthy connection never drops. Measured 2026-10-23: a TV pointed at a second deployment
+     * stayed registered on the FIRST box's relay for the life of the process — that box showed it
+     * online while the box it belonged to listed no relay presence at all, so its Devices grid
+     * read "Offline" with the tunnel up.
+     */
     @Synchronized
     fun start() {
+        ensureOriginWatch()
+        ensureConnection()
+    }
+
+    /**
+     * Brings the socket in line with the CURRENT origin. Idempotent and cheap: a no-op while the
+     * open socket's host still matches, and a no-op while a reconnect backoff is pending (that job
+     * re-reads [wsUrl] when it fires).
+     */
+    @Synchronized
+    private fun ensureConnection() {
         if (companionUrl.isBlank()) return
-        if (webSocket != null || reconnectJob?.isActive == true) return
+        val target = wsUrl
+        if (webSocket != null) {
+            if (connectedUrl == target) return
+            // The origin moved under a socket that is still open. Cancel rather than close: the
+            // peer is a box this app no longer belongs to, and a close handshake would only tell
+            // it that a device it no longer serves is leaving.
+            webSocket?.cancel()
+            webSocket = null
+        } else if (reconnectJob?.isActive == true) {
+            return
+        }
+        reconnectJob?.cancel()
+        reconnectAttempts = 0
         connect()
+    }
+
+    /**
+     * Re-checks the origin for the life of the process.
+     *
+     * There is no callback for "the server moved" that reaches this singleton — discovery
+     * rewrites a plain field — and a healthy socket emits no event that would make the difference
+     * visible, so the check has to be a tick. 15 s is one ping interval: longer than a discovery
+     * round trip, far shorter than a viewing session.
+     */
+    private fun ensureOriginWatch() {
+        if (originWatch?.isActive == true) return
+        originWatch = scope.launch {
+            while (isActive) {
+                delay(ORIGIN_WATCH_MS)
+                if (companionUrl.isBlank()) continue
+                if (webSocket != null && connectedUrl == wsUrl) continue
+                ensureConnection()
+            }
+        }
     }
 
     /** Reports a local party pause/resume so the hub re-broadcasts to all members. */
@@ -192,8 +258,10 @@ class BoomioCompanionManager @Inject constructor(
     }
 
     private fun connect() {
+        val target = wsUrl
+        connectedUrl = target
         webSocket = webSocketClient.newWebSocket(
-            Request.Builder().url(wsUrl).build(),
+            Request.Builder().url(target).build(),
             listener
         )
     }
