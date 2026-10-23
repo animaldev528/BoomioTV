@@ -81,6 +81,8 @@ import com.nuvio.app.features.boomio.BoomioLinkFailure
 import com.nuvio.app.features.boomio.BoomioLinkState
 import com.nuvio.app.features.boomio.BoomioSessionRepository
 import com.nuvio.tv.domain.model.ExperienceMode
+import com.nuvio.tv.ui.screens.account.ServerConnectionEntryRow
+import com.nuvio.tv.ui.screens.account.ServerConnectionViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -218,6 +220,9 @@ fun AdvancedSettingsContent(
     val boomioSession by BoomioSessionRepository.session.collectAsStateWithLifecycle()
     val linkState by BoomioSessionRepository.linkState.collectAsStateWithLifecycle()
     val linkError by BoomioSessionRepository.error.collectAsStateWithLifecycle()
+    // The manual-server dialog's state machine. Shared with the first-run gate, so the two doors
+    // cannot disagree about what "connected" means or which strings describe it.
+    val serverConnectionViewModel: ServerConnectionViewModel = hiltViewModel()
     val showOverlaySection =
         localServerStatus !is LocalServerStatus.Idle ||
             overlayEndpointStatus !is OverlayEndpointStatus.Idle ||
@@ -548,6 +553,25 @@ fun AdvancedSettingsContent(
                         }
                     }
                 )
+            }
+        }
+
+        // ---- Server ---------------------------------------------------------------
+        // Deliberately *not* gated on the overlay section below. This is the control a person
+        // reaches for when the automatic answer is wrong — the box at the other end of the LAN, a
+        // test deployment, a server that moved — and gating it behind the discovery status would
+        // hide it in exactly the state where discovery is what is misbehaving.
+        item(key = "server_header") {
+            Text(
+                text = stringResource(R.string.server_section_title),
+                style = MaterialTheme.typography.titleSmall,
+                color = NuvioTheme.colors.TextTertiary,
+                modifier = Modifier.padding(top = NuvioTheme.spacing.xs)
+            )
+        }
+        item(key = "server_entry") {
+            SettingsGroupCard(modifier = Modifier.fillMaxWidth()) {
+                ServerConnectionEntryRow(viewModel = serverConnectionViewModel)
             }
         }
 

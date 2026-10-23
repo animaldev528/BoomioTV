@@ -603,6 +603,16 @@ internal object OverlayLocalDiscovery {
         // reads an unusable *key* this way ("an advert whose key is unusable is still a server whose
         // name is worth knowing"), and an unusable *address* is the same kind of fact.
         val tuple = parseMdnsAdvertTxt(attributesOf(info))
+        // ⚠️ **Dropped here rather than at pin time, so *everything* downstream is covered by one
+        // check.** This candidate feeds the LAN pin, the tunnel's `advertTargets`, the endpoint
+        // ladder's rung 1 and the pairing flow; a filter at any later point would leave the others
+        // free to act on a server the user did not choose. `advertMatchesConfiguredServer` is
+        // unconditionally true when no custom server is configured, so a stock deployment browses
+        // exactly as before.
+        if (!advertMatchesConfiguredServer(tuple.targets.svcName)) {
+            Log.i(TAG, "Ignoring advert '${info.serviceName}': a server was configured manually")
+            return null
+        }
         rememberAdvertTargets(tuple.targets)
         val address = addresses.firstOrNull { it is Inet4Address && it.isUsableLanAddress() }
         if (address == null) {
