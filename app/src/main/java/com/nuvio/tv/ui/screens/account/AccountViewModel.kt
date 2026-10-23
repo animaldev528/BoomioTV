@@ -130,8 +130,20 @@ class AccountViewModel @Inject constructor(
     private var qrLoginPollAttempt: Int = 0
     private var qrLoginExchangeInFlight: Boolean = false
 
+    /**
+     * True only when the typed server has **no** TV sign-in of its own to offer.
+     *
+     * ⚠️ **`isCustom` alone is not the question.** Every typed server is custom — including a
+     * Boomio deployment whose discovery document advertises `tv_login: true`, and those are
+     * exactly the servers that mint the QR and the 6-digit code against their own backend.
+     * Keying off `isCustom` routed those into the email/password form while the code path sat
+     * one `capabilities` field away, making the deployment's own sign-in unreachable from the
+     * very client that discovered it.
+     */
     val usesEmailPasswordLogin: Boolean
-        get() = serverConfiguration.isCustom && serverConfiguration.capabilities.emailPasswordAuth
+        get() = serverConfiguration.isCustom &&
+            serverConfiguration.capabilities.emailPasswordAuth &&
+            !serverConfiguration.capabilities.tvLogin
 
     init {
         observeAuthState()
