@@ -28,20 +28,20 @@ object BoomioConfig {
     /**
      * The **service origin** — one name, and every boomio URL in this object is built from it.
      *
-     * ⚠️ **One seam, not four setters with four call sites.** The four base URLs below are the same
-     * host with four path prefixes (`/bsc`, `/bsf`, `/bss-iptv`, `/bsm`); assigning them
-     * individually would let a discovery result land on three of them and miss the fourth, and the
+     * ⚠️ **One seam, not five setters with five call sites.** The five base URLs below are the same
+     * host with five path prefixes (`/bsc`, `/bsf`, `/bss-iptv`, `/bsm`, `/bsc/skip`); assigning them
+     * individually would let a discovery result land on four of them and miss the fifth, and the
      * miss would be silent — the seam's consumers no-op on a blank base rather than failing. The
-     * setter re-derives all four from one value, so they cannot disagree.
+     * setter re-derives all five from one value, so they cannot disagree.
      *
      * ⚠️ **The `BuildConfig` values below are a floor, not the source.** Discovery overwrites this
      * field from the discovery record's `svc=` field the moment a publication is read, which is
      * what makes the DuckDNS name drive the client's URLs rather than a compile-time constant — the
      * point of the whole v2 record.
      *
-     * ⚠️ **Construction runs this setter once, so the four bases are never blank.** The `init`
+     * ⚠️ **Construction runs this setter once, so the five bases are never blank.** The `init`
      * block at the end of this object assigns [DEFAULT_SERVICE_ORIGIN] through this setter, which
-     * derives all four prefixes from the one name, so a TV built with no `BOOMIO_*` entry in
+     * derives all five prefixes from the one name, so a TV built with no `BOOMIO_*` entry in
      * `local.properties` gets a working floor instead of empty strings its seams silently no-op on.
      * A non-blank `BuildConfig` value for one base still overrides that base alone, so a build aimed
      * at a different deployment is unaffected.
@@ -85,6 +85,32 @@ object BoomioConfig {
      * collapse — see there.
      */
     var iptvBaseUrl: String = BuildConfig.BOOMIO_IPTV_URL
+
+    /**
+     * Base URL of the segment-markers adapter — the intro-skip service the clients' own skip UI
+     * speaks, served by bsc at `/skip` behind the collapsed edge's `/bsc` prefix
+     * (`bsc/routes/skip.js`). No trailing slash; the endpoint is built as `…/bsc/skip/segments`.
+     *
+     * ⚠️ **Derived from [serviceOrigin], never baked per device.** This used to be its own
+     * compile-time knob — `INTRODB_API_URL` in `local.properties`, defaulting to the empty string —
+     * and that blank default is what silently killed the feature: with no value,
+     * `SkipIntroRepository.introDbConfigured` is false, every lookup short-circuits to "no markers"
+     * **without a single request**, and the button can never appear for a title whose only marker
+     * source is TheIntroDB (any non-anime, e.g. The Simpsons). The 1071 fleet builds were exactly
+     * that: no `/bsc/skip` string anywhere in the dex, while AniSkip's URLs were present.
+     *
+     * ⚠️ **A baked URL is also the wrong shape for a shipped APK.** It freezes one deployment's
+     * name into every user's install, which contradicts the manual-server work (#75): the skip
+     * adapter must follow the server *this device is paired with* — a hand-picked one, one from the
+     * discovery record, or the build's floor — not the one the builder compiled against. Riding
+     * [applyServiceOrigin] gives that for free, and gives it to a device that has never seen the
+     * builder's box at all.
+     *
+     * `INTRODB_API_URL` survives only as an explicit override for a build aimed at a deployment
+     * whose skip adapter lives somewhere other than `<serviceOrigin>/bsc/skip`; blank — the normal
+     * build — means "derive it".
+     */
+    var skipBaseUrl: String = BuildConfig.INTRODB_API_URL.trim().trimEnd('/')
 
     /**
      * The server's address on the WireGuard overlay, e.g. `10.77.0.1`. Blank disables the overlay
@@ -170,7 +196,7 @@ object BoomioConfig {
     var overlayDeviceName: String = ""
 
     /**
-     * Rebuilds the four base URLs from [origin], each with the path prefix the collapsed edge
+     * Rebuilds the five base URLs from [origin], each with the path prefix the collapsed edge
      * serves it under.
      *
      * ⚠️ **The prefixes are not decoration.** Every boomio service is a site block behind one
@@ -184,6 +210,7 @@ object BoomioConfig {
         iptvBaseUrl = "$origin/bss-iptv"
         boomioBaseUrl = "$origin/bsf"
         bsmBaseUrl = "$origin/bsm"
+        skipBaseUrl = "$origin/bsc/skip"
     }
 
     /**
@@ -259,7 +286,7 @@ object BoomioConfig {
      * Establishes the one-name floor, then lets a build override each base individually.
      *
      * ⚠️ **This block exists because assigning [serviceOrigin]'s initializer does not run its
-     * setter.** Without it the four bases are whatever `BuildConfig` left them — empty on a build
+     * setter.** Without it the five bases are whatever `BuildConfig` left them — empty on a build
      * with no `BOOMIO_*` entry in `local.properties`, which reads downstream as "no server
      * configured" rather than as a build that simply never named one. Running the derivation at
      * construction is what makes the floor real, and it is the fix for the floor that shipped
@@ -276,6 +303,7 @@ object BoomioConfig {
         BuildConfig.BOOMIO_IPTV_URL.trim().takeIf { it.isNotEmpty() }?.let { iptvBaseUrl = it }
         BuildConfig.BOOMIO_BASE_URL.trim().takeIf { it.isNotEmpty() }?.let { boomioBaseUrl = it }
         BuildConfig.BSM_BASE_URL.trim().takeIf { it.isNotEmpty() }?.let { bsmBaseUrl = it }
+        BuildConfig.INTRODB_API_URL.trim().takeIf { it.isNotEmpty() }?.let { skipBaseUrl = it.trimEnd('/') }
     }
 }
 
@@ -300,6 +328,22 @@ val BoomioConfig.companionRestBaseUrl: String
     get() = companionBaseUrl.trimEnd('/')
         .replaceFirst("wss://", "https://")
         .replaceFirst("ws://", "http://")
+
+/**
+ * The absolute URL of the segment-markers adapter's `/segments` endpoint, ready to hand to
+ * Retrofit's `@Url`.
+ *
+ * ⚠️ **Built at call time on purpose.** `BoomioConfig.serviceOrigin` is rewritten when a discovery
+ * record lands or the user picks a server, and a Retrofit `baseUrl` is captured once at
+ * construction — so a client built at app start would keep dialling the box the device was paired
+ * with *then*, which is the same freeze-at-construction failure the bsm Retrofit already hit. The
+ * absolute URL per call makes the seam live.
+ *
+ * Blank [BoomioConfig.skipBaseUrl] yields a blank string; callers treat that as "not configured"
+ * and must not dial it.
+ */
+val BoomioConfig.skipSegmentsUrl: String
+    get() = skipBaseUrl.trim().trimEnd('/').let { if (it.isEmpty()) "" else "$it/segments" }
 
 /**
  * The host every boomio URL falls back to when no publication has been read.
