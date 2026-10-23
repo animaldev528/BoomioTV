@@ -20,6 +20,9 @@ fun MetaPreviewDto.toDomainOrNull(catalogType: String, sourceAddonBaseUrl: Strin
         logo = logo,
         description = description,
         releaseInfo = releaseInfo,
+        // The kids profile's rating gate reads this and hides a tile it cannot
+        // rate, so an addon that omits it costs the profile the whole row.
+        ageRating = ageRating?.trim()?.takeIf { it.isNotBlank() },
         imdbRating = imdbRating?.toFloatOrNull(),
         genres = genres ?: emptyList(),
         runtime = runtime,
