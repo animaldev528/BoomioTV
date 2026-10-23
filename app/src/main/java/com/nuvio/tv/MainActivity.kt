@@ -917,8 +917,8 @@ open class MainActivity : ComponentActivity() {
 
                     val startDestination = when {
                         needsExperienceSelection -> Screen.ExperienceModeSelection.route
-                        // Kids land on their Library wall (long-press -> Add to library).
-                        layoutChosen && kidsMode -> Screen.Library.route
+                        // Everyone lands on Home — including kids, whose Home is their
+                        // own taste board (built server-side over the approved set).
                         layoutChosen -> Screen.Home.route
                         else -> Screen.LayoutSelection.route
                     }
@@ -1029,8 +1029,9 @@ open class MainActivity : ComponentActivity() {
                                         contentId = launchContentId,
                                         contentName = launchName,
                                         returnToDetailOnBack = launchContentType.equals("series", ignoreCase = true),
-                                        // Kids' "home" is the Library wall, not the generic Home feed.
-                                        returnToHomeOnBack = !kidsMode
+                                        // Back returns to Home for everyone now — a kids
+                                        // profile's Home is its own taste board.
+                                        returnToHomeOnBack = true
                                     )
                                 )
                             } else {
@@ -1068,8 +1069,9 @@ open class MainActivity : ComponentActivity() {
                                     contentId = contentId,
                                     contentName = name,
                                     returnToDetailOnBack = contentType.equals("series", ignoreCase = true),
-                                    // Kids' "home" is the Library wall, not the generic Home feed.
-                                    returnToHomeOnBack = !kidsMode
+                                    // Back returns to Home for everyone now — a kids
+                                    // profile's Home is its own taste board.
+                                    returnToHomeOnBack = true
                                 )
                             )
                         } else {
@@ -1122,28 +1124,17 @@ open class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // Kids landing race: startDestination reads kidsMode, which can lag one
-                    // frame (activeProfileId defaults to profile 1 before it restores), so the
-                    // NavHost may first mount on the generic Home. Once kidsMode is known,
-                    // steer a stray Home to the Library wall. No inverse effect — a non-kids
-                    // user on Library is never yanked anywhere.
-                    LaunchedEffect(kidsMode, currentRoute) {
-                        if (kidsMode && currentRoute == Screen.Home.route) {
-                            navController.navigate(Screen.Library.route) {
-                                popUpTo(navController.graph.startDestinationId) { saveState = false }
-                                launchSingleTop = true
-                            }
-                        }
-                    }
+                    // Kids used to be steered off Home onto the Library wall here. Kids now
+                    // have a Home of their own (the taste board over their approved set), so
+                    // the redirect is gone. A kid's Movies/Tv still open the approved-content
+                    // walls the drawer points at.
 
                     LaunchedEffect(discoverLocation, currentRoute) {
                         if (discoverLocation == null) return@LaunchedEffect
                         val onDiscoverRoute = currentRoute == Screen.Discover.route ||
                             currentRoute?.startsWith("${Screen.Discover.route}/") == true
                         if (discoverLocation == DiscoverLocation.OFF && onDiscoverRoute) {
-                            navController.navigate(
-                                if (kidsMode) Screen.Library.route else Screen.Home.route
-                            ) {
+                            navController.navigate(Screen.Home.route) {
                                 popUpTo(navController.graph.startDestinationId) { saveState = false }
                                 launchSingleTop = true
                             }
@@ -1193,23 +1184,23 @@ open class MainActivity : ComponentActivity() {
                         discoverLocation
                     ) {
                         if (kidsMode) {
-                            // Kids drawer: Library IS home (long-press -> Add to library), and
-                            // Movies/Tv open the full approved-content walls. No Discover, no
-                            // separate Library entry. The general catalog stays reachable via
-                            // Search (content is not gated).
+                            // Kids drawer: Home is their own taste board (like anything on
+                            // it, press Done for now, and it rebuilds around those likes);
+                            // Movies/Tv open the full approved-content walls; Library stays
+                            // the saved list. No Discover — Search covers it, filtered.
                             buildList {
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Home.route,
+                                        label = strNavHome,
+                                        icon = Icons.Default.Home
+                                    )
+                                )
                                 add(
                                     DrawerItem(
                                         route = Screen.Search.route,
                                         label = strNavSearch,
                                         iconRes = R.raw.sidebar_search
-                                    )
-                                )
-                                add(
-                                    DrawerItem(
-                                        route = Screen.Library.route,
-                                        label = strNavHome,
-                                        icon = Icons.Default.Home
                                     )
                                 )
                                 add(
@@ -1224,6 +1215,13 @@ open class MainActivity : ComponentActivity() {
                                         route = Screen.KidsTv.route,
                                         label = strNavTv,
                                         icon = Icons.Default.Tv
+                                    )
+                                )
+                                add(
+                                    DrawerItem(
+                                        route = Screen.Library.route,
+                                        label = strNavLibrary,
+                                        iconRes = R.raw.sidebar_library
                                     )
                                 )
                                 add(
