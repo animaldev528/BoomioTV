@@ -44,7 +44,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import okhttp3.Cache
 import okhttp3.Call
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
+import okhttp3.Request
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
@@ -70,6 +72,39 @@ private fun normalizedBaseUrl(rawUrl: String, fallback: String): String {
     val trimmed = rawUrl.trim()
     if (trimmed.isBlank()) return fallback
     return if (trimmed.endsWith('/')) trimmed else "$trimmed/"
+}
+
+/**
+ * A [Call.Factory] that resolves the host **at call time** instead of at graph construction.
+ *
+ * ⚠️ **A Retrofit base URL is fixed for the life of the instance, and these instances are
+ * singletons.** Every boomio URL in [BoomioConfig] is seeded from a `BuildConfig` constant and
+ * then *rewritten* when discovery or manual entry lands on a deployment — but a Retrofit built
+ * before that rewrite keeps dialling the constant, which is the box the APK happened to be
+ * compiled for. The request still succeeds (that box answers), so the failure is silent: the
+ * server actually being used never hears from the client, and nothing logs an error.
+ *
+ * The path set comes from the request Retrofit built against its placeholder base, so relative
+ * `@GET("api/…")` paths keep working unchanged; only scheme/host/port/prefix are replaced.
+ * A blank or unparseable seam value leaves the request exactly as it was.
+ */
+private fun liveBaseUrlCallFactory(
+    baseUrl: () -> String,
+    delegate: Call.Factory,
+): Call.Factory = object : Call.Factory {
+    override fun newCall(request: Request): Call {
+        val base = baseUrl().trim().toHttpUrlOrNull() ?: return delegate.newCall(request)
+        val relative = request.url.pathSegments.filter { it.isNotEmpty() }.joinToString("/")
+        val rewritten = request.newBuilder()
+            .url(
+                base.newBuilder()
+                    .addPathSegments(relative)
+                    .query(request.url.query)
+                    .build()
+            )
+            .build()
+        return delegate.newCall(rewritten)
+    }
 }
 
 /**
@@ -718,12 +753,33 @@ object NetworkModule {
         moshi: Moshi
     ): Retrofit =
         Retrofit.Builder()
-            // Off the seam: this builder runs once per DI graph, and the seam is what discovery
-            // and manual entry write. The baked constant would outrank both. See [BoomioConfig].
-            .baseUrl(normalizedBaseUrl(BoomioConfig.bsmBaseUrl, "http://localhost/"))
-            // See [provideIntroDbRetrofit]: `callFactory` carries the per-request client choice that
-            // `client(OkHttpClient)` cannot express.
-            .callFactory(hostScopedCallFactory(::boomioOwnHosts, okHttpClient, certificateOkHttpClient))
+            // ⚠️ **A PLACEHOLDER, deliberately pathless.** Retrofit resolves every relative
+            // `@POST("api/…")` against this value at *call* time and bakes the result into the
+            // request URL — so a base carrying `/bsm` would make the rewritten path
+            // `/bsm/bsm/api/…` and 404. Keeping the placeholder at the root means the request
+            // path IS the relative path, and [liveBaseUrlCallFactory] supplies the prefix.
+            .baseUrl("http://bsm.invalid/")
+            // ⚠️ **A base URL is read ONCE, at graph construction, and the seam moves after
+            // that.** The value captured above is whatever `BoomioConfig.bsmBaseUrl` held
+            // before discovery — on a build with a baked `BSM_BASE_URL`, the box it was
+            // compiled for. A device pointed at a *different* deployment (a typed server, a
+            // second box) then sent every bsm call to the baked host for the whole process:
+            // capability reports were accepted (200) by the wrong bsm, the right one's device
+            // row stayed empty, and nothing anywhere logged a failure. Reading the seam per
+            // request is what makes discovery and manual entry outrank the constant, which is
+            // what the comment above says should happen.
+            //
+            // See [provideIntroDbRetrofit]: `callFactory` carries the per-request client choice
+            // that `client(OkHttpClient)` cannot express. The rewrite wraps it rather than
+            // sitting inside it, so the certificate decision sees the host actually dialled.
+            .callFactory(
+                liveBaseUrlCallFactory(
+                    // A blank seam keeps the old destination (`localhost`) rather than failing
+                    // on the placeholder's unresolvable name.
+                    baseUrl = { BoomioConfig.bsmBaseUrl.trim().ifBlank { "http://localhost/" } },
+                    delegate = hostScopedCallFactory(::boomioOwnHosts, okHttpClient, certificateOkHttpClient),
+                )
+            )
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
 
