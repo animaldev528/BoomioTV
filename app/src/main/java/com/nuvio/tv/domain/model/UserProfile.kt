@@ -33,8 +33,15 @@ data class UserProfile(
 ) {
     val isPrimary: Boolean get() = id == 1
 
-    /** A profile the like-bootstrap UI applies to: server opted-in and not kids. */
-    val likeBootstrapEnabled: Boolean get() = tasteEnabled && !isKids
+    /**
+     * A profile the like-bootstrap UI applies to: server opted-in.
+     *
+     * Kids are included. Their Home is built server-side over the parent's BSM
+     * approval set (kidgate), so every title they can like — and so every title
+     * that comes back as a shelf — is already approved. The old `&& !isKids`
+     * guard predates kids having a Home at all.
+     */
+    val likeBootstrapEnabled: Boolean get() = tasteEnabled
 
     /** First-run hint is up until the profile hits "Done for now". */
     val needsTasteHint: Boolean get() = likeBootstrapEnabled && !tasteCompleted
