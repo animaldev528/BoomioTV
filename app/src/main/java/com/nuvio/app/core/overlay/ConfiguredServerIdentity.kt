@@ -1,6 +1,7 @@
 package com.nuvio.app.core.overlay
 
 import com.nuvio.app.core.network.ServerConfigurationRepository
+import com.nuvio.app.features.boomio.BOOMIO_SERVICE_HOST
 
 /**
  * Whether an advert read off the network may move the **configured** server's plane.
@@ -46,4 +47,44 @@ internal fun advertMatchesConfiguredServer(svcName: String?): Boolean {
         ?.let { hostOf(if (it.contains("://")) it else "https://$it") }
         ?: return false
     return configuredHost.equals(svcHost, ignoreCase = true)
+}
+
+/**
+ * The name whose `TXT` record carries **this device's** overlay tuple.
+ *
+ * ## Why this is not `BOOMIO_SERVICE_HOST`
+ *
+ * [BOOMIO_SERVICE_HOST] is a compile-time literal: it names the deployment the APK was
+ * *built* against. Both consumers of the discovery record — the endpoint ladder's rung 2
+ * ([OverlayEndpointDiscovery]) and the provisioning walk ([OverlayProvisioning]) — used to
+ * resolve it unconditionally, so a device pointed at another server still read the builder's
+ * box.
+ *
+ * Measured on the reference LAN, 2026-10-24: with a device provisioned against
+ * `boomiopi.duckdns.org`, rung 2 resolved the compiled-in `boomio.duckdns.org` — the *other*
+ * deployment — and the TCP gate passed there, so the ladder accepted it. The typed server had
+ * rewritten only the HTTP plane, so sign-in and the catalogue worked while tunnel provisioning
+ * and enrolment aimed at the wrong box, even though the configured server was publishing a
+ * perfectly good tuple the whole time.
+ *
+ * ## The rule
+ *
+ * - A custom server configured → its host is the record. That is the server the user chose,
+ *   and the one whose tuple this device must enrol to.
+ * - No custom server → [BOOMIO_SERVICE_HOST]. A stock build has chosen nothing, so the build's
+ *   deployment is the only answer it can have.
+ *
+ * ⚠️ **A backend configured as a literal is returned as a literal, deliberately.** A server
+ * typed as a bare address has no record to read; the lookup then finds no `TXT` and the
+ * caller's miss path handles it. Falling back to the build's name instead would be the
+ * cross-deployment dial this function exists to prevent.
+ *
+ * ⚠️ **A path never survives.** The record is a DNS name, so only the authority of the
+ * configured URL is used — `https://boomiopi.duckdns.org/auth/v1` reads
+ * `boomiopi.duckdns.org`.
+ */
+internal fun overlayDiscoveryRecordName(): String {
+    val configured = ServerConfigurationRepository.active.value
+    if (!configured.isCustom) return BOOMIO_SERVICE_HOST
+    return hostOf(configured.backendUrl) ?: BOOMIO_SERVICE_HOST
 }
