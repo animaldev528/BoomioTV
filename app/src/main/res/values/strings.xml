@@ -2217,6 +2217,8 @@
     <string name="auth_qr_please_wait">Please wait\u2026</string>
     <string name="auth_qr_continue">Continue</string>
     <string name="auth_qr_back">Back</string>
+    <string name="auth_qr_use_email">Sign in with email instead</string>
+    <string name="auth_email_use_qr">Use a sign-in code instead</string>
     <string name="auth_qr_terms_prefix">By signing up / logging in, I agree to the</string>
     <string name="auth_qr_terms_link">Terms</string>
 

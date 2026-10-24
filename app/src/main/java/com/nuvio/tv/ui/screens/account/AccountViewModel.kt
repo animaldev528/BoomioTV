@@ -130,7 +130,21 @@ class AccountViewModel @Inject constructor(
     private var qrLoginPollAttempt: Int = 0
     private var qrLoginExchangeInFlight: Boolean = false
 
+    /**
+     * Whether the sign-in screen starts on the email + password form.
+     *
+     * Only for a server that offers nothing better: a custom server that advertises `tv_login`
+     * opens on the QR / sign-in-code screen instead, because typing a password with a TV remote is
+     * the exact chore the code flow exists to avoid. Email stays reachable there as a fallback —
+     * see [supportsEmailPasswordLogin].
+     */
     val usesEmailPasswordLogin: Boolean
+        get() = serverConfiguration.isCustom &&
+            serverConfiguration.capabilities.emailPasswordAuth &&
+            !serverConfiguration.capabilities.tvLogin
+
+    /** The configured server accepts a password, so the sign-in screen can offer it as a fallback. */
+    val supportsEmailPasswordLogin: Boolean
         get() = serverConfiguration.isCustom && serverConfiguration.capabilities.emailPasswordAuth
 
     init {
