@@ -59,7 +59,7 @@ private const val GATE_TIMEOUT_MS = 900
  * | # | Rung | Yields |
  * |---|---|---|
  * | 1 | the mDNS advert `_boomio-overlay._udp` | TXT `pubkey`/`port` + the SRV target's `A` |
- * | 2 | the [PROV_RECORD] record | an `A` + the same TXT tuple |
+ * | 2 | the configured server's record ([overlayDiscoveryRecordName]) | an `A` + the same TXT tuple |
  * | 3 | a person | whatever they typed, plus the server's public key |
  *
  * ⚠️ **"Working" means it passed the gate, not that it resolved.** A rung that returns a record
@@ -122,6 +122,12 @@ internal object OverlayEndpointDiscovery {
      * *not* part of that cut: it is still the mTLS plane.
      */
     internal const val PROV_RECORD = BOOMIO_SERVICE_HOST
+
+    // ⚠️ **This is the *floor*, not necessarily the name rung 2 resolves.** It names the
+    // deployment the APK was built for; a device that has been pointed at another server must
+    // read *that* server's tuple, so [rung2DiscoveryRecord] resolves
+    // [overlayDiscoveryRecordName] and only falls back to this value for a stock build. See
+    // `ConfiguredServerIdentity.kt` for the measured failure this prevents.
 
     /** The WireGuard port, when nothing published one. */
     private const val DEFAULT_WG_PORT = OverlayAdvertTuple.DEFAULT_PORT
@@ -432,7 +438,7 @@ internal object OverlayEndpointDiscovery {
             scheduleMissRetry()
             return@withLock publish(
                 OverlayEndpointStatus.NeedsManual(
-                    "No boomio server was found — tried mDNS, $PROV_RECORD and any saved " +
+                    "No boomio server was found — tried mDNS, ${overlayDiscoveryRecordName()} and any saved " +
                         "address. Enter the server's address to continue.",
                 ),
             )
@@ -516,13 +522,18 @@ internal object OverlayEndpointDiscovery {
      * the private address to fall back to.
      */
     private suspend fun rung2DiscoveryRecord(context: Context): OverlayEndpoint? {
-        val resolved = OverlayDnsClient.resolve(context, PROV_RECORD, RUNG2_BUDGET_MS) ?: return null
+        // ⚠️ **The record follows the server this device is configured for, not the build's
+        // floor.** Resolving [PROV_RECORD] unconditionally is what enrolled a TV pointed at one
+        // deployment against the box the APK was compiled on — see
+        // [overlayDiscoveryRecordName] for the measurement.
+        val record = overlayDiscoveryRecordName()
+        val resolved = OverlayDnsClient.resolve(context, record, RUNG2_BUDGET_MS) ?: return null
         // Same reasoning as rung 1: recorded whether or not this record's key is usable, because
         // the targets are a fact about the server rather than about this particular answer.
         rememberTargets(resolved.tuple.targets)
         val key = validServerKeyOrNull(resolved.tuple.serverPublicKeyBase64)
         if (key == null) {
-            Log.d(TAG, "Rung 2: '$PROV_RECORD' resolved but published no usable key")
+            Log.d(TAG, "Rung 2: '$record' resolved but published no usable key")
             return null
         }
         return endpointOf(
