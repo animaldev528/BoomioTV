@@ -265,7 +265,7 @@
     <string name="detail_mlt_shape_older">Older</string>
     <string name="detail_mlt_shape_movies_only">Movies only</string>
     <string name="detail_mlt_shape_shows_only">Shows only</string>
-    <string name="detail_mlt_shape_no_anime">Anime ok</string>
+    <string name="detail_mlt_shape_no_anime">No anime</string>
     <string name="detail_comments_title">Comments</string>
     <string name="detail_comments_subtitle">Reviews from Trakt</string>
     <string name="detail_comments_subtitle_episode">Reviews from Trakt for S%1$dE%2$d</string>

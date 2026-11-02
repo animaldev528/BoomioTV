@@ -1,8 +1,7 @@
 package com.nuvio.tv.ui.screens.detail
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,25 +22,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.tv.material3.Border
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
+import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
+import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.nuvio.tv.R
 import com.nuvio.tv.core.boomio.MltMood
@@ -218,6 +213,12 @@ private fun ChipGroup(
     }
 }
 
+/**
+ * A pill chip built on the tv-material3 clickable Surface. The Surface is what makes the
+ * remote's select button work: a bare `Modifier.focusable()` Box only ever sees ENTER, so a
+ * DPAD_CENTER press silently did nothing and the sheet looked unresponsive.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun MltChip(
     label: String,
@@ -225,51 +226,48 @@ private fun MltChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var focused by remember { mutableStateOf(false) }
     val pill = RoundedCornerShape(percent = 50)
-    val backgroundColor = when {
-        selected -> NuvioTheme.colors.FocusRing.copy(alpha = if (focused) 0.34f else 0.22f)
-        focused -> NuvioTheme.colors.FocusBackground
-        else -> NuvioTheme.colors.BackgroundCard
-    }
-    val borderColor = when {
-        focused -> NuvioTheme.colors.FocusRing
-        selected -> NuvioTheme.colors.FocusRing.copy(alpha = 0.65f)
-        else -> NuvioTheme.colors.Border
-    }
-
-    Box(
-        modifier = modifier
-            .clip(pill)
-            .background(backgroundColor)
-            .border(width = if (focused) 2.dp else 1.dp, color = borderColor, shape = pill)
-            .onFocusChanged { focused = it.isFocused }
-            .onKeyEvent { event ->
-                val isSelect = event.key == Key.DirectionCenter ||
-                    event.key == Key.Enter ||
-                    event.key == Key.NumPadEnter
-                if (event.type == KeyEventType.KeyUp && isSelect) {
-                    onClick()
-                    true
-                } else {
-                    false
-                }
-            }
-            .focusable()
-            .padding(horizontal = 22.dp, vertical = 12.dp),
-        contentAlignment = Alignment.Center
+    Surface(
+        onClick = onClick,
+        modifier = modifier,
+        shape = ClickableSurfaceDefaults.shape(pill),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (selected) {
+                NuvioTheme.colors.FocusRing.copy(alpha = 0.22f)
+            } else {
+                NuvioTheme.colors.BackgroundCard
+            },
+            contentColor = if (selected) NuvioTheme.colors.TextPrimary else NuvioTheme.colors.TextSecondary,
+            focusedContainerColor = if (selected) {
+                NuvioTheme.colors.FocusRing.copy(alpha = 0.34f)
+            } else {
+                NuvioTheme.colors.FocusBackground
+            },
+            focusedContentColor = NuvioTheme.colors.TextPrimary
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = if (selected) {
+                        NuvioTheme.colors.FocusRing.copy(alpha = 0.65f)
+                    } else {
+                        NuvioTheme.colors.Border
+                    }
+                ),
+                shape = pill
+            ),
+            focusedBorder = Border(border = BorderStroke(2.dp, NuvioTheme.colors.FocusRing), shape = pill)
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.bodyMedium.copy(
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
             ),
-            color = if (selected || focused) {
-                NuvioTheme.colors.TextPrimary
-            } else {
-                NuvioTheme.colors.TextSecondary
-            },
-            maxLines = 1
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 22.dp, vertical = 12.dp)
         )
     }
 }
