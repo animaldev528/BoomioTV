@@ -85,9 +85,11 @@ class AiMoreLikeThisSource @Inject constructor(
         ).firstOrNull { it !is NetworkResult.Loading }
 
         val picks = when (result) {
-            is NetworkResult.Success -> result.data.items
-                .filter { it.id != meta.id && !it.name.equals(meta.name, ignoreCase = true) }
-                .take(limit)
+            is NetworkResult.Success -> {
+                val candidates = result.data.items
+                    .filter { it.id != meta.id && !it.name.equals(meta.name, ignoreCase = true) }
+                bandByEra(candidates, meta, effective).take(limit)
+            }
             else -> emptyList()
         }
         if (picks.isNotEmpty()) {
@@ -98,8 +100,37 @@ class AiMoreLikeThisSource @Inject constructor(
 
     private fun buildQuery(meta: Meta, isMovie: Boolean, refinement: MltRefinement?): String {
         val base = if (isMovie) "movies like ${meta.name}" else "shows like ${meta.name}"
-        val clauses = refinement?.queryClauses(MltRefinement.seedFor(meta)).orEmpty()
+        val clauses = refinement
+            ?.queryClauses(MltRefinement.seedFor(meta), MltRefinement.yearOf(meta.releaseInfo))
+            .orEmpty()
         return if (clauses.isEmpty()) base else "$base, " + clauses.joinToString(", ")
+    }
+
+    /**
+     * "Older" and "newer" are weights, not cutoffs. The AI still decides what *feels* alike;
+     * this only demotes the outliers, so a 1940s noir cannot outrank a 2005 thriller on an
+     * "older" ask. Full weight inside ten years of the seed, half weight to twenty, and
+     * everything else — including the wrong direction, or an unknown year — sinks together
+     * in the order the AI gave them.
+     */
+    private fun bandByEra(
+        picks: List<MetaPreview>,
+        meta: Meta,
+        refinement: MltRefinement?
+    ): List<MetaPreview> {
+        val older = refinement?.prefersOlder() == true
+        val newer = refinement?.prefersNewer() == true
+        if (older == newer) return picks
+        val anchor = MltRefinement.yearOf(meta.releaseInfo) ?: return picks
+        return picks.sortedBy { pick ->
+            val year = MltRefinement.yearOf(pick.releaseInfo) ?: return@sortedBy ERA_LAST_RESORT
+            val distance = if (older) anchor - year else year - anchor
+            when (distance) {
+                in 1..ERA_NEAR_YEARS -> 0
+                in (ERA_NEAR_YEARS + 1)..ERA_FAR_YEARS -> 1
+                else -> ERA_LAST_RESORT
+            }
+        }
     }
 
     companion object {
@@ -109,5 +140,10 @@ class AiMoreLikeThisSource @Inject constructor(
 
         /** Long enough to make back-and-forth navigation free, short enough to stay fresh. */
         private const val CACHE_TTL_MS = 10 * 60 * 1000L
+
+        /** The era weighting: full strength to ten years from the seed, half strength to twenty. */
+        private const val ERA_NEAR_YEARS = 10
+        private const val ERA_FAR_YEARS = 20
+        private const val ERA_LAST_RESORT = 2
     }
 }
