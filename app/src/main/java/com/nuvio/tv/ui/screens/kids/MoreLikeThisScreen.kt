@@ -86,8 +86,8 @@ fun MoreLikeThisScreen(
 
     BackHandler(onBack = onBackPress)
 
-    LaunchedEffect(itemType, itemId, exclude) {
-        viewModel.initialize(itemType, itemId, exclude)
+    LaunchedEffect(itemType, itemId, title, exclude) {
+        viewModel.initialize(itemType, itemId, title, exclude)
     }
 
     val posterCardStyle = PosterCardDefaults.Style

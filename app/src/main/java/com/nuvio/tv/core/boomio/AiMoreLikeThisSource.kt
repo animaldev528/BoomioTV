@@ -60,6 +60,52 @@ class AiMoreLikeThisSource @Inject constructor(
         val catalogType = if (isMovie) "movie" else "series"
         val query = buildQuery(meta, isMovie, effective)
 
+        val candidates = search(catalogType, query).orEmpty()
+            .filter { it.id != meta.id && !it.name.equals(meta.name, ignoreCase = true) }
+        val picks = bandByEra(candidates, meta, effective).take(limit)
+        if (picks.isNotEmpty()) {
+            cache[cacheKey] = Cached(System.currentTimeMillis(), picks)
+        }
+        return picks
+    }
+
+    /**
+     * The same answer for a title known only by name — what the long-press wall has,
+     * since a poster tile carries no genres and no release year. "movies like X" is
+     * exactly the question the detail row asks before any chip is applied, so the
+     * wall opens on the picks an untouched row would have shown.
+     */
+    suspend fun fetchByTitle(
+        name: String,
+        isMovie: Boolean,
+        limit: Int = DEFAULT_LIMIT
+    ): List<MetaPreview> {
+        val seed = name.trim()
+        if (seed.isEmpty()) return emptyList()
+
+        val catalogType = if (isMovie) "movie" else "series"
+        val cacheKey = "title|$catalogType|${seed.lowercase()}"
+        val cached = cache[cacheKey]
+        if (cached != null && System.currentTimeMillis() - cached.fetchedAtMs < CACHE_TTL_MS) {
+            return cached.picks.take(limit)
+        }
+
+        val query = (if (isMovie) "movies like " else "shows like ") + seed
+        val picks = search(catalogType, query).orEmpty()
+            .filter { !it.name.equals(seed, ignoreCase = true) }
+            .take(limit)
+        if (picks.isNotEmpty()) {
+            cache[cacheKey] = Cached(System.currentTimeMillis(), picks)
+        }
+        return picks
+    }
+
+    /**
+     * One `ai-search` round trip against the installed addon that advertises it for
+     * [catalogType]. Null means no such addon is installed at all, which callers treat
+     * the same as an empty answer.
+     */
+    private suspend fun search(catalogType: String, query: String): List<MetaPreview>? {
         val target = addonRepository.getInstalledAddons().first()
             .asSequence()
             .filter { it.enabled }
@@ -68,7 +114,7 @@ class AiMoreLikeThisSource @Inject constructor(
                 catalog.id == WhoPlayedLookup.AI_SEARCH_CATALOG_ID &&
                     catalog.apiType == catalogType &&
                     catalog.supportsExtra("search")
-            } ?: return emptyList()
+            } ?: return null
 
         val (addon, catalog) = target
         val result = catalogRepository.getCatalog(
@@ -84,18 +130,7 @@ class AiMoreLikeThisSource @Inject constructor(
             supportsSkip = false
         ).firstOrNull { it !is NetworkResult.Loading }
 
-        val picks = when (result) {
-            is NetworkResult.Success -> {
-                val candidates = result.data.items
-                    .filter { it.id != meta.id && !it.name.equals(meta.name, ignoreCase = true) }
-                bandByEra(candidates, meta, effective).take(limit)
-            }
-            else -> emptyList()
-        }
-        if (picks.isNotEmpty()) {
-            cache[cacheKey] = Cached(System.currentTimeMillis(), picks)
-        }
-        return picks
+        return (result as? NetworkResult.Success)?.data?.items
     }
 
     private fun buildQuery(meta: Meta, isMovie: Boolean, refinement: MltRefinement?): String {
