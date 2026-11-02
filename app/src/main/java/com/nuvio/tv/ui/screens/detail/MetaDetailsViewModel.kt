@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.player.StreamAutoPlayPolicy
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.boomio.AiMoreLikeThisSource
+import com.nuvio.tv.core.boomio.MltRefinement
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.tmdb.TmdbMetadataService
 import com.nuvio.tv.core.tmdb.TmdbMovieCollection
@@ -420,6 +421,8 @@ class MetaDetailsViewModel @Inject constructor(
             is MetaDetailsEvent.OnSharedTrailerSelected -> handleSharedTrailerSelected(event.trailer)
             MetaDetailsEvent.OnDismissSharedTrailer -> dismissSharedTrailerOverlay()
             MetaDetailsEvent.OnRetrySharedTrailer -> retrySharedTrailer()
+            is MetaDetailsEvent.OnRefineMoreLikeThis -> refineMoreLikeThis(event.refinement)
+            MetaDetailsEvent.OnClearMoreLikeThisRefinement -> refineMoreLikeThis(null)
             MetaDetailsEvent.OnToggleMovieWatched -> toggleMovieWatched()
             is MetaDetailsEvent.OnToggleEpisodeWatched -> toggleEpisodeWatched(event.video)
             is MetaDetailsEvent.OnMarkSeasonWatched -> markSeasonWatched(event.season)
@@ -775,6 +778,8 @@ class MetaDetailsViewModel @Inject constructor(
                     tmdbRating = null,
                     moreLikeThis = emptyList(),
                     moreLikeThisSource = null,
+                    moreLikeThisRefinement = null,
+                    isMoreLikeThisRefining = false,
                     collection = emptyList(),
                     collectionName = null,
                     comments = emptyList(),
@@ -1393,6 +1398,45 @@ class MetaDetailsViewModel @Inject constructor(
     /** Picks from the boomio AI catalog; see [AiMoreLikeThisSource]. */
     private suspend fun fetchAiMoreLikeThis(meta: Meta): List<MetaPreview> =
         aiMoreLikeThisSource.fetch(meta)
+
+    /**
+     * Re-asks the AI with the viewer's chips, or with nothing when [refinement] is null.
+     * Picks stay on screen while the new answer loads, and stay put if the answer is empty.
+     */
+    private fun refineMoreLikeThis(refinement: MltRefinement?) {
+        val meta = _uiState.value.meta ?: return
+        moreLikeThisJob?.cancel()
+        _uiState.update { it.copy(isMoreLikeThisRefining = true) }
+        moreLikeThisJob = viewModelScope.launch {
+            val picks = runCatching {
+                aiMoreLikeThisSource.fetch(meta, refinement)
+            }.getOrElse {
+                Log.w(TAG, "Failed to refine AI related titles for ${meta.id}: ${it.message}")
+                emptyList()
+            }
+            _uiState.update { state ->
+                if (state.meta?.id != meta.id) {
+                    state
+                } else {
+                    state.copy(
+                        moreLikeThis = picks.ifEmpty { state.moreLikeThis },
+                        moreLikeThisRefinement = if (picks.isEmpty()) {
+                            state.moreLikeThisRefinement
+                        } else {
+                            refinement
+                        },
+                        isMoreLikeThisRefining = false
+                    )
+                }
+            }
+            if (picks.isEmpty()) {
+                showMessage(
+                    localizedContext.getString(R.string.detail_mlt_refine_failed),
+                    isError = true
+                )
+            }
+        }
+    }
 
     private fun loadCollectionAsync(collectionId: Int, collectionName: String?, settings: TmdbSettings) {
         collectionJob?.cancel()

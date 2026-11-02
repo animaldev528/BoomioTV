@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.detail
 
+import com.nuvio.tv.core.boomio.MltRefinement
 import com.nuvio.tv.core.tracking.TrackingMembershipRemovalConfirmation
 import com.nuvio.tv.domain.model.DetailImdbRatingsVisibility
 import com.nuvio.tv.domain.model.EpisodeOptionsOverlayStyle
@@ -70,6 +71,8 @@ data class MetaDetailsUiState(
     val showFullReleaseDate: Boolean = true,
     val moreLikeThis: List<MetaPreview> = emptyList(),
     val moreLikeThisSource: MoreLikeThisSource? = null,
+    val moreLikeThisRefinement: MltRefinement? = null,
+    val isMoreLikeThisRefining: Boolean = false,
     val collection: List<MetaPreview> = emptyList(),
     val collectionName: String? = null,
     val relatedWatchedStatus: Map<String, Boolean> = emptyMap(),
@@ -114,6 +117,8 @@ sealed class MetaDetailsEvent {
     data class OnSharedTrailerSelected(val trailer: MetaTrailer) : MetaDetailsEvent()
     data object OnDismissSharedTrailer : MetaDetailsEvent()
     data object OnRetrySharedTrailer : MetaDetailsEvent()
+    data class OnRefineMoreLikeThis(val refinement: MltRefinement) : MetaDetailsEvent()
+    data object OnClearMoreLikeThisRefinement : MetaDetailsEvent()
     data object OnToggleMovieWatched : MetaDetailsEvent()
     data class OnToggleEpisodeWatched(val video: Video) : MetaDetailsEvent()
     data class OnMarkSeasonWatched(val season: Int) : MetaDetailsEvent()

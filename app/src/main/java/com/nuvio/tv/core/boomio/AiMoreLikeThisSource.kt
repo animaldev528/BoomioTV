@@ -32,11 +32,22 @@ class AiMoreLikeThisSource @Inject constructor(
 ) {
     private data class Cached(val fetchedAtMs: Long, val picks: List<MetaPreview>)
 
-    /** Seed content id -> picks. One AI answer costs a few seconds, so a revisit should not. */
+    /** Seed content id + refinement -> picks. One AI answer costs a few seconds, so a revisit should not. */
     private val cache = ConcurrentHashMap<String, Cached>()
 
-    suspend fun fetch(meta: Meta, limit: Int = DEFAULT_LIMIT): List<MetaPreview> {
-        val cached = cache[meta.id]
+    /**
+     * @param refinement the refine-sheet chips, or null for the plain "more like this" answer.
+     *   A selection that merely echoes the title is treated as null, so an untouched sheet
+     *   never costs a second round trip.
+     */
+    suspend fun fetch(
+        meta: Meta,
+        refinement: MltRefinement? = null,
+        limit: Int = DEFAULT_LIMIT
+    ): List<MetaPreview> {
+        val effective = refinement?.takeUnless { it.isNoop(MltRefinement.seedFor(meta)) }
+        val cacheKey = meta.id + "|" + (effective?.signature() ?: DEFAULT_KEY)
+        val cached = cache[cacheKey]
         if (cached != null && System.currentTimeMillis() - cached.fetchedAtMs < CACHE_TTL_MS) {
             return cached.picks.take(limit)
         }
@@ -47,7 +58,7 @@ class AiMoreLikeThisSource @Inject constructor(
             else -> meta.apiType == "movie"
         }
         val catalogType = if (isMovie) "movie" else "series"
-        val query = if (isMovie) "movies like ${meta.name}" else "shows like ${meta.name}"
+        val query = buildQuery(meta, isMovie, effective)
 
         val target = addonRepository.getInstalledAddons().first()
             .asSequence()
@@ -80,13 +91,21 @@ class AiMoreLikeThisSource @Inject constructor(
             else -> emptyList()
         }
         if (picks.isNotEmpty()) {
-            cache[meta.id] = Cached(System.currentTimeMillis(), picks)
+            cache[cacheKey] = Cached(System.currentTimeMillis(), picks)
         }
         return picks
     }
 
+    private fun buildQuery(meta: Meta, isMovie: Boolean, refinement: MltRefinement?): String {
+        val base = if (isMovie) "movies like ${meta.name}" else "shows like ${meta.name}"
+        val clauses = refinement?.queryClauses(MltRefinement.seedFor(meta)).orEmpty()
+        return if (clauses.isEmpty()) base else "$base, " + clauses.joinToString(", ")
+    }
+
     companion object {
         const val DEFAULT_LIMIT = 12
+
+        private const val DEFAULT_KEY = "default"
 
         /** Long enough to make back-and-forth navigation free, short enough to stay fresh. */
         private const val CACHE_TTL_MS = 10 * 60 * 1000L
