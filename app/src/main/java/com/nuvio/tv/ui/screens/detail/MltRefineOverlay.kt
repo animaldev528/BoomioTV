@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
@@ -68,6 +69,7 @@ fun MltRefineOverlay(
     var shapes by remember { mutableStateOf(initialRefinement?.shapes ?: emptySet<MltShape>()) }
 
     val firstChipFocusRequester = remember { FocusRequester() }
+    val applyFocusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         firstChipFocusRequester.requestFocus()
     }
@@ -141,6 +143,10 @@ fun MltRefineOverlay(
                         MltChip(
                             label = shapeLabel(shape),
                             selected = shape in shapes,
+                            // The footer is wider than the chip it sits under, and the geometric
+                            // search below "Older" lands on Reset — which clears the selection the
+                            // viewer just made. Down from the last row always means "show me".
+                            modifier = Modifier.focusProperties { down = applyFocusRequester },
                             onClick = {
                                 shapes = when {
                                     shape in shapes -> shapes - shape
@@ -167,6 +173,7 @@ fun MltRefineOverlay(
                 ) {
                     Button(
                         onClick = { onApply(MltRefinement(genres, moods, shapes)) },
+                        modifier = Modifier.focusRequester(applyFocusRequester),
                         colors = ButtonDefaults.colors(
                             containerColor = NuvioTheme.colors.TextPrimary,
                             contentColor = NuvioTheme.colors.Background
