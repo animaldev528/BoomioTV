@@ -17,7 +17,8 @@ import com.nuvio.tv.domain.model.HomeImdbRatingsVisibility
 
 enum class MoreLikeThisSource {
     TMDB,
-    TRAKT
+    TRAKT,
+    AI
 }
 
 enum class CommentsMode {

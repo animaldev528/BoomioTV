@@ -343,6 +343,10 @@ fun TrackingSettingsScreen(
                 SettingsPickerOption(
                     MoreLikeThisSourcePreference.TMDB,
                     stringResource(R.string.trakt_more_like_this_source_tmdb)
+                ),
+                SettingsPickerOption(
+                    MoreLikeThisSourcePreference.AI,
+                    stringResource(R.string.trakt_more_like_this_source_ai)
                 )
             ),
             selectedValue = traktState.moreLikeThisSource,
@@ -644,6 +648,7 @@ private fun librarySourceLabel(mode: LibrarySourceMode): String = when (mode) {
 private fun moreLikeThisSourceLabel(source: MoreLikeThisSourcePreference): String = when (source) {
     MoreLikeThisSourcePreference.TRAKT -> stringResource(R.string.trakt_name)
     MoreLikeThisSourcePreference.TMDB -> stringResource(R.string.trakt_more_like_this_source_tmdb)
+    MoreLikeThisSourcePreference.AI -> stringResource(R.string.trakt_more_like_this_source_ai)
 }
 
 @Composable

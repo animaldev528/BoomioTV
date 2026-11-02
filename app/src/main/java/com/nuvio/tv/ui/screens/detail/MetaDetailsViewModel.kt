@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.player.StreamAutoPlayPolicy
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.boomio.AiMoreLikeThisSource
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.tmdb.TmdbMetadataService
 import com.nuvio.tv.core.tmdb.TmdbMovieCollection
@@ -31,6 +32,7 @@ import com.nuvio.tv.core.tracking.TrackingMembershipRemovalConfirmation
 import com.nuvio.tv.core.tracking.toggleTrackingMembershipSelection
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.MetaCastMember
+import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.MetaTrailer
 import com.nuvio.tv.domain.model.NextToWatch
 import com.nuvio.tv.domain.model.TmdbSettings
@@ -106,6 +108,7 @@ class MetaDetailsViewModel @Inject constructor(
     private val traktAuthDataStore: TraktAuthDataStore,
     private val traktCommentsService: TraktCommentsService,
     private val traktRelatedService: TraktRelatedService,
+    private val aiMoreLikeThisSource: AiMoreLikeThisSource,
     private val traktSettingsDataStore: TraktSettingsDataStore,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
     private val playerSettingsDataStore: PlayerSettingsDataStore,
@@ -1292,15 +1295,18 @@ class MetaDetailsViewModel @Inject constructor(
     private fun loadMoreLikeThisAsync(meta: Meta) {
         moreLikeThisJob?.cancel()
         moreLikeThisJob = viewModelScope.launch {
-            val source = if (shouldLoadTraktMoreLikeThis(meta)) {
-                MoreLikeThisSource.TRAKT
-            } else {
-                val settings = tmdbSettingsDataStore.settings.first()
-                if (!shouldLoadMoreLikeThis(settings)) {
-                    _uiState.update { it.copy(moreLikeThis = emptyList(), moreLikeThisSource = null) }
-                    return@launch
+            val source = when {
+                moreLikeThisSourcePreference == com.nuvio.tv.data.local.MoreLikeThisSourcePreference.AI ->
+                    MoreLikeThisSource.AI
+                shouldLoadTraktMoreLikeThis(meta) -> MoreLikeThisSource.TRAKT
+                else -> {
+                    val settings = tmdbSettingsDataStore.settings.first()
+                    if (!shouldLoadMoreLikeThis(settings)) {
+                        _uiState.update { it.copy(moreLikeThis = emptyList(), moreLikeThisSource = null) }
+                        return@launch
+                    }
+                    MoreLikeThisSource.TMDB
                 }
-                MoreLikeThisSource.TMDB
             }
 
             val rawRecommendations = when (source) {
@@ -1313,6 +1319,15 @@ class MetaDetailsViewModel @Inject constructor(
                         )
                     }.getOrElse {
                         Log.w(TAG, "Failed to load Trakt related titles for ${meta.id}: ${it.message}")
+                        emptyList()
+                    }
+                }
+
+                MoreLikeThisSource.AI -> {
+                    runCatching {
+                        fetchAiMoreLikeThis(meta)
+                    }.getOrElse {
+                        Log.w(TAG, "Failed to load AI related titles for ${meta.id}: ${it.message}")
                         emptyList()
                     }
                 }
@@ -1367,13 +1382,17 @@ class MetaDetailsViewModel @Inject constructor(
 
     private fun shouldLoadTraktMoreLikeThis(meta: Meta): Boolean {
         if (!traktAuthenticated) return false
-        if (moreLikeThisSourcePreference == com.nuvio.tv.data.local.MoreLikeThisSourcePreference.TMDB) return false
+        if (moreLikeThisSourcePreference != com.nuvio.tv.data.local.MoreLikeThisSourcePreference.TRAKT) return false
         return when (meta.type) {
             ContentType.MOVIE -> true
             ContentType.SERIES, ContentType.TV -> true
             else -> meta.apiType in listOf("movie", "series", "tv", "show")
         }
     }
+
+    /** Picks from the boomio AI catalog; see [AiMoreLikeThisSource]. */
+    private suspend fun fetchAiMoreLikeThis(meta: Meta): List<MetaPreview> =
+        aiMoreLikeThisSource.fetch(meta)
 
     private fun loadCollectionAsync(collectionId: Int, collectionName: String?, settings: TmdbSettings) {
         collectionJob?.cancel()
