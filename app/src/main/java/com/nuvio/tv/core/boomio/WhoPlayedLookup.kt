@@ -46,6 +46,37 @@ object WhoPlayedLookup {
     }
 
     /**
+     * Builds the endpoint URL from the addon's base URL, or null when it is unusable.
+     *
+     * The base URL is not always a bare origin+path: a token-gated deployment advertises
+     * `…/bsf?token=<token>`, and the addon's own requests carry that query as `baseQuery`.
+     * Appending the path to the *string* would produce `…/bsf?token=<token>/who-played?q=…`,
+     * which the edge routes to `/bsf` and answers 404 — so the path is appended to the URL
+     * and the existing query is carried onto the new URL ahead of `q`. Visible for tests.
+     */
+    fun buildLookupUrl(addonBaseUrl: String, query: String): String? {
+        val trimmedBase = addonBaseUrl.trim().trimEnd('/')
+        if (trimmedBase.isEmpty()) return null
+
+        return try {
+            val base = URL(trimmedBase)
+            val params = buildString {
+                append("q=").append(URLEncoder.encode(query.trim(), "UTF-8"))
+                val existing = base.query
+                if (!existing.isNullOrBlank()) append('&').append(existing)
+            }
+            URL(
+                base.protocol,
+                base.host,
+                base.port,
+                base.path.trimEnd('/') + "/who-played?" + params,
+            ).toString()
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
      * Resolves [query] against the boomio addon at [addonBaseUrl].
      *
      * Never throws: a slow model, an offline box, or a malformed body yields an empty list,
@@ -58,11 +89,10 @@ object WhoPlayedLookup {
         limit: Int = 12,
     ): List<PersonSearchPreview> = withContext(Dispatchers.IO) {
         if (!matches(query)) return@withContext emptyList()
-        val trimmedBase = addonBaseUrl.trim().trimEnd('/')
-        if (trimmedBase.isEmpty()) return@withContext emptyList()
 
         try {
-            val url = URL("$trimmedBase/who-played?q=" + URLEncoder.encode(query.trim(), "UTF-8"))
+            val url = buildLookupUrl(addonBaseUrl, query)?.let { URL(it) }
+                ?: return@withContext emptyList()
             val connection = (url.openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 4_000
