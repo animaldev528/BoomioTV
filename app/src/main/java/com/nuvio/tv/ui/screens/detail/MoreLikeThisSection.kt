@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.width
@@ -17,17 +18,23 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.res.stringResource
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.tv.material3.Button
+import androidx.tv.material3.ButtonDefaults
+import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.GridContentCard
 import com.nuvio.tv.ui.components.PosterCardStyle
@@ -37,6 +44,11 @@ import com.nuvio.tv.ui.components.PosterCardStyle
 fun MoreLikeThisSection(
     items: List<MetaPreview>,
     sourceLabel: String? = null,
+    refineEnabled: Boolean = false,
+    isRefining: Boolean = false,
+    isRefined: Boolean = false,
+    onRefineClick: () -> Unit = {},
+    onClearRefinement: () -> Unit = {},
     posterCardCornerRadius: Dp = NuvioTheme.spacing.md,
     upFocusRequester: FocusRequester? = null,
     downFocusRequester: FocusRequester? = null,
@@ -97,8 +109,27 @@ fun MoreLikeThisSection(
                 .focusRestorer { if (restorePending) restoreFocusRequester else firstItemFocusRequester }
                 .focusGroup(),
             contentPadding = PaddingValues(horizontal = NuvioTheme.spacing.xxxl, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
+            horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md),
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            if (refineEnabled) {
+                item(key = "mlt-refine") {
+                    MltActionPill(
+                        label = stringResource(R.string.detail_more_like_this_refine),
+                        enabled = !isRefining,
+                        onClick = onRefineClick
+                    )
+                }
+                if (isRefined) {
+                    item(key = "mlt-clear") {
+                        MltActionPill(
+                            label = stringResource(R.string.detail_more_like_this_clear),
+                            enabled = !isRefining,
+                            onClick = onClearRefinement
+                        )
+                    }
+                }
+            }
             itemsIndexed(
                 items = items,
                 key = { index, item -> item.id + "|" + item.name + "|" + index }
@@ -162,5 +193,28 @@ fun MoreLikeThisSection(
                         .padding(end = 10.dp, top = NuvioTheme.spacing.xxs, bottom = NuvioTheme.spacing.xxs)
                 )
             }
+    }
+}
+
+/** The small leading pill that opens the refine sheet, and its Clear sibling. */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun MltActionPill(
+    label: String,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier.height(48.dp),
+        colors = ButtonDefaults.colors(
+            containerColor = NuvioTheme.colors.BackgroundCard,
+            contentColor = NuvioTheme.colors.TextPrimary,
+            disabledContainerColor = NuvioTheme.colors.BackgroundCard.copy(alpha = 0.5f),
+            disabledContentColor = NuvioTheme.colors.TextTertiary
+        )
+    ) {
+        Text(label, maxLines = 1)
     }
 }

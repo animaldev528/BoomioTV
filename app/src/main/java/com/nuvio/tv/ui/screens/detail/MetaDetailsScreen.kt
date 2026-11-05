@@ -125,6 +125,7 @@ import com.nuvio.tv.ui.components.PlayManualOverrideDialog
 import com.nuvio.tv.ui.components.SynopsisOverlay
 import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.ui.components.posteroptions.TrackingRemovalConfirmationDialog
+import com.nuvio.tv.core.boomio.MltRefinement
 import com.nuvio.tv.core.tracking.LOCAL_LIBRARY_LIST_KEY
 import com.nuvio.tv.core.tracking.supportsMembershipFor
 import kotlinx.coroutines.delay
@@ -699,6 +700,12 @@ fun MetaDetailsScreen(
                     isMovieWatchedPending = uiState.isMovieWatchedPending,
                     moreLikeThis = uiState.moreLikeThis,
                     moreLikeThisSource = uiState.moreLikeThisSource,
+                    moreLikeThisRefinement = uiState.moreLikeThisRefinement,
+                    isMoreLikeThisRefining = uiState.isMoreLikeThisRefining,
+                    onRefineMoreLikeThis = { viewModel.onEvent(MetaDetailsEvent.OnRefineMoreLikeThis(it)) },
+                    onClearMoreLikeThisRefinement = {
+                        viewModel.onEvent(MetaDetailsEvent.OnClearMoreLikeThisRefinement)
+                    },
                     posterCardCornerRadiusDp = posterCardCornerRadiusDp,
                     collection = uiState.collection,
                     collectionName = uiState.collectionName,
@@ -1036,6 +1043,10 @@ private fun MetaDetailsContent(
     isMovieWatchedPending: Boolean,
     moreLikeThis: List<MetaPreview>,
     moreLikeThisSource: MoreLikeThisSource?,
+    moreLikeThisRefinement: MltRefinement?,
+    isMoreLikeThisRefining: Boolean,
+    onRefineMoreLikeThis: (MltRefinement) -> Unit,
+    onClearMoreLikeThisRefinement: () -> Unit,
     posterCardCornerRadiusDp: Int = 12,
     collection: List<MetaPreview>,
     collectionName: String?,
@@ -1179,6 +1190,7 @@ private fun MetaDetailsContent(
     var initialHeroFocusRequested by rememberSaveable(meta.id) { mutableStateOf(false) }
     var showHeroPlayOptionsDialog by rememberSaveable(meta.id) { mutableStateOf(false) }
     var showSynopsisOverlay by rememberSaveable(meta.id) { mutableStateOf(false) }
+    var showMltRefineOverlay by rememberSaveable(meta.id) { mutableStateOf(false) }
     var initialDetailReturnFocusHandled by rememberSaveable(
         meta.id,
         detailReturnEpisodeFocusRequest?.season,
@@ -1428,6 +1440,7 @@ private fun MetaDetailsContent(
     val moreLikeThisSourceLabel = when (moreLikeThisSource) {
         MoreLikeThisSource.TMDB -> stringResource(R.string.detail_more_like_this_powered_by_tmdb)
         MoreLikeThisSource.TRAKT -> stringResource(R.string.detail_more_like_this_powered_by_trakt)
+        MoreLikeThisSource.AI -> stringResource(R.string.detail_more_like_this_powered_by_ai)
         null -> null
     }
     val peopleTabItems = remember(
@@ -2044,7 +2057,18 @@ private fun MetaDetailsContent(
                             PeopleSectionTab.MORE_LIKE_THIS -> {
                                 MoreLikeThisSection(
                                     items = moreLikeThis,
-                                    sourceLabel = moreLikeThisSourceLabel,
+                                    sourceLabel = when {
+                                        isMoreLikeThisRefining ->
+                                            stringResource(R.string.detail_more_like_this_refining)
+                                        moreLikeThisRefinement != null ->
+                                            stringResource(R.string.detail_more_like_this_powered_by_ai_refined)
+                                        else -> moreLikeThisSourceLabel
+                                    },
+                                    refineEnabled = moreLikeThisSource == MoreLikeThisSource.AI,
+                                    isRefining = isMoreLikeThisRefining,
+                                    isRefined = moreLikeThisRefinement != null,
+                                    onRefineClick = { showMltRefineOverlay = true },
+                                    onClearRefinement = onClearMoreLikeThisRefinement,
                                     posterCardCornerRadius = posterCardCornerRadiusDp.dp,
                                     upFocusRequester = if (hasVisiblePeopleTabs) moreLikeTabFocusRequester else seasonDownFocusRequester ?: heroPlayFocusRequester,
                                     downFocusRequester = if (shouldShowCommentsSection && canToggleEpisodeComments) commentsSelectedModeFocusRequester else null,
@@ -2337,6 +2361,19 @@ private fun MetaDetailsContent(
                 errorMessage = sharedTrailerErrorMessage,
                 onDismiss = onDismissSharedTrailer,
                 onRetry = onRetrySharedTrailer
+            )
+        }
+
+        if (showMltRefineOverlay) {
+            MltRefineOverlay(
+                title = meta.name,
+                seedGenres = MltRefinement.seedFor(meta).genres.toList(),
+                initialRefinement = moreLikeThisRefinement,
+                onDismiss = { showMltRefineOverlay = false },
+                onApply = { refinement ->
+                    showMltRefineOverlay = false
+                    onRefineMoreLikeThis(refinement)
+                }
             )
         }
 

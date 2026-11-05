@@ -2,6 +2,7 @@ package com.nuvio.tv.ui.screens.player
 
 import com.nuvio.tv.core.activity.ActivityEventReporter
 import com.nuvio.tv.core.boomio.ActiveCompanionPlayer
+import com.nuvio.tv.core.boomio.AiMoreLikeThisSource
 import com.nuvio.tv.core.boomio.BoomioCompanionManager
 import com.nuvio.tv.core.boomio.CompanionPlaybackBridge
 import com.nuvio.tv.core.boomio.CompanionPlaybackSnapshot
@@ -97,6 +98,7 @@ class PlayerViewModel @Inject constructor(
     private val trailerService: TrailerService,
     private val trailerSettingsDataStore: TrailerSettingsDataStore,
     private val traktRelatedService: TraktRelatedService,
+    private val aiMoreLikeThisSource: AiMoreLikeThisSource,
     private val traktAuthDataStore: TraktAuthDataStore,
     private val traktSettingsDataStore: TraktSettingsDataStore,
     private val directDebridResolver: DirectDebridResolver,
@@ -178,6 +180,7 @@ class PlayerViewModel @Inject constructor(
         mdbListRepository = mdbListRepository,
         mdbListSettingsDataStore = mdbListSettingsDataStore,
         traktRelatedService = traktRelatedService,
+        aiMoreLikeThisSource = aiMoreLikeThisSource,
         traktAuthDataStore = traktAuthDataStore,
         traktSettingsDataStore = traktSettingsDataStore,
         layoutPreferenceDataStore = layoutPreferenceDataStore,

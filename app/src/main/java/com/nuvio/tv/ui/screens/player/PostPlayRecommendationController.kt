@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.player
 
+import com.nuvio.tv.core.boomio.AiMoreLikeThisSource
 import com.nuvio.tv.core.build.AppFeaturePolicy
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.player.TrailerPlayerPool
@@ -49,6 +50,7 @@ internal class PostPlayRecommendationController(
     private val mdbListRepository: MDBListRepository,
     private val mdbListSettingsDataStore: MDBListSettingsDataStore,
     private val traktRelatedService: TraktRelatedService,
+    private val aiMoreLikeThisSource: AiMoreLikeThisSource,
     private val traktAuthDataStore: TraktAuthDataStore,
     private val traktSettingsDataStore: TraktSettingsDataStore,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
@@ -615,7 +617,9 @@ internal class PostPlayRecommendationController(
         val candidates = withTimeoutOrNull(10_000L) {
             val sourcePreference = traktSettingsDataStore.moreLikeThisSource.first()
             val traktAuthenticated = traktAuthDataStore.isAuthenticated.first()
-            if (sourcePreference == MoreLikeThisSourcePreference.TRAKT && traktAuthenticated) {
+            if (sourcePreference == MoreLikeThisSourcePreference.AI) {
+                runCatching { aiMoreLikeThisSource.fetch(meta) }.getOrDefault(emptyList())
+            } else if (sourcePreference == MoreLikeThisSourcePreference.TRAKT && traktAuthenticated) {
                 runCatching {
                     traktRelatedService.getRelated(
                         meta = meta,

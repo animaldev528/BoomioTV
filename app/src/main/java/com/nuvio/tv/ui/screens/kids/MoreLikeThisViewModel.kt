@@ -3,8 +3,11 @@ package com.nuvio.tv.ui.screens.kids
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.nuvio.tv.core.boomio.AiMoreLikeThisSource
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.tmdb.TmdbMetadataService
+import com.nuvio.tv.data.local.MoreLikeThisSourcePreference
+import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.ContentType
@@ -55,11 +58,19 @@ class MoreLikeThisViewModel @Inject constructor(
     private val moreLikeThisRepository: MoreLikeThisRepository,
     private val tmdbService: TmdbService,
     private val tmdbMetadataService: TmdbMetadataService,
+    private val aiMoreLikeThisSource: AiMoreLikeThisSource,
+    private val traktSettingsDataStore: TraktSettingsDataStore,
     val posterOptions: PosterOptionsController
 ) : ViewModel() {
 
     companion object {
         private const val TAG = "MoreLikeThisViewModel"
+
+        /** A wall, not a strip: the AI answers a bigger ask than the 12-title detail row. */
+        private const val AI_WALL_LIMIT = 20
+
+        /** Caption tag under the wall's title; the curated facet names it replaces are English too. */
+        private const val AI_CAPTION = "Boomio AI"
     }
 
     private val _uiState = MutableStateFlow(MoreLikeThisUiState())
@@ -75,7 +86,12 @@ class MoreLikeThisViewModel @Inject constructor(
         posterOptions.bind(viewModelScope)
     }
 
-    fun initialize(itemType: String, metaId: String, exclude: List<String> = emptyList()) {
+    fun initialize(
+        itemType: String,
+        metaId: String,
+        title: String? = null,
+        exclude: List<String> = emptyList()
+    ) {
         // The exclusion set is part of the identity: the same seed title pushed from a
         // different parent wall is a distinct drill (fresh results) and must re-page.
         val key = "$itemType:$metaId:${exclude.joinToString(",")}"
@@ -85,6 +101,12 @@ class MoreLikeThisViewModel @Inject constructor(
         _uiState.update { MoreLikeThisUiState(isInitialLoading = true) }
 
         discoveryJob = viewModelScope.launch {
+            // The AI wall first: when the profile's More-like-this source is the boomio
+            // AI, this is the same answer the detail row shows — a wall of it. Only a
+            // profile that chose AI reaches this, so kids walls and curated personas
+            // keep their curated universe untouched.
+            if (loadAiWall(title, itemType, metaId, exclude, key)) return@launch
+
             addonRepository.getInstalledAddons().collect { addons ->
                 val enabled = addons.enabledAddons()
                 // Empty still means the profile's addons aren't hydrated yet — keep waiting.
@@ -109,6 +131,101 @@ class MoreLikeThisViewModel @Inject constructor(
                 loadedForKey = key
                 loadFirstPage(addon, normalizedType(itemType), metaId, exclude)
             }
+        }
+    }
+
+    /**
+     * Fills the wall from the boomio AI, one answer for up to [AI_WALL_LIMIT] titles.
+     *
+     * Returns false — leaving the calling collector to run the curated discovery — when
+     * the profile has not chosen the AI source, when the pressed title's name is unknown
+     * (the AI is asked "movies like <name>", so an id alone cannot be asked), or when the
+     * AI has no answer. Every tile belongs to no curated row, so [MoreLikeThisUiState.addonBaseUrl]
+     * stays null and Detail resolves each id itself, exactly like the TMDB fallback's tiles.
+     */
+    private suspend fun loadAiWall(
+        title: String?,
+        itemType: String,
+        metaId: String,
+        exclude: List<String>,
+        key: String
+    ): Boolean {
+        if (title.isNullOrBlank()) return false
+        val preference = traktSettingsDataStore.moreLikeThisSource.first()
+        if (preference != MoreLikeThisSourcePreference.AI) return false
+
+        val isMovie = normalizedType(itemType) == "movie"
+        val picks = try {
+            aiMoreLikeThisSource.fetchByTitle(title, isMovie, AI_WALL_LIMIT)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "AI more-like-this wall failed for $itemType:$metaId — ${e.message}")
+            emptyList()
+        }
+        if (picks.isEmpty()) return false
+        val items = topUpWithTmdb(picks, metaId, isMovie)
+
+        loadedForKey = key
+        _uiState.update {
+            it.copy(
+                metaId = metaId,
+                itemType = normalizedType(itemType),
+                addonId = "",
+                addonName = "",
+                addonBaseUrl = null,
+                lists = listOf(
+                    MoreLikeThisList(
+                        key = "ai",
+                        kind = "source",
+                        name = AI_CAPTION,
+                        count = items.size
+                    )
+                ),
+                items = items,
+                exclude = exclude,
+                isInitialLoading = false,
+                hasMore = false,
+                isLoadingMore = false,
+                loadError = null
+            )
+        }
+        return true
+    }
+
+    /**
+     * The AI answers with the titles it is confident about — often eight or nine where a
+     * wall wants twenty — so the tail is filled from TMDB recommendations for the same
+     * seed. The AI's order stays untouched at the front; TMDB is only the filler.
+     *
+     * Deduplicated on both id and name: the AI's metas are resolved by the box and the
+     * TMDB ones are minted here as `tmdb:` ids, so the same title can arrive with two
+     * different ids. A seed with no TMDB mapping simply keeps the short AI wall.
+     */
+    private suspend fun topUpWithTmdb(
+        seedPicks: List<MetaPreview>,
+        metaId: String,
+        isMovie: Boolean
+    ): List<MetaPreview> {
+        if (seedPicks.size >= AI_WALL_LIMIT) return seedPicks
+        return try {
+            val tmdbId = tmdbService.ensureTmdbId(metaId, if (isMovie) "movie" else "tv")
+                ?: return seedPicks
+            val extras = tmdbMetadataService.fetchMoreLikeThis(
+                tmdbId = tmdbId,
+                contentType = if (isMovie) ContentType.MOVIE else ContentType.SERIES,
+                maxItems = AI_WALL_LIMIT,
+                shape = PosterShape.POSTER
+            )
+            val seenIds = seedPicks.mapTo(HashSet()) { it.id }
+            val seenNames = seedPicks.mapTo(HashSet()) { it.name.lowercase() }
+            val fresh = extras.filter { it.id !in seenIds && it.name.lowercase() !in seenNames }
+            (seedPicks + fresh).take(AI_WALL_LIMIT)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "TMDB top-up failed for $metaId — ${e.message}")
+            seedPicks
         }
     }
 

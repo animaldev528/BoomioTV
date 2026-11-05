@@ -343,6 +343,10 @@ fun TrackingSettingsScreen(
                 SettingsPickerOption(
                     MoreLikeThisSourcePreference.TMDB,
                     stringResource(R.string.trakt_more_like_this_source_tmdb)
+                ),
+                SettingsPickerOption(
+                    MoreLikeThisSourcePreference.AI,
+                    stringResource(R.string.trakt_more_like_this_source_ai)
                 )
             ),
             selectedValue = traktState.moreLikeThisSource,
@@ -494,6 +498,18 @@ internal fun TrackingSettingsOverview(
                                     .focusRequester(watchProgressFocusRequester)
                                     .testTag(TrackingSettingsTestTags.WATCH_PROGRESS_SOURCE)
                             )
+                            // Not a Trakt feature: the AI source needs no tracker account, so this
+                            // row must stay reachable with Trakt disconnected.
+                            SettingsActionRow(
+                                title = stringResource(R.string.trakt_more_like_this_source_title),
+                                subtitle = stringResource(R.string.trakt_more_like_this_source_subtitle),
+                                value = moreLikeThisSourceLabel(traktState.moreLikeThisSource),
+                                enabled = true,
+                                onClick = onMoreLikeThisClick,
+                                modifier = Modifier
+                                    .focusRequester(moreLikeThisFocusRequester)
+                                    .testTag(TrackingSettingsTestTags.MORE_LIKE_THIS)
+                            )
                         }
                     }
                     if (traktConnected) {
@@ -525,16 +541,6 @@ internal fun TrackingSettingsOverview(
                                         onCommentsChanged(!traktState.showMetaComments)
                                     },
                                     modifier = Modifier.testTag(TrackingSettingsTestTags.COMMENTS)
-                                )
-                                SettingsActionRow(
-                                    title = stringResource(R.string.trakt_more_like_this_source_title),
-                                    subtitle = stringResource(R.string.trakt_more_like_this_source_subtitle),
-                                    value = moreLikeThisSourceLabel(traktState.moreLikeThisSource),
-                                    enabled = true,
-                                    onClick = onMoreLikeThisClick,
-                                    modifier = Modifier
-                                        .focusRequester(moreLikeThisFocusRequester)
-                                        .testTag(TrackingSettingsTestTags.MORE_LIKE_THIS)
                                 )
                             }
                         }
@@ -644,6 +650,7 @@ private fun librarySourceLabel(mode: LibrarySourceMode): String = when (mode) {
 private fun moreLikeThisSourceLabel(source: MoreLikeThisSourcePreference): String = when (source) {
     MoreLikeThisSourcePreference.TRAKT -> stringResource(R.string.trakt_name)
     MoreLikeThisSourcePreference.TMDB -> stringResource(R.string.trakt_more_like_this_source_tmdb)
+    MoreLikeThisSourcePreference.AI -> stringResource(R.string.trakt_more_like_this_source_ai)
 }
 
 @Composable
