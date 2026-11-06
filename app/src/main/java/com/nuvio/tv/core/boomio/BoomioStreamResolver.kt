@@ -177,12 +177,18 @@ class BoomioStreamResolver @Inject constructor(
     /**
      * True when the boomio seam has a base to dial.
      *
-     * ⚠️ Read off [BoomioConfig], not `BuildConfig.BOOMIO_BASE_URL`. The seam is no longer "did this
-     * build bake a URL": the origin has a compiled floor, so it is live on every build and this is a
-     * sanity check rather than a feature switch. Gating on the baked value instead would have turned
-     * the whole media plane off the moment the stale `local.properties` value was retired.
+     * ⚠️ RETIRED 2026-11-06. bsf is a standard Stremio addon: the server pushes its manifest URL on
+     * the profile addon list and the picker renders it from `/stream`. This native `/find` seam
+     * resolved the same backend a second time and appeared as a duplicate "Boomio" group beside
+     * the addon group "Boomio BSF" — two tabs, one source. It stayed alive on every build because
+     * BoomioConfig carries a compiled origin floor, so there was no build-level switch to turn it
+     * off; the switch is explicit now.
+     *
+     * The rest of the class stays: the capability plumbing it owns (client-certificate scoping,
+     * device decode ceilings, the measured link cap) still compiles and can be lifted onto the
+     * addon path if it is ever needed.
      */
-    fun isEnabled(): Boolean = BoomioConfig.boomioBaseUrl.isNotBlank()
+    fun isEnabled(): Boolean = false
 
     /**
      * Calls boomio `/find` for [videoId] (the Stremio-style id, e.g. `tt1234567`
