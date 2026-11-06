@@ -262,6 +262,18 @@ internal fun buildModernHomePresentation(
                         gatedItemKeys = input.gatedItemKeys,
                         mappedRow = mappedRow
                     )
+                    // A row whose every tile the profile's rating gate removed is
+                    // not an empty shelf to draw — it is a row with nothing in it,
+                    // and every focus path on Home (initial pick, pending focus,
+                    // vertical landing, focus restoration) assumes the row it
+                    // lands on holds at least one focusable card. Drawn anyway it
+                    // becomes a title with no posters that swallows DPAD_UP/DOWN:
+                    // a kids Home full of unrated addon catalogs was unnavigable.
+                    // A row still fetching keeps its slot so it can fill in.
+                    if (mappedRow.hasNothingToShow()) {
+                        renderedCatalogRows--
+                        return@forEachIndexed
+                    }
                     add(mappedRow)
                 }
 

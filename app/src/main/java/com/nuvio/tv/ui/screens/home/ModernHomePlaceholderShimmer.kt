@@ -11,3 +11,17 @@ internal fun showsPlaceholderShimmer(isLoading: Boolean, firstItemImageUrl: Stri
 
 internal fun HeroCarouselRow.showsPlaceholderShimmer(): Boolean =
     showsPlaceholderShimmer(isLoading, items.list.firstOrNull()?.imageUrl)
+
+/**
+ * A row with nothing left to draw: its tiles were all removed (the profile's rating gate hides
+ * every unrated tile on a kids profile) and it is no longer fetching.
+ *
+ * Such a row must never reach the list. Every focus path on Home — initial pick, pending focus,
+ * vertical fast-scroll landing, LazyColumn focus restoration — assumes the row it lands on holds
+ * at least one focusable card, so an empty row stays a bare title that swallows DPAD_UP/DOWN.
+ */
+internal fun hasNothingToShow(itemCount: Int, isLoading: Boolean): Boolean =
+    itemCount == 0 && !isLoading
+
+internal fun HeroCarouselRow.hasNothingToShow(): Boolean =
+    hasNothingToShow(items.list.size, isLoading)
