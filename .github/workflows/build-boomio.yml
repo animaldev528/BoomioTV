@@ -55,6 +55,13 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
+      # Pin every repo-scoped gh command to the FORK. The upstream-sync step below adds a
+      # git remote literally named "upstream" pointing at NuvioMedia/NuvioTV, and gh
+      # resolves its target repo from the git remotes, preferring a remote named
+      # "upstream" over "origin". Without this pin, `gh release view/upload/create` talks
+      # to the upstream repo, where this run's fork-scoped GITHUB_TOKEN has no access, so
+      # asset uploads fail with "HTTP 403: Resource not accessible by integration".
+      GH_REPO: ${{ github.repository }}
       BOOMIO_RELEASE_KEYSTORE_BASE64: ${{ secrets.BOOMIO_RELEASE_KEYSTORE_BASE64 }}
       BOOMIO_RELEASE_KEY_ALIAS: ${{ secrets.BOOMIO_RELEASE_KEY_ALIAS }}
       BOOMIO_RELEASE_KEY_PASSWORD: ${{ secrets.BOOMIO_RELEASE_KEY_PASSWORD }}
