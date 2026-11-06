@@ -10,6 +10,27 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 
 /**
+ * The id a certification lookup should use for a catalog item.
+ *
+ * Episode results are served as Stremio episode ids (`tt9165438:8:1`) with no
+ * `imdbId` field and no certificate. TMDB's find-by-IMDb lookup has no record
+ * for that composite string, so the kids gate — which fails CLOSED — dropped
+ * every episode while whole-title results on the same query survived. An
+ * episode has no certificate of its own: TMDB rates the series, so the show id
+ * is the right lookup for an episode of it.
+ */
+internal fun certificationLookupId(raw: String): String {
+    val id = raw.trim()
+    val separator = id.indexOf(':')
+    if (separator <= 0) return id
+    val head = id.substring(0, separator)
+    // Only an `tt<digits>` head is rewritten. `tmdb:123` and prefixed/opaque ids
+    // from other addons keep their original form.
+    val imdbShaped = head.length > 2 && head.startsWith("tt") && head.drop(2).all { it.isDigit() }
+    return if (imdbShaped) head else id
+}
+
+/**
  * The single title gate for a kids profile: a title is shown only when TMDB
  * certifies it at or below [BsmRatingGate.KIDS_CEILING].
  *
@@ -29,7 +50,7 @@ class KidsContentFilter @Inject constructor(
     suspend fun isAllowed(item: MetaPreview): Boolean {
         val rating = item.ageRating
             ?: tmdbMetadataService.fetchCertification(
-                imdbId = item.imdbId ?: item.id,
+                imdbId = certificationLookupId(item.imdbId ?: item.id),
                 contentType = item.type
             )
         return rating != null && RatingOrdinal.isAllowed(rating, ceilingFor(item.type))
