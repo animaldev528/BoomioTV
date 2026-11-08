@@ -21,10 +21,21 @@ import com.nuvio.app.core.network.ServerConfigurationRepository
  *
  * ## The rule
  *
- * - No custom server configured → unchanged behaviour; every advert may drive the app.
- * - A custom server configured → only an advert that **names the same host** may drive it
- *   (compared through the advert's `svc=` label, the one published identity). Anything else is
- *   ignored: no origin rewrite, no pin, no tunnel endpoint, no pairing target.
+ * - A configuration that names **no** server (a stock build with no `BOOMIO_SERVICE_HOST`) →
+ *   unchanged behaviour; every advert may drive the app, because discovery is the only authority
+ *   there is.
+ * - A configuration that names a server — **whether the user typed it or the build baked it** →
+ *   only an advert that **names the same host** may drive it (compared through the advert's
+ *   `svc=` label, the one published identity). Anything else is ignored: no origin rewrite, no
+ *   pin, no tunnel endpoint, no pairing target.
+ *
+ * ⚠️ **The build is a configuration too, and it used to be exempt.** Measured 2026-11-08: a build
+ * set `BOOMIO_SERVICE_HOST=boomiopi.duckdns.org` while `NUVIO_SUPABASE_URL` stayed on
+ * `boomio.duckdns.org`. The TV enrolled on the Pi, the advert rewrote `serviceOrigin` there, and
+ * the account plane stayed on boomio — the TV showed the Pi's `/tv-login` URL for a code minted on
+ * boomio, and the phone's approval on the Pi answered "invalid or expired code". Gating on
+ * `isCustom` made that build read as "no configured server", so the half-pointed build looked
+ * healthy to every guard. The comparison is now on the *named host*, not on how it was named.
  *
  * ⚠️ **An advert with no `svc=` is refused while a custom server is active.** v1 adverts predate
  * the field, so they can be attributed to no deployment in particular; treating "unknown" as
@@ -38,8 +49,11 @@ import com.nuvio.app.core.network.ServerConfigurationRepository
  */
 internal fun advertMatchesConfiguredServer(svcName: String?): Boolean {
     val configured = ServerConfigurationRepository.active.value
-    if (!configured.isCustom) return true
-    val configuredHost = hostOf(configured.backendUrl) ?: return false
+    // A build that names no server at all has nothing to compare against, and there discovery is
+    // the only authority there is — so every advert may drive it. A build that DOES name one is as
+    // configured as a hand-entered server: the account plane it talks to is fixed, and moving only
+    // the service plane to another box is the split this function exists to prevent.
+    val configuredHost = hostOf(configured.backendUrl) ?: return true
     val svcHost = svcName
         ?.trim()
         ?.takeIf { it.isNotBlank() }

@@ -1,5 +1,6 @@
 package com.nuvio.tv.data.remote
 
+import com.nuvio.app.core.mtls.withClientCertificate
 import com.nuvio.app.core.overlay.withOverlayProxy
 import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.domain.model.ServerCapabilities
@@ -138,7 +139,20 @@ internal object ServerDiscoveryPolicy {
 
 @Singleton
 class ServerDiscoveryService @Inject constructor() {
-    private val client = OkHttpClient.Builder().withOverlayProxy()
+    /**
+     * ⚠️ **The certificate is part of discovery, not only of the calls after it.**
+     *
+     * An edge that runs `client_auth { mode require }` — the Pi does — refuses the handshake
+     * outright when no certificate is presented, so without [withClientCertificate] a device that
+     * has already enrolled cannot read the discovery document of the very server it enrolled with:
+     * typing the server's name fails as "could not reach the discovery endpoint", which reads as a
+     * wrong address. The factory is inert until this device holds a certificate, so a stock build
+     * and an un-enrolled device are unchanged.
+     *
+     * Presenting it here is also the one place it belongs: the user is naming the app's own server,
+     * which is the definition of a host this certificate may be shown to.
+     */
+    private val client = OkHttpClient.Builder().withOverlayProxy().withClientCertificate()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(10, TimeUnit.SECONDS)
         .callTimeout(15, TimeUnit.SECONDS)

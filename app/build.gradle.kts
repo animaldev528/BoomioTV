@@ -77,6 +77,64 @@ fun boomioServiceUrl(path: String = "", scheme: String = "https"): String =
 fun boomioServiceUrlOr(stockDefault: String, path: String = "", scheme: String = "https"): String =
     boomioServiceUrl(path, scheme).ifBlank { stockDefault }
 
+/**
+ * ONE BOX PER BUILD — the compile-time half of "no split brain".
+ *
+ * `NUVIO_SUPABASE_URL` is the **account** plane (auth, profiles, TV-login codes) and
+ * `BOOMIO_SERVICE_HOST` is the **service** plane (`/bsc`, `/bsf`, `/bsm`, `/bss-iptv`). Nothing
+ * downstream can tell that they name different boxes: both are plain strings, and every consumer
+ * reads whichever one it needs.
+ *
+ * Measured 2026-11-08 on a Firestick built with `BOOMIO_SERVICE_HOST=boomiopi.duckdns.org` and
+ * `NUVIO_SUPABASE_URL=https://boomio.duckdns.org`: the TV drew the Pi's `/tv-login` URL, minted its
+ * code on boomio, and the phone approved on the Pi — "invalid or expired code" on a code that was
+ * live the whole time. Nothing in the build said a word, because a host is a host.
+ *
+ * So the mismatch is a **build error**, not a runtime discovery. Leaving `NUVIO_SUPABASE_URL`
+ * unset is correct and stays correct: it defaults to `boomioServiceUrl()`, i.e. the same host.
+ */
+fun hostOfUrl(value: String): String? = runCatching {
+    URI(if (value.contains("://")) value else "https://$value").host
+}.getOrNull()?.lowercase()?.takeIf { it.isNotBlank() }
+
+run {
+    // Stock build with nothing named: every URL comes from the stock defaults, which already
+    // agree with each other. There is nothing to compare and nothing to enforce.
+    val accountHost = hostOfUrl(resolveProperty(devProperties, localProperties, "NUVIO_SUPABASE_URL"))
+        ?: hostOfUrl(boomioServiceHost)
+        ?: return@run
+    val allowed = resolveProperty(
+        devProperties, localProperties, "ALLOW_MIXED_SERVER_HOSTS"
+    ).equals("true", ignoreCase = true)
+    if (allowed) return@run
+
+    // Every key that can name a host independently. `NUVIO_SUPABASE_URL`/`BOOMIO_SERVICE_HOST` are
+    // the usual pair, but the login pages are the ones a human actually reads off the TV screen —
+    // pinning them to a second box is the "the URL on screen belongs to another server" failure.
+    val named = linkedMapOf(
+        "NUVIO_SUPABASE_URL" to resolveProperty(devProperties, localProperties, "NUVIO_SUPABASE_URL"),
+        "BOOMIO_SERVICE_HOST" to boomioServiceHost,
+        "TV_LOGIN_WEB_BASE_URL" to resolveProperty(devProperties, localProperties, "TV_LOGIN_WEB_BASE_URL"),
+        "DEVICE_LOGIN_WEB_BASE_URL" to resolveProperty(devProperties, localProperties, "DEVICE_LOGIN_WEB_BASE_URL"),
+        "BSM_BASE_URL" to resolveProperty(devProperties, localProperties, "BSM_BASE_URL"),
+        "AVATAR_PUBLIC_BASE_URL" to resolveProperty(devProperties, localProperties, "AVATAR_PUBLIC_BASE_URL")
+    )
+    val offenders = named.filter { (_, value) ->
+        value.isNotBlank() && hostOfUrl(value)?.let { it != accountHost } == true
+    }
+    if (offenders.isNotEmpty()) {
+        throw GradleException(
+            "One box per build: $accountHost is the account plane, but " +
+                offenders.entries.joinToString { "'${it.key}' names ${hostOfUrl(it.value)}" } +
+                ". The account plane and the service plane would be two different servers, which " +
+                "shows up as a TV displaying one box's sign-in page for a code minted on the " +
+                "other — 'invalid or expired code', with nothing logged anywhere. Set only " +
+                "BOOMIO_SERVICE_HOST (every other URL derives from it). If the split is " +
+                "deliberate, set ALLOW_MIXED_SERVER_HOSTS=true and mean it."
+        )
+    }
+}
+
 val enableDoviNative = parseBooleanProperty(
     resolveProperty(devProperties, localProperties, "DOVI_NATIVE_ENABLED")
 )
