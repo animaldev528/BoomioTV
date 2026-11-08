@@ -91,7 +91,10 @@ fun AuthQrSignInScreen(
     val fullAccount = uiState.authState as? AuthState.FullAccount
     val isSignedIn = fullAccount != null
     val isOnboardingMode = onContinue != null
-    val useEmailLogin = viewModel.usesEmailPasswordLogin
+    // A server that can do both opens on the code screen and keeps the password form one tap away.
+    val emailFallbackAvailable = viewModel.supportsEmailPasswordLogin && !viewModel.usesEmailPasswordLogin
+    var emailFallbackChosen by remember { mutableStateOf(false) }
+    val useEmailLogin = viewModel.usesEmailPasswordLogin || (emailFallbackChosen && emailFallbackAvailable)
     val useQrLogin = !useEmailLogin
     val isApproved = remember(uiState.qrLoginStatus) {
         uiState.qrLoginStatus?.contains("approved", ignoreCase = true) == true
@@ -130,7 +133,7 @@ fun AuthQrSignInScreen(
         }
     }
 
-    LaunchedEffect(uiState.authState, isSignedIn, uiState.qrLoginCode, uiState.isLoading, uiState.error, exitRequested) {
+    LaunchedEffect(uiState.authState, isSignedIn, uiState.qrLoginCode, uiState.isLoading, uiState.error, exitRequested, useQrLogin) {
         if (
             useQrLogin &&
             !exitRequested &&
@@ -225,6 +228,16 @@ fun AuthQrSignInScreen(
                         continueFromAuthScreen()
                     } else {
                         leaveAuthScreen()
+                    }
+                },
+                showEmailFallback = emailFallbackAvailable && !isSignedIn,
+                onToggleEmailFallback = {
+                    if (useEmailLogin) {
+                        emailFallbackChosen = false
+                        viewModel.clearError()
+                    } else {
+                        emailFallbackChosen = true
+                        viewModel.clearQrLoginSession()
                     }
                 },
                 initialFocusRequester = loginFocusRequester
@@ -329,6 +342,8 @@ private fun AuthQrLoginPane(
     onSignIn: (String, String) -> Unit,
     onRefreshOrSignOut: () -> Unit,
     onBackOrContinue: () -> Unit,
+    showEmailFallback: Boolean,
+    onToggleEmailFallback: () -> Unit,
     initialFocusRequester: FocusRequester
 ) {
     val focusEmail = useEmailLogin && !isSignedIn
@@ -434,6 +449,27 @@ private fun AuthQrLoginPane(
                         if (isSignedIn) stringResource(R.string.auth_qr_continue) else stringResource(R.string.auth_qr_continue_without_account)
                     } else {
                         stringResource(R.string.auth_qr_back)
+                    }
+                )
+            }
+        }
+
+        if (showEmailFallback) {
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(
+                onClick = onToggleEmailFallback,
+                colors = ButtonDefaults.colors(
+                    containerColor = Color.Transparent,
+                    focusedContainerColor = AuthSecondaryButtonBackground,
+                    contentColor = AuthTextSecondary,
+                    focusedContentColor = AuthTextPrimary
+                )
+            ) {
+                Text(
+                    if (useEmailLogin) {
+                        stringResource(R.string.auth_email_use_qr)
+                    } else {
+                        stringResource(R.string.auth_qr_use_email)
                     }
                 )
             }
