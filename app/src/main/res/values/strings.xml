@@ -2234,6 +2234,8 @@
     <string name="auth_qr_code_display">Code: %1$s</string>
     <string name="auth_qr_manual_instruction">Or go to %1$s and enter</string>
     <string name="auth_qr_refresh">Refresh QR</string>
+    <string name="auth_qr_use_email">Sign in with email instead</string>
+    <string name="auth_email_use_qr">Use a sign-in code instead</string>
     <string name="auth_qr_continue_without_account">Continue without account</string>
     <string name="auth_qr_connected">Your account is connected on this TV.</string>
     <string name="auth_qr_synced_data">Your synced data</string>
