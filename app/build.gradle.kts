@@ -216,7 +216,7 @@ android {
         applicationId = "com.nuvio.tv"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1084
+        versionCode = 1088
         versionName = "1.0.0"
 
         // Brand scheme this distribution answers to in `AndroidManifest.xml`.
