@@ -121,7 +121,12 @@ internal object OverlayEndpointDiscovery {
      * only to hold the private address this name now holds itself. `boomio-tls.duckdns.org` is
      * *not* part of that cut: it is still the mTLS plane.
      */
-    internal const val PROV_RECORD = BOOMIO_SERVICE_HOST
+    internal val PROV_RECORD: String
+        get() = hostOf(BoomioConfig.serviceOrigin)
+            // An IP literal names the server but publishes no TXT record, so asking DNS for one
+            // answers nothing and would only burn rung 2's budget. Fall back to the build's name.
+            ?.takeIf { host -> host.any { it.isLetter() } }
+            ?: BOOMIO_SERVICE_HOST
 
     /** The WireGuard port, when nothing published one. */
     private const val DEFAULT_WG_PORT = OverlayAdvertTuple.DEFAULT_PORT

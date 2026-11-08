@@ -58,4 +58,14 @@
     <string name="trakt_watch_progress_dialog_subtitle">Choose whether resume and continue watching should use Trakt or Boomio Sync while Trakt scrobbling stays active.</string>
     <string name="trakt_watch_progress_nuvio_selected">Watch progress source set to Boomio Sync</string>
     <string name="trakt_watch_progress_source_nuvio">Boomio Sync</string>
+
+    <!--
+      "Official server" on a Boomio build is the box the APK was built for — never api.nuvio.tv.
+      %1$s is that box's host, passed from BuildConfig.SUPABASE_URL, so the message names the
+      server the operator can actually see in the URL bar rather than the upstream brand.
+    -->
+    <string name="custom_server_error_official_active">%1$s is the server this app was built for and is already selected.</string>
+    <string name="custom_server_error_official_available">%1$s is the server this app was built for. Close this dialog and choose Use official server to switch back.</string>
+    <string name="official_server_title">Use the built-in server?</string>
+    <string name="official_server_description">You will be signed out of the custom server and the app will restart with the server this build belongs to.</string>
 </resources>
