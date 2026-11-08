@@ -282,18 +282,61 @@ object BoomioConfig {
 /**
  * **The one name.** The service origin, the discovery record, and the same string.
  *
- * ⚠️ **One constant, because they are one name.** [DEFAULT_SERVICE_ORIGIN] is every boomio URL's
+ * ⚠️ **One name, because they are one name.** [DEFAULT_SERVICE_ORIGIN] is every boomio URL's
  * pre-discovery floor, and `OverlayEndpointDiscovery.PROV_RECORD` is the name rung 2 resolves;
  * before the edge collapse those were two names maintained in two files, and a deployment that
  * renamed one and not the other failed rung 2 for a reason that had nothing to do with DNS. They
- * are one constant now, and a deployment that renames its origin moves both at once or neither.
+ * follow the same value now, and a deployment that renames its origin moves both at once or neither.
+ *
+ * ⚠️ **And that value is the build's choice, not a literal.** A build that names a box in
+ * `local.properties` floors every URL on *that* box, and its discovery record is the same name;
+ * only a stock build (one that names none) lands on [STOCK_SERVICE_HOST]. The reference name is a
+ * fallback, never an assumption — a TV built for the Pi that assumed it dialled the reference box.
  *
  * ⚠️ **It is not a dial target off-LAN.** The published `A` record holds the server's *private*
  * address, so the name is reachable on the LAN and unroutable off it. An off-LAN client dials the
  * `wan=` literal out of the TXT record while keeping SNI and `Host` on this name — which is why
  * this constant must never be baked as an *endpoint*, only used as an origin.
  */
-internal const val BOOMIO_SERVICE_HOST = "boomio.duckdns.org"
+internal val BOOMIO_SERVICE_HOST: String
+    get() = buildServiceHost ?: STOCK_SERVICE_HOST
+
+/**
+ * The name a build that names **no** box resolves and falls back to.
+ *
+ * ⚠️ **It is the reference deployment's name, not a universal one.** A build aimed at another box
+ * must never inherit it as its discovery record — that is exactly how a TV built for the Pi kept
+ * dialling the reference box at `192.168.68.65`: every *service* URL came from
+ * `BOOMIO_SERVICE_HOST` in `local.properties`, but the floor below, and therefore
+ * `OverlayEndpointDiscovery.PROV_RECORD`, was still this literal's `A` record.
+ */
+internal const val STOCK_SERVICE_HOST = "boomio.duckdns.org"
+
+/**
+ * The host this build was aimed at, or null for a stock build.
+ *
+ * ⚠️ **There is no `BOOMIO_SERVICE_HOST` in `BuildConfig`.** Gradle consumes that property and
+ * expands it into the per-service URLs ([BOOMIO_COMPANION_URL], [BOOMIO_IPTV_URL],
+ * [BOOMIO_BASE_URL], `BSM_BASE_URL`), so the only way to read the choice back at runtime is to
+ * take the host out of one of them. Reading it is what lets the *floor* and the discovery record
+ * follow the box the APK was built for instead of a literal in this file.
+ */
+private val buildServiceHost: String? by lazy {
+    listOf(
+        BuildConfig.BOOMIO_COMPANION_URL,
+        BuildConfig.BOOMIO_IPTV_URL,
+        BuildConfig.BOOMIO_BASE_URL,
+        BuildConfig.BSM_BASE_URL,
+    ).firstNotNullOfOrNull { url ->
+        if (!url.contains("://")) {
+            null
+        } else {
+            runCatching { io.ktor.http.Url(url).host.lowercase() }
+                .getOrNull()
+                ?.takeIf { it.isNotBlank() }
+        }
+    }
+}
 
 /** REST (`https://`) variant of [BoomioConfig.companionBaseUrl] for the bsc companion API. */
 val BoomioConfig.companionRestBaseUrl: String
@@ -307,8 +350,12 @@ val BoomioConfig.companionRestBaseUrl: String
  * Public DNS, and deliberately so: a client that has never reached this server has never read a
  * record, so there is nothing to discover a name *from*. The discovery record is what supplies the
  * real one, including on a deployment that renames its service origin.
+ *
+ * ⚠️ **"This server" is the build's server.** The floor is [BOOMIO_SERVICE_HOST], which is the box
+ * `local.properties` named and only falls back to the reference deployment when it named none.
  */
-private const val DEFAULT_SERVICE_ORIGIN = "https://$BOOMIO_SERVICE_HOST"
+private val DEFAULT_SERVICE_ORIGIN: String
+    get() = "https://$BOOMIO_SERVICE_HOST"
 
 /** `https://…` → `wss://…`, and `http://…` → `ws://…`; anything else is passed through unchanged. */
 private fun String.toWebSocketScheme(): String = when {

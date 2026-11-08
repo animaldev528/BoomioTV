@@ -3,6 +3,7 @@ package com.nuvio.tv.ui.screens.account
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.R
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.runtime.AppRestarter
@@ -42,6 +43,20 @@ class ServerConnectionViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(ServerConnectionUiState(activeServer = activeServer))
     val uiState: StateFlow<ServerConnectionUiState> = _uiState.asStateFlow()
     private var discoveryJob: Job? = null
+
+    /**
+     * The host of the server this build was aimed at — what "official" means to this APK.
+     *
+     * Read from [BuildConfig.SUPABASE_URL] rather than a literal, because it is the same value
+     * `ServerDiscoveryPolicy.matchesBackend` compares against: the message has to name the server
+     * the check actually matched, or it describes a different box than the one it just refused.
+     */
+    private val builtInHost: String
+        get() = BuildConfig.SUPABASE_URL
+            .removePrefix("https://")
+            .removePrefix("http://")
+            .substringBefore('/')
+            .substringBefore(':')
 
     fun discover(url: String) {
         if (_uiState.value.isDiscovering || _uiState.value.isSwitching) return
@@ -119,12 +134,17 @@ class ServerConnectionViewModel @Inject constructor(
             ?: return context.getString(R.string.custom_server_error_connection)
         return when (discoveryError.failure) {
             ServerDiscoveryFailure.INVALID_URL -> context.getString(R.string.custom_server_error_invalid_url)
+            // ⚠️ The message names the host this build is bound to. On the upstream build that is
+            // api.nuvio.tv; on a Boomio build it is whatever box the APK was built for, and saying
+            // "api.nuvio.tv is the official server" there sends the operator hunting for a server
+            // that has nothing to do with the error. Measured on the Firestick, 2026-11-08.
             ServerDiscoveryFailure.OFFICIAL_SERVER -> context.getString(
                 if (_uiState.value.activeServer.isCustom) {
                     R.string.custom_server_error_official_available
                 } else {
                     R.string.custom_server_error_official_active
-                }
+                },
+                builtInHost
             )
             ServerDiscoveryFailure.CONNECTION_FAILED -> context.getString(R.string.custom_server_error_connection)
             ServerDiscoveryFailure.HTTP_ERROR -> context.getString(

@@ -13,8 +13,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 /**
- * The rule that keeps a hand-picked server from being dragged back to whichever box advertises
- * first. See `ConfiguredServerIdentity.kt` for why it exists.
+ * The rule that keeps a named server — typed by hand **or** baked into the build — from being
+ * dragged to whichever box advertises first. See `ConfiguredServerIdentity.kt` for why it exists.
  *
  * Robolectric for the same reason as [LocalServerHostsTest]: the repository it reads is backed by
  * platform storage.
@@ -29,13 +29,30 @@ class ConfiguredServerIdentityTest {
     }
 
     @Test
-    fun `a build with no custom server accepts every advert`() {
-        ServerConfigurationRepository.publish(configuration(isCustom = false))
+    fun `a build that names no server accepts every advert`() {
+        ServerConfigurationRepository.publish(configuration(isCustom = false, backendUrl = ""))
 
         assertTrue(advertMatchesConfiguredServer("boomio.duckdns.org"))
         assertTrue(advertMatchesConfiguredServer("some-other-box.example"))
         // Even an advert that names no server at all: discovery is the only authority there is.
         assertTrue(advertMatchesConfiguredServer(null))
+    }
+
+    /**
+     * ⚠️ **The regression this rule exists for.** A build that bakes its account plane onto one
+     * box and its `BOOMIO_SERVICE_HOST` onto another is not "the official configuration" in the
+     * sense that used to skip this check — it is two boxes, and letting the advert move
+     * `serviceOrigin` splits sign-in from the catalogue silently.
+     */
+    @Test
+    fun `a build that names a server refuses another deployment's advert`() {
+        ServerConfigurationRepository.publish(
+            configuration(isCustom = false, backendUrl = "https://boomio.duckdns.org")
+        )
+
+        assertTrue(advertMatchesConfiguredServer("boomio.duckdns.org"))
+        assertFalse(advertMatchesConfiguredServer("boomiopi.duckdns.org"))
+        assertFalse(advertMatchesConfiguredServer(null))
     }
 
     @Test

@@ -20,7 +20,8 @@ private const val TAG = "OverlayProbe"
  * It is [BOOMIO_SERVICE_HOST] rather than a fourth copy of the literal: the probe and the ladder
  * must agree about the name, or a debug run would report a failure that is really a typo.
  */
-private const val DEFAULT_PROBE_DNS_NAME = BOOMIO_SERVICE_HOST
+private val DEFAULT_PROBE_DNS_NAME: String
+    get() = BOOMIO_SERVICE_HOST
 
 /**
  * Debug-only: proves the userspace tunnel works **inside an installed APK**.

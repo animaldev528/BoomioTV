@@ -466,7 +466,11 @@ class OverlayEndpointDiscoveryTest {
     fun `a service name is normalised to the one form a URL and a certificate both use`() {
         // Case and a trailing root dot are two spellings of one name, and only one of them
         // compares equal to what the wire, a log line, or a certificate SAN expects.
-        assertEquals(SERVICE_NAME, validDiscoveryNameOrNull("  BOOMIO.DuckDNS.org.  "))
+        // ⚠️ Derived from SERVICE_NAME rather than spelled out. The property under test is
+        // "case and a trailing root dot collapse onto one form", and a literal here would only
+        // hold on a build aimed at the reference box — the suite runs against whatever
+        // `local.properties` named.
+        assertEquals(SERVICE_NAME, validDiscoveryNameOrNull("  ${SERVICE_NAME.uppercase()}.  "))
         assertEquals(SERVICE_NAME, validDiscoveryNameOrNull(SERVICE_NAME))
         assertNull(validDiscoveryNameOrNull(null))
         assertNull(validDiscoveryNameOrNull(""))
@@ -830,9 +834,12 @@ class OverlayEndpointDiscoveryTest {
         // A deployment that renamed one and not the other failed rung 2 for a reason that had
         // nothing to do with DNS, and nothing in either file could notice.
         //
-        // ⚠️ **The literal is pinned as well as the equality, deliberately.** An equality alone
-        // still holds if a later edit moves *both* to a third name while meaning to move only one.
-        assertEquals("boomio.duckdns.org", BOOMIO_SERVICE_HOST)
+        // ⚠️ **Pinned on the STOCK fallback, not on [BOOMIO_SERVICE_HOST] itself.** A build whose
+        // `local.properties` names a box resolves *that* box, which is the whole point of the
+        // floor: a Pi build's record is the Pi. Pinning the reference literal to the live value
+        // would make the suite pass only on a stock build — the one configuration that has no
+        // server to discover.
+        assertEquals("boomio.duckdns.org", com.nuvio.app.features.boomio.STOCK_SERVICE_HOST)
         assertEquals(BOOMIO_SERVICE_HOST, OverlayEndpointDiscovery.PROV_RECORD)
         // And the origin the four base URLs are derived from is that same name, so a client that
         // has read no publication still aims at the server the ladder is looking for.
@@ -967,7 +974,7 @@ class OverlayEndpointDiscoveryTest {
          * the ladder no longer resolved. Taking it from [OverlayEndpointDiscovery.PROV_RECORD] makes
          * these fixtures fail if that constant is ever pointed somewhere else — which is the point.
          */
-        const val SERVICE_NAME = OverlayEndpointDiscovery.PROV_RECORD
+        val SERVICE_NAME = OverlayEndpointDiscovery.PROV_RECORD
 
         /** The server's address at home, as the record publishes it: a literal, never a name. */
         const val LAN_ADDR = "192.168.68.65"
