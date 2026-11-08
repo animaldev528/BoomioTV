@@ -3,6 +3,7 @@ package com.nuvio.app.core.overlay
 import android.app.Application
 import com.nuvio.app.features.boomio.BOOMIO_SERVICE_HOST
 import com.nuvio.app.features.boomio.BoomioConfig
+import com.nuvio.tv.BuildConfig
 import java.io.ByteArrayOutputStream
 import java.time.Duration
 import java.util.concurrent.atomic.AtomicInteger
@@ -830,13 +831,16 @@ class OverlayEndpointDiscoveryTest {
         // A deployment that renamed one and not the other failed rung 2 for a reason that had
         // nothing to do with DNS, and nothing in either file could notice.
         //
-        // ⚠️ **The literal is pinned as well as the equality, deliberately.** An equality alone
-        // still holds if a later edit moves *both* to a third name while meaning to move only one.
-        assertEquals("boomio.duckdns.org", BOOMIO_SERVICE_HOST)
-        assertEquals(BOOMIO_SERVICE_HOST, OverlayEndpointDiscovery.PROV_RECORD)
+        // ⚠️ **There is no literal left to pin.** The name is a build property now
+        // (`BOOMIO_SERVICE_HOST`), blank in a stock build, and both the record and the origin
+        // must derive from that one value -- a second copy of the name in either place is the
+        // drift this test exists to catch. A blank value yields no record, which is the correct
+        // "nothing discovered yet" state rather than a fallback to some other deployment.
+        assertEquals(BuildConfig.BOOMIO_SERVICE_HOST.trim(), BOOMIO_SERVICE_HOST)
+        assertEquals(BOOMIO_SERVICE_HOST.ifBlank { null }, OverlayEndpointDiscovery.PROV_RECORD)
         // And the origin the four base URLs are derived from is that same name, so a client that
         // has read no publication still aims at the server the ladder is looking for.
-        assertEquals(BOOMIO_SERVICE_HOST, hostOf(BoomioConfig.serviceOrigin))
+        assertEquals(BOOMIO_SERVICE_HOST.ifBlank { null }, hostOf(BoomioConfig.serviceOrigin))
     }
 
     @Test
@@ -967,7 +971,10 @@ class OverlayEndpointDiscoveryTest {
          * the ladder no longer resolved. Taking it from [OverlayEndpointDiscovery.PROV_RECORD] makes
          * these fixtures fail if that constant is ever pointed somewhere else — which is the point.
          */
-        const val SERVICE_NAME = OverlayEndpointDiscovery.PROV_RECORD
+        // A `val`, not a `const`: the record name is a runtime lookup now (the configured server
+        // first, the build's host second), so it cannot be a compile-time constant. The fallback
+        // keeps these fixtures stable in a test build, which bakes no host.
+        val SERVICE_NAME = OverlayEndpointDiscovery.PROV_RECORD ?: "boomio.duckdns.org"
 
         /** The server's address at home, as the record publishes it: a literal, never a name. */
         const val LAN_ADDR = "192.168.68.65"

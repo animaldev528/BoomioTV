@@ -5,6 +5,7 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.os.SystemClock
 import android.util.Log
+import com.nuvio.app.core.network.ServerConfigurationRepository
 import com.nuvio.app.core.sync.AppForegroundMonitor
 import com.nuvio.app.core.sync.AppVisibility
 import com.nuvio.app.features.boomio.BOOMIO_SERVICE_HOST
@@ -86,8 +87,15 @@ internal object OverlayEndpointDiscovery {
 
     /**
      * The **one name** — the discovery record, and the service FQDN every URL, SNI and certificate
-     * check stays on. It is [BOOMIO_SERVICE_HOST] and nothing else, declared there so this ladder
-     * and the client's URL floor cannot drift apart.
+     * check stays on. It is the **configured server's host** when the viewer chose one by hand, and
+     * otherwise [BOOMIO_SERVICE_HOST] (the build's own name, blank in a stock build). Same source
+     * as the client's URL floor, so the ladder and the URLs cannot drift apart.
+     *
+     * ⚠️ **The configured server wins, and `null` is a real answer.** A TV told by hand to use a
+     * second box must resolve *that* box's record; reading the compiled-in name here is what made
+     * every build enrol with the reference deployment no matter which server the viewer had. With
+     * no configured server and no baked name there is nothing to look up, so rung 2 does not exist
+     * and the ladder relies on mDNS (rung 1) or a person (rung 3).
      *
      * ⚠️ **One name, because the split it replaced bought nothing.** `boomio-prov` (carrying the
      * tuple) and `boomio.duckdns.org` (the origin) were two DuckDNS names spending two `TXT` slots
@@ -121,7 +129,23 @@ internal object OverlayEndpointDiscovery {
      * only to hold the private address this name now holds itself. `boomio-tls.duckdns.org` is
      * *not* part of that cut: it is still the mTLS plane.
      */
-    internal const val PROV_RECORD = BOOMIO_SERVICE_HOST
+    internal val PROV_RECORD: String?
+        get() {
+            // A server the user chose by hand owns the whole plane, so the record rung 2 reads
+            // must be THAT server's name — otherwise onboarding a second box looks up the first
+            // box's `lan=`/`ppk` and enrols the TV to the wrong deployment (the exact failure a
+            // compiled-in name caused). A literal is not a DNS name and belongs to rung 3, not
+            // here.
+            val configured = ServerConfigurationRepository.active.value
+            if (configured.isCustom) {
+                hostOf(configured.backendUrl)
+                    ?.takeIf { it.isNotBlank() && literalOrNull(it) == null }
+                    ?.let { return it }
+            }
+            // A build aimed at one deployment may still bake a name; a stock build bakes none and
+            // rung 2 simply does not exist until rung 1 or rung 3 supplies one.
+            return BOOMIO_SERVICE_HOST.takeIf { it.isNotBlank() }
+        }
 
     /** The WireGuard port, when nothing published one. */
     private const val DEFAULT_WG_PORT = OverlayAdvertTuple.DEFAULT_PORT
@@ -432,7 +456,8 @@ internal object OverlayEndpointDiscovery {
             scheduleMissRetry()
             return@withLock publish(
                 OverlayEndpointStatus.NeedsManual(
-                    "No boomio server was found — tried mDNS, $PROV_RECORD and any saved " +
+                    "No boomio server was found — tried mDNS, " +
+                        "${PROV_RECORD ?: "no discovery name is configured"} and any saved " +
                         "address. Enter the server's address to continue.",
                 ),
             )
@@ -516,13 +541,15 @@ internal object OverlayEndpointDiscovery {
      * the private address to fall back to.
      */
     private suspend fun rung2DiscoveryRecord(context: Context): OverlayEndpoint? {
-        val resolved = OverlayDnsClient.resolve(context, PROV_RECORD, RUNG2_BUDGET_MS) ?: return null
+        // No name to resolve: a stock build that rung 1 has not answered has no record to consult.
+        val record = PROV_RECORD ?: return null
+        val resolved = OverlayDnsClient.resolve(context, record, RUNG2_BUDGET_MS) ?: return null
         // Same reasoning as rung 1: recorded whether or not this record's key is usable, because
         // the targets are a fact about the server rather than about this particular answer.
         rememberTargets(resolved.tuple.targets)
         val key = validServerKeyOrNull(resolved.tuple.serverPublicKeyBase64)
         if (key == null) {
-            Log.d(TAG, "Rung 2: '$PROV_RECORD' resolved but published no usable key")
+            Log.d(TAG, "Rung 2: '$record' resolved but published no usable key")
             return null
         }
         return endpointOf(

@@ -18,9 +18,10 @@ private const val TAG = "OverlayProbe"
  * broken tunnel.
  *
  * It is [BOOMIO_SERVICE_HOST] rather than a fourth copy of the literal: the probe and the ladder
- * must agree about the name, or a debug run would report a failure that is really a typo.
+ * must agree about the name, or a debug run would report a failure that is really a typo. That
+ * value is blank unless the build names a deployment, so [runInternal] reports that rather than
+ * querying the empty string.
  */
-private const val DEFAULT_PROBE_DNS_NAME = BOOMIO_SERVICE_HOST
 
 /**
  * Debug-only: proves the userspace tunnel works **inside an installed APK**.
@@ -89,7 +90,7 @@ object OverlayProbe {
      * discovery finished would otherwise be frozen on the default for the life of the process.
      */
     private val PROBE_DNS_NAME: String
-        get() = hostOf(BoomioConfig.serviceOrigin) ?: DEFAULT_PROBE_DNS_NAME
+        get() = hostOf(BoomioConfig.serviceOrigin) ?: BOOMIO_SERVICE_HOST
 
     /**
      * Wall-clock bound on the in-tunnel query.
@@ -134,6 +135,14 @@ object OverlayProbe {
             report.appendLine()
             report.appendLine("RESULT: cannot run — set BOOMIO_OVERLAY_ENDPOINT and")
             report.appendLine("        BOOMIO_OVERLAY_PUBKEY in local.properties and rebuild.")
+            return report.toString().also { Log.i(TAG, it) }
+        }
+        // A stock build bakes no service name and has discovered none yet; probing "" would report
+        // a DNS failure and be read as a broken tunnel rather than as an unconfigured build.
+        if (PROBE_DNS_NAME.isBlank()) {
+            report.appendLine()
+            report.appendLine("RESULT: cannot run — no service name configured.")
+            report.appendLine("        Choose a server in the app, or set BOOMIO_SERVICE_HOST.")
             return report.toString().also { Log.i(TAG, it) }
         }
 

@@ -206,6 +206,11 @@ android {
         // it, which is what makes the IPTV section show its "not set up" state
         // rather than probing a host that does not exist.
         buildConfigField("String", "BOOMIO_IPTV_URL", buildConfigString(resolveProperty(devProperties, localProperties, "BOOMIO_IPTV_URL", boomioServiceUrl("/bss-iptv"))))
+        // The bootstrap service name, and the ONLY place it enters the app. Blank in a stock
+        // build: the client discovers the name from mDNS/TXT (`svc=`) at runtime, so a build is
+        // never silently pinned to whichever server happened to be the reference when it was
+        // compiled. An operator aiming a build at one deployment sets BOOMIO_SERVICE_HOST.
+        buildConfigField("String", "BOOMIO_SERVICE_HOST", buildConfigString(boomioServiceHost))
         // Install-level stream capability hint (e.g. "1080p"). When set, the
         // companion resolver asks bsf to cap streams so higher resolutions
         // (4K) never reach this device's picker.

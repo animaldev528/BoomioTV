@@ -190,8 +190,14 @@ internal object OverlayProvisioning {
         // dials the target it is handed, once, and falls back to HTTPS rather than retrying), so
         // the probe is the only thing standing between a roam and a spent attempt.
 
-        val resolved = OverlayDnsClient.resolve(context, PROV_RECORD, RESOLVE_BUDGET_MS) ?: run {
-            Log.i(TAG, "'$PROV_RECORD' did not resolve")
+        // The name follows the configured server (see `PROV_RECORD`), and a stock build that has
+        // neither baked one nor discovered one has nothing to look up -- fall back to HTTPS.
+        val record = PROV_RECORD ?: run {
+            Log.i(TAG, "No discovery record name is configured; pairing falls back to HTTPS")
+            return null
+        }
+        val resolved = OverlayDnsClient.resolve(context, record, RESOLVE_BUDGET_MS) ?: run {
+            Log.i(TAG, "'$record' did not resolve")
             return null
         }
         val tuple = resolved.tuple
@@ -199,12 +205,12 @@ internal object OverlayProvisioning {
         // ⚠️ Only an explicit `prov=1` opens the door — the same fail-closed reading the server
         // applies to its own flag, so a silent record and a closed server agree.
         if (!tuple.offersProvisioning) {
-            Log.i(TAG, "'$PROV_RECORD' does not offer provisioning (`prov` is not 1)")
+            Log.i(TAG, "'$record' does not offer provisioning (`prov` is not 1)")
             return null
         }
         val ppk = tuple.provisioningPublicKeyBase64
         if (ppk == null) {
-            Log.w(TAG, "'$PROV_RECORD' offers provisioning but publishes no usable ppk; declining")
+            Log.w(TAG, "'$record' offers provisioning but publishes no usable ppk; declining")
             return null
         }
 
@@ -222,7 +228,7 @@ internal object OverlayProvisioning {
             })
         }
         if (candidates.isEmpty()) {
-            Log.w(TAG, "'$PROV_RECORD' published no usable address to dial")
+            Log.w(TAG, "'$record' published no usable address to dial")
             return null
         }
 
@@ -247,11 +253,11 @@ internal object OverlayProvisioning {
                 Log.i(TAG, "$host:$port did not answer; trying the next published address")
                 continue
             }
-            Log.i(TAG, "Provisioning target from '$PROV_RECORD': $host:$port")
+            Log.i(TAG, "Provisioning target from '$record': $host:$port")
             return ProvisionTarget(host, port, ppk, tuple.serverPublicKeyBase64)
         }
 
-        Log.i(TAG, "No address published by '$PROV_RECORD' answered; pairing falls back to HTTPS")
+        Log.i(TAG, "No address published by '$record' answered; pairing falls back to HTTPS")
         return null
     }
 
