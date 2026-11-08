@@ -694,7 +694,7 @@ internal object OverlayEndpointDiscovery {
         // the reference deployment's behaviour is unchanged.
         if (!advertMatchesConfiguredServer(targets.svcName)) {
             Log.i(TAG, "Ignoring discovery record from ${targets.svcName ?: "<no svc>"}: " +
-                "a server was configured manually")
+                "it names a different server")
             return
         }
         // The host set is re-derived rather than passed in: the addon catalogue — where most of the

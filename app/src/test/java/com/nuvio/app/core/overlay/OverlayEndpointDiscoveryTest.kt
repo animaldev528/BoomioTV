@@ -467,7 +467,9 @@ class OverlayEndpointDiscoveryTest {
     fun `a service name is normalised to the one form a URL and a certificate both use`() {
         // Case and a trailing root dot are two spellings of one name, and only one of them
         // compares equal to what the wire, a log line, or a certificate SAN expects.
-        assertEquals(SERVICE_NAME, validDiscoveryNameOrNull("  BOOMIO.DuckDNS.org.  "))
+        // Derived rather than spelled: the service name is a build property now, so a literal
+        // here would pass only in a build that bakes the reference deployment.
+        assertEquals(SERVICE_NAME, validDiscoveryNameOrNull("  ${SERVICE_NAME.uppercase()}.  "))
         assertEquals(SERVICE_NAME, validDiscoveryNameOrNull(SERVICE_NAME))
         assertNull(validDiscoveryNameOrNull(null))
         assertNull(validDiscoveryNameOrNull(""))

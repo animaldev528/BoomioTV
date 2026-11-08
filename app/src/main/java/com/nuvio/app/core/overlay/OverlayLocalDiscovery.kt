@@ -610,7 +610,7 @@ internal object OverlayLocalDiscovery {
         // unconditionally true when no custom server is configured, so a stock deployment browses
         // exactly as before.
         if (!advertMatchesConfiguredServer(tuple.targets.svcName)) {
-            Log.i(TAG, "Ignoring advert '${info.serviceName}': a server was configured manually")
+            Log.i(TAG, "Ignoring advert '${info.serviceName}': it names a different server")
             return null
         }
         rememberAdvertTargets(tuple.targets)

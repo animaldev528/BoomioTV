@@ -2,6 +2,7 @@ package com.nuvio.app.core.overlay
 
 import android.app.Application
 import com.nuvio.app.core.network.ServerConfigurationRepository
+import com.nuvio.app.features.boomio.BOOMIO_SERVICE_HOST
 import com.nuvio.tv.domain.model.ServerCapabilities
 import com.nuvio.tv.domain.model.ServerConfiguration
 import kotlin.test.AfterTest
@@ -29,13 +30,23 @@ class ConfiguredServerIdentityTest {
     }
 
     @Test
-    fun `a build with no custom server accepts every advert`() {
+    fun `a build with no custom server trusts its own name, or anything when it names none`() {
         ServerConfigurationRepository.publish(configuration(isCustom = false))
 
-        assertTrue(advertMatchesConfiguredServer("boomio.duckdns.org"))
-        assertTrue(advertMatchesConfiguredServer("some-other-box.example"))
-        // Even an advert that names no server at all: discovery is the only authority there is.
-        assertTrue(advertMatchesConfiguredServer(null))
+        val buildHost = BOOMIO_SERVICE_HOST.trim()
+        if (buildHost.isEmpty()) {
+            // No identity to attribute an advert to: discovery is the only authority there is.
+            assertTrue(advertMatchesConfiguredServer("boomio.duckdns.org"))
+            assertTrue(advertMatchesConfiguredServer("some-other-box.example"))
+            assertTrue(advertMatchesConfiguredServer(null))
+        } else {
+            // The build's own name is the identity — the LAN may carry adverts from both boxes.
+            assertTrue(advertMatchesConfiguredServer(buildHost))
+            assertTrue(advertMatchesConfiguredServer("https://$buildHost"))
+            assertFalse(advertMatchesConfiguredServer("some-other-box.example"))
+            assertFalse(advertMatchesConfiguredServer("  "))
+            assertFalse(advertMatchesConfiguredServer(null))
+        }
     }
 
     @Test

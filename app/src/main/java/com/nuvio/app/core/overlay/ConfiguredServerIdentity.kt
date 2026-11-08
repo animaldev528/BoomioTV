@@ -1,6 +1,7 @@
 package com.nuvio.app.core.overlay
 
 import com.nuvio.app.core.network.ServerConfigurationRepository
+import com.nuvio.app.features.boomio.BOOMIO_SERVICE_HOST
 
 /**
  * Whether an advert read off the network may move the **configured** server's plane.
@@ -21,10 +22,17 @@ import com.nuvio.app.core.network.ServerConfigurationRepository
  *
  * ## The rule
  *
- * - No custom server configured → unchanged behaviour; every advert may drive the app.
- * - A custom server configured → only an advert that **names the same host** may drive it
+ * - A custom server configured → only an advert that **names the same host** may drive the app
  *   (compared through the advert's `svc=` label, the one published identity). Anything else is
  *   ignored: no origin rewrite, no pin, no tunnel endpoint, no pairing target.
+ * - No custom server, **but the build names a deployment** (`BOOMIO_SERVICE_HOST`) → the same
+ *   comparison runs against that name. This is the common case on a LAN with two boomio boxes:
+ *   without it, a Firestick built for the Pi accepted the reference box's advert a few seconds
+ *   after reading the Pi's own record, because "no custom server" was read as "trust anything".
+ *   Measured 2026-11-08: `Endpoint accepted from MDNS: 192.168.68.65:51820` on a build whose
+ *   baked name was `boomiopi.duckdns.org`.
+ * - No custom server and **no build name** → unchanged behaviour; every advert may drive the app,
+ *   because there is no identity to attribute one to.
  *
  * ⚠️ **An advert with no `svc=` is refused while a custom server is active.** v1 adverts predate
  * the field, so they can be attributed to no deployment in particular; treating "unknown" as
@@ -38,8 +46,13 @@ import com.nuvio.app.core.network.ServerConfigurationRepository
  */
 internal fun advertMatchesConfiguredServer(svcName: String?): Boolean {
     val configured = ServerConfigurationRepository.active.value
-    if (!configured.isCustom) return true
-    val configuredHost = hostOf(configured.backendUrl) ?: return false
+    val configuredHost = if (configured.isCustom) {
+        hostOf(configured.backendUrl) ?: return false
+    } else {
+        // A build that names a deployment is just as much an identity as a hand-picked server,
+        // and the LAN may carry adverts from both boxes at once.
+        BOOMIO_SERVICE_HOST.trim().takeIf { it.isNotBlank() } ?: return true
+    }
     val svcHost = svcName
         ?.trim()
         ?.takeIf { it.isNotBlank() }
