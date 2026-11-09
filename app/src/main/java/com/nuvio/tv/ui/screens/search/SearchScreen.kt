@@ -602,15 +602,16 @@ fun SearchScreen(
             enabled = !inputRowHasFocus && !isDiscoverMode &&
                 focusedRowKey != null && focusedItemIndex > 0
         ) {
-            searchRowFocusedItemIndex[focusedRowKey] = 0
+            val rowKey = focusedRowKey ?: return@BackHandler
+            searchRowFocusedItemIndex[rowKey] = 0
             focusedResultItemIndex.intValue = 0
-            focusResetRowKey = focusedRowKey
+            focusResetRowKey = rowKey
             focusResetCounter++
             coroutineScope.launch {
                 // Let the reset take effect so the entry requester moves to the first card.
                 repeat(2) { withFrameNanos { } }
-                searchRowStates[focusedRowKey]?.scrollToItem(0)
-                searchRowEntryFocusRequesters[focusedRowKey]
+                searchRowStates[rowKey]?.scrollToItem(0)
+                searchRowEntryFocusRequesters[rowKey]
                     ?.let { runCatching { it.requestFocus() } }
             }
         }
