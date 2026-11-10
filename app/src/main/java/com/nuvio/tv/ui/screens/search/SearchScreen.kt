@@ -121,16 +121,6 @@ import com.nuvio.tv.core.boomio.CompanionSearchInput
 /** Skeleton rows shown while a search is pending, matching the two mobile renders. */
 private const val SEARCH_SKELETON_ROW_COUNT = 2
 
-private val NAVIGATION_KEYS = setOf(
-    KeyEvent.KEYCODE_DPAD_UP,
-    KeyEvent.KEYCODE_DPAD_DOWN,
-    KeyEvent.KEYCODE_DPAD_LEFT,
-    KeyEvent.KEYCODE_DPAD_RIGHT,
-    KeyEvent.KEYCODE_DPAD_CENTER,
-    KeyEvent.KEYCODE_ENTER,
-    KeyEvent.KEYCODE_NUMPAD_ENTER
-)
-
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun SearchScreen(
@@ -159,7 +149,6 @@ fun SearchScreen(
     var isSearchFieldFocused by remember { mutableStateOf(false) }
     // Track the whole input row, including voice and Discover.
     var inputRowHasFocus by remember { mutableStateOf(false) }
-    var isRecentSearchSectionFocused by remember { mutableStateOf(false) }
     var focusResults by remember { mutableStateOf(false) }
     var pendingFocusMoveToResultsQuery by remember { mutableStateOf<String?>(null) }
     var pendingFocusMoveSawSearching by remember { mutableStateOf(false) }
@@ -173,13 +162,8 @@ fun SearchScreen(
     val didRestoreSearchFocus = remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
-    // Latches the Back-to-field step until the user navigates, types or submits. Focus alone cannot
-    // lift it: closing the Fire TV keyboard moves focus into the recent searches with no key press,
-    // which would otherwise re-enable this handler.
-    var backToFieldLatched by remember { mutableStateOf(false) }
     val onVoiceQueryResultState = rememberUpdatedState<(String) -> Unit> { recognized ->
         if (recognized.isNotBlank()) {
-            backToFieldLatched = false
             viewModel.onEvent(SearchEvent.QueryChanged(recognized))
             viewModel.onEvent(SearchEvent.SubmitSearch)
             focusResults = false
@@ -435,8 +419,6 @@ fun SearchScreen(
     }
     val submitCurrentQuery: (String) -> Unit = { submittedQuery ->
         viewModel.onEvent(SearchEvent.SubmitSearch)
-        // Submitting moves focus into the results without a key event on an on-screen keyboard.
-        backToFieldLatched = false
         focusResults = false
         if (submittedQuery.length >= MIN_SEARCH_QUERY_LENGTH) {
             pendingFocusMoveToResultsQuery = submittedQuery
@@ -451,8 +433,6 @@ fun SearchScreen(
         }
     }
     val handleQueryChanged: (String) -> Unit = { nextQuery ->
-        // A real edit is user intent. An IME that re-commits the same text on dismiss is not.
-        if (nextQuery != uiState.query) backToFieldLatched = false
         val previousQuery = uiState.query.trim()
         val trimmedNextQuery = nextQuery.trim()
         val selectedSuggestion = trimmedNextQuery.length >= MIN_SEARCH_QUERY_LENGTH &&
@@ -606,46 +586,33 @@ fun SearchScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .onPreviewKeyEvent { keyEvent ->
-                if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_DOWN &&
-                    keyEvent.nativeKeyEvent.keyCode in NAVIGATION_KEYS
-                ) {
-                    backToFieldLatched = false
-                }
-                false
-            }
             .background(NuvioTheme.colors.Background),
         contentAlignment = Alignment.TopCenter
     ) {
         val listState = rememberLazyListState()
 
-        // Step back within Search before falling through to the root handler.
+        // Step back within a result row before falling through to the root handler.
+        // Anything else — the input row, the recent searches, or a row's first card —
+        // must fall through so the root BackHandler can open the sidebar. Re-focusing
+        // the text field here swallowed Back forever: the field re-opens the IME and
+        // the viewer can never leave Search.
         val focusedRowKey = lastFocusedRowKey
         val focusedItemIndex = focusedResultItemIndex.intValue
         BackHandler(
-            enabled = !inputRowHasFocus && !backToFieldLatched &&
-                (isRecentSearchSectionFocused || (!isDiscoverMode && focusedRowKey != null))
+            enabled = !inputRowHasFocus && !isDiscoverMode &&
+                focusedRowKey != null && focusedItemIndex > 0
         ) {
-            if (!isRecentSearchSectionFocused && focusedItemIndex > 0 && focusedRowKey != null) {
-                searchRowFocusedItemIndex[focusedRowKey] = 0
-                focusedResultItemIndex.intValue = 0
-                focusResetRowKey = focusedRowKey
-                focusResetCounter++
-                coroutineScope.launch {
-                    // Let the reset take effect so the entry requester moves to the first card.
-                    repeat(2) { withFrameNanos { } }
-                    searchRowStates[focusedRowKey]?.scrollToItem(0)
-                    searchRowEntryFocusRequesters[focusedRowKey]
-                        ?.let { runCatching { it.requestFocus() } }
-                }
-            } else {
-                backToFieldLatched = true
-                coroutineScope.launch {
-                    listState.scrollToItem(0)
-                    runCatching { searchFocusRequester.requestFocus() }
-                    // The focus request can start an input session and show the keyboard.
-                    keyboardController?.hide()
-                }
+            val rowKey = focusedRowKey ?: return@BackHandler
+            searchRowFocusedItemIndex[rowKey] = 0
+            focusedResultItemIndex.intValue = 0
+            focusResetRowKey = rowKey
+            focusResetCounter++
+            coroutineScope.launch {
+                // Let the reset take effect so the entry requester moves to the first card.
+                repeat(2) { withFrameNanos { } }
+                searchRowStates[rowKey]?.scrollToItem(0)
+                searchRowEntryFocusRequesters[rowKey]
+                    ?.let { runCatching { it.requestFocus() } }
             }
         }
 
@@ -748,7 +715,6 @@ fun SearchScreen(
                             onRemoveSearch = { query ->
                                 viewModel.onEvent(SearchEvent.RemoveRecentSearch(query))
                             },
-                            onSectionFocusChanged = { focused -> isRecentSearchSectionFocused = focused },
                             clearHistoryFocusRequester = recentClearHistoryFocusRequester,
                             emptyHistoryFocusRequester = searchFocusRequester,
                             modifier = Modifier.padding(horizontal = 52.dp)
@@ -780,9 +746,6 @@ fun SearchScreen(
                                     },
                                     onRemoveSearch = { query ->
                                         viewModel.onEvent(SearchEvent.RemoveRecentSearch(query))
-                                    },
-                                    onSectionFocusChanged = { focused ->
-                                        isRecentSearchSectionFocused = focused
                                     },
                                     clearHistoryFocusRequester = recentClearHistoryFocusRequester,
                                     emptyHistoryFocusRequester = searchFocusRequester,
@@ -1104,7 +1067,6 @@ private fun RecentSearchesSection(
     onSearchSelected: (String) -> Unit,
     onClearHistory: () -> Unit,
     onRemoveSearch: (String) -> Unit,
-    onSectionFocusChanged: (Boolean) -> Unit,
     clearHistoryFocusRequester: FocusRequester,
     emptyHistoryFocusRequester: FocusRequester,
     modifier: Modifier = Modifier
@@ -1134,10 +1096,7 @@ private fun RecentSearchesSection(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .focusGroup()
-            .onFocusChanged { state ->
-                onSectionFocusChanged(state.hasFocus || state.isFocused)
-            },
+            .focusGroup(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Row(
