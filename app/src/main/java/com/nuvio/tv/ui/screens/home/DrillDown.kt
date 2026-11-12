@@ -49,7 +49,7 @@ data class DrillExtraction(val row: CatalogRow, val target: DrillTarget?)
  * ("Movies never loads"); with it the shelf still renders in full and runaway
  * catalogs stop at a full-screen's worth instead of stalling first paint.
  */
-private const val FETCH_ALL_MAX_ITEMS = 240
+internal const val FETCH_ALL_MAX_ITEMS = 240
 
 /**
  * Fetch a catalog to completion across skip pages, up to [maxItems]. The row
@@ -68,7 +68,8 @@ suspend fun CatalogRepository.fetchCatalogAll(
     catalogName: String,
     type: String,
     skipStep: Int = 100,
-    maxItems: Int = FETCH_ALL_MAX_ITEMS
+    maxItems: Int = FETCH_ALL_MAX_ITEMS,
+    extraArgs: Map<String, String> = emptyMap()
 ): CatalogRow? {
     suspend fun page(skip: Int): CatalogRow? =
         (getCatalog(
@@ -80,7 +81,7 @@ suspend fun CatalogRepository.fetchCatalogAll(
             type = type,
             skip = skip,
             skipStep = skipStep,
-            extraArgs = emptyMap(),
+            extraArgs = extraArgs,
             supportsSkip = true
         ).first { it !is NetworkResult.Loading } as? NetworkResult.Success)?.data
 

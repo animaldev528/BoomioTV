@@ -10,6 +10,7 @@ import com.nuvio.tv.domain.repository.AddonRepository
 import com.nuvio.tv.domain.repository.CatalogRepository
 import com.nuvio.tv.ui.screens.home.DrillExtraction
 import com.nuvio.tv.ui.screens.home.DrillTarget
+import com.nuvio.tv.ui.screens.home.FETCH_ALL_MAX_ITEMS
 import com.nuvio.tv.ui.screens.home.REC_DRILL_SUFFIX
 import com.nuvio.tv.ui.screens.home.extractDrill
 import com.nuvio.tv.ui.screens.home.fetchCatalogAll
@@ -60,6 +61,14 @@ class HubBrowseViewModel @Inject constructor(
         private const val MAX_CATALOG_CONCURRENCY = 4
         /** Page size for sub-row content fetches — drill tiles sit on page 0. */
         private const val FETCH_SKIP_STEP = 100
+        /** A plain catalog becomes at most this many rows (keeps a tab bounded). */
+        private const val MAX_PLAIN_SECTION_ROWS = 6
+        /** Titles per split row; one addon page, so a split costs one request. */
+        private const val PLAIN_ROW_ITEMS = 25
+        /** A split row thinner than this reads as a bug, not a shelf: drop it. */
+        private const val MIN_PLAIN_ROW_ITEMS = 4
+        /** Extras a plain catalog can be split by, in preference order. */
+        private val PLAIN_SPLIT_EXTRAS = listOf("genre", "year", "language")
     }
 
     /** One coarse row: a sub-row's posters plus its optional drill target. */
@@ -87,7 +96,11 @@ class HubBrowseViewModel @Inject constructor(
         val catalogId: String,
         val catalogName: String,
         val type: String,
-        val isHub: Boolean
+        val isHub: Boolean,
+        /** Extra a plain catalog splits by (genre/year/language), when offered. */
+        val splitExtra: String? = null,
+        /** That extra's selectable values, "All" removed. */
+        val splitOptions: List<String> = emptyList()
     )
 
     private val _state = MutableStateFlow(HubBrowseUiState())
@@ -171,6 +184,12 @@ class HubBrowseViewModel @Inject constructor(
                 ) {
                     return@forEach
                 }
+                val split = catalog.extra.firstOrNull { extra ->
+                    PLAIN_SPLIT_EXTRAS.any { it.equals(extra.name, ignoreCase = true) } &&
+                        extra.options.orEmpty().any { !it.equals("All", ignoreCase = true) }
+                }
+                val splitOptions = split?.options.orEmpty()
+                    .filter { it.isNotBlank() && !it.equals("All", ignoreCase = true) }
                 all += SourceSpec(
                     addonId = addon.id,
                     addonName = addon.displayName,
@@ -178,7 +197,9 @@ class HubBrowseViewModel @Inject constructor(
                     catalogId = catalog.id,
                     catalogName = catalog.name,
                     type = catalog.apiType,
-                    isHub = catalog.id.startsWith("hub-")
+                    isHub = catalog.id.startsWith("hub-"),
+                    splitExtra = split?.name,
+                    splitOptions = splitOptions
                 )
             }
         }
@@ -210,12 +231,77 @@ class HubBrowseViewModel @Inject constructor(
         val rows = if (source.isHub) {
             loadHubSectionRows(source)
         } else {
-            val ex = fetchRow(source.addonId, source.addonName, source.addonBaseUrl, source.catalogId, source.catalogName, source.type)
-            if (ex == null || ex.row.items.isEmpty()) emptyList() else listOf(HubBrowseRow(ex.row, ex.target))
+            loadPlainSectionRows(source)
         }
         if (rows.isEmpty()) return null
         return HubBrowseSection(id = source.catalogId, groupName = source.catalogName, rows = rows)
     }
+
+    /**
+     * Rows for a plain (non-hub) catalog. Structurally such a catalog is a
+     * single shelf, so a tab fed only by plain catalogs (the stock Nuvio
+     * addon's Critically Acclaimed / International Cinema / Documentaries,
+     * a kid board's Movies/TV) used to render one lonely strip — useless on
+     * a TV. Split it into several real rows instead:
+     *
+     *  - one row per genre/year/language option the manifest advertises
+     *    (Critically Acclaimed → Action / Adventure / …; Movies by Year →
+     *    2025 / 2024 / …), which the addon already serves as distinct
+     *    catalog states; else
+     *  - one row per page of the catalog (25 titles) when it has no such
+     *    extra, so a long shelf still reads as browsable rows.
+     *
+     * Every row carries a unique catalogId — it is the LazyColumn row key —
+     * and the trailing "More Like This ▸" drill tile stays on the first row
+     * only. Split-by-option rows are titled with their option ("Action",
+     * "2025"); sliced rows keep the catalog's own title.
+     */
+    private suspend fun loadPlainSectionRows(source: SourceSpec): List<HubBrowseRow> {
+        val extraName = source.splitExtra
+        if (extraName != null && source.splitOptions.isNotEmpty()) {
+            val rows = mutableListOf<HubBrowseRow>()
+            for (option in source.splitOptions.take(MAX_PLAIN_SECTION_ROWS)) {
+                val ex = fetchRow(
+                    source.addonId, source.addonName, source.addonBaseUrl,
+                    source.catalogId, option, source.type,
+                    extraArgs = mapOf(extraName to option),
+                    maxItems = PLAIN_ROW_ITEMS
+                ) ?: continue
+                if (ex.row.items.size < MIN_PLAIN_ROW_ITEMS) continue
+                rows += HubBrowseRow(
+                    ex.row.copy(
+                        catalogId = "${source.catalogId}#$extraName=$option",
+                        extraArgs = mapOf(extraName to option)
+                    ),
+                    ex.target
+                )
+            }
+            if (rows.isNotEmpty()) return rows
+        }
+        val ex = fetchRow(
+            source.addonId, source.addonName, source.addonBaseUrl,
+            source.catalogId, source.catalogName, source.type
+        ) ?: return emptyList()
+        return chunkIntoRows(ex, source.catalogId)
+    }
+
+    /** Slice one long flat shelf into page-sized rows (25 titles each). */
+    private fun chunkIntoRows(ex: DrillExtraction, catalogId: String): List<HubBrowseRow> =
+        ex.row.items
+            .chunked(PLAIN_ROW_ITEMS)
+            .take(MAX_PLAIN_SECTION_ROWS)
+            .mapIndexed { index, chunk ->
+                HubBrowseRow(
+                    ex.row.copy(
+                        catalogId = if (index == 0) catalogId else "$catalogId#p$index",
+                        items = chunk,
+                        hasMore = false
+                    ),
+                    if (index == 0) ex.target else null
+                )
+            }
+                .filter { it.row.items.isNotEmpty() }
+
 
     /** Coarse rows for a hub category, via its drill catalog's sub-row tiles. */
     private suspend fun loadHubSectionRows(source: SourceSpec): List<HubBrowseRow> {
@@ -227,17 +313,14 @@ class HubBrowseViewModel @Inject constructor(
         )?.row
         val tiles = drill?.items.orEmpty()
         if (tiles.isEmpty()) {
-            // No sub-rows: surface the hub row's own merged content as one row so
-            // the group still has something to show.
+            // No sub-rows: surface the hub row's own merged content, sliced into
+            // page-sized rows so a flat hub (e.g. a kid board's movies) is still a
+            // browsable multi-row tab instead of one endless strip.
             val hub = fetchRow(
                 source.addonId, source.addonName, source.addonBaseUrl,
                 source.catalogId, source.catalogName, source.type
             ) ?: return emptyList()
-            return if (hub.row.items.isEmpty()) {
-                emptyList()
-            } else {
-                listOf(HubBrowseRow(hub.row, hub.target))
-            }
+            return chunkIntoRows(hub, source.catalogId)
         }
         val rows = mutableListOf<HubBrowseRow>()
         for (tile in tiles) {
@@ -258,7 +341,9 @@ class HubBrowseViewModel @Inject constructor(
         addonBaseUrl: String,
         catalogId: String,
         catalogName: String,
-        type: String
+        type: String,
+        extraArgs: Map<String, String> = emptyMap(),
+        maxItems: Int = FETCH_ALL_MAX_ITEMS
     ): DrillExtraction? {
         // The whole paged fetch holds one permit so concurrent rows stay bounded.
         val data = catalogSemaphore.withPermit {
@@ -269,7 +354,9 @@ class HubBrowseViewModel @Inject constructor(
                 catalogId = catalogId,
                 catalogName = catalogName,
                 type = type,
-                skipStep = FETCH_SKIP_STEP
+                skipStep = FETCH_SKIP_STEP,
+                maxItems = maxItems,
+                extraArgs = extraArgs
             )
         } ?: return null
         if (data.items.isEmpty()) return null
